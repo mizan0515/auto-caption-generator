@@ -10,6 +10,8 @@ from typing import List
 
 import streamlit as st
 
+from utils import pick_file, pick_directory, read_srt_text
+
 st.set_page_config(
     page_title="SRT 청크 분할",
     page_icon="✂️",
@@ -177,21 +179,7 @@ for k, v in {"chunk_srt_path": "", "chunk_result": None}.items():
         st.session_state[k] = v
 
 
-# ──────────────────────────────────────────────
-# 파일 다이얼로그 헬퍼
-# ──────────────────────────────────────────────
-
-def pick_srt_file():
-    import tkinter as tk
-    from tkinter import filedialog
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes("-topmost", True)
-    result = filedialog.askopenfilename(
-        filetypes=[("SRT 파일", "*.srt"), ("모든 파일", "*.*")]
-    )
-    root.destroy()
-    return result or ""
+SRT_FILETYPES = [("SRT 파일", "*.srt"), ("모든 파일", "*.*")]
 
 
 # ──────────────────────────────────────────────
@@ -217,7 +205,7 @@ with st.container(border=True):
         st.session_state.chunk_srt_path = entered.strip()
     with col_btn:
         if st.button("📂", use_container_width=True, help="파일 선택"):
-            picked = pick_srt_file()
+            picked = pick_file(filetypes=SRT_FILETYPES)
             if picked:
                 st.session_state.chunk_srt_path = picked
                 st.session_state.chunk_result = None
@@ -304,13 +292,7 @@ with st.container(border=True):
             st.session_state.chunk_out_dir = out_dir_entered.strip()
         with col_outbtn:
             if st.button("📁", use_container_width=True, help="폴더 선택"):
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()
-                root.wm_attributes("-topmost", True)
-                d = filedialog.askdirectory()
-                root.destroy()
+                d = pick_directory()
                 if d:
                     st.session_state.chunk_out_dir = d
                     st.rerun()
@@ -335,8 +317,8 @@ if run_btn:
         st.error(error_msg)
     else:
         with st.spinner("SRT 파싱 중..."):
-            raw = open(srt_path, encoding="utf-8", errors="replace").read()
-            cues = parse_srt(raw)
+            raw = read_srt_text(srt_path)
+            cues = parse_srt(raw) if raw else []
 
         if not cues:
             st.error("SRT 파싱 실패: 인코딩/형식을 확인하세요.")

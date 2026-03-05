@@ -5,7 +5,7 @@ import math
 import shutil
 
 FFMPEG_DIR = os.path.join(
-    os.environ["LOCALAPPDATA"],
+    os.environ.get("LOCALAPPDATA", ""),
     r"Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin",
 )
 
@@ -37,7 +37,17 @@ def get_duration(input_path):
         ],
         capture_output=True, text=True,
     )
-    return float(result.stdout.strip())
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe 실패 (returncode={result.returncode}):\n{result.stderr.strip()}"
+        )
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(f"ffprobe가 길이 정보를 반환하지 않았습니다: {input_path}")
+    duration = float(stdout)
+    if duration <= 0:
+        raise RuntimeError(f"유효하지 않은 영상 길이: {duration}초 ({input_path})")
+    return duration
 
 
 def split_video(input_path, segment_seconds=3600):
@@ -64,7 +74,11 @@ def split_video(input_path, segment_seconds=3600):
             output_path,
         ]
         print(f"[{i+1}/{total_parts}] {output_path}")
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg 분할 실패 [{i+1}/{total_parts}] (returncode={result.returncode})"
+            )
 
     print("\n완료!")
 

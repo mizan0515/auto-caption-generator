@@ -3,9 +3,10 @@
 import re
 import os
 from datetime import timedelta
-from pathlib import Path
 
 import streamlit as st
+
+from utils import pick_file, read_srt_text
 
 st.set_page_config(
     page_title="SRT 전처리",
@@ -33,8 +34,10 @@ def format_ts(sec: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def load_srt(path: Path):
-    raw = path.read_text(encoding="utf-8", errors="ignore")
+def load_srt(path):
+    raw = read_srt_text(str(path))
+    if raw is None:
+        return []
     blocks = re.split(r"\n\s*\n", raw.strip())
     items = []
     for b in blocks:
@@ -156,32 +159,17 @@ def render_output(candidates: list) -> str:
 # 세션 상태 초기화
 # ──────────────────────────────────────────────
 
-_DEFAULTS = {
-    "srt_path": "",
-    "srt_result": None,   # 마지막 처리 결과 문자열
-}
-for _k, _v in _DEFAULTS.items():
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
+if "srt_path" not in st.session_state:
+    st.session_state.srt_path = ""
+if "srt_result" not in st.session_state:
+    st.session_state.srt_result = None
+if "srt_cached_items" not in st.session_state:
+    st.session_state.srt_cached_items = None   # (path, items) 캐시
+if "srt_result_meta" not in st.session_state:
+    st.session_state.srt_result_meta = {}
 
 
-# ──────────────────────────────────────────────
-# 파일 다이얼로그 헬퍼
-# ──────────────────────────────────────────────
-
-def pick_srt_file():
-    import tkinter as tk
-    from tkinter import filedialog
-
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes("-topmost", True)
-    result = filedialog.askopenfilename(
-        filetypes=[("SRT 파일", "*.srt"), ("텍스트 파일", "*.txt"), ("모든 파일", "*.*")]
-    )
-    root.destroy()
-    return result or ""
-
+SRT_FILETYPES = [("SRT 파일", "*.srt"), ("텍스트 파일", "*.txt"), ("모든 파일", "*.*")]
 
 # ──────────────────────────────────────────────
 # UI
@@ -206,7 +194,7 @@ with st.container(border=True):
         st.session_state.srt_path = entered.strip()
     with col_btn:
         if st.button("📂", use_container_width=True, help="파일 선택"):
-            picked = pick_srt_file()
+            picked = pick_file(filetypes=SRT_FILETYPES)
             if picked:
                 st.session_state.srt_path = picked
                 st.session_state.srt_result = None  # 새 파일이면 결과 초기화
@@ -294,8 +282,15 @@ if run_btn:
     elif not os.path.isfile(srt_path):
         st.error(f"파일을 찾을 수 없습니다: `{srt_path}`")
     else:
-        with st.spinner("SRT 파싱 중..."):
-            items = load_srt(Path(srt_path))
+        # 캐싱: 같은 파일이면 재파싱 생략
+        cached = st.session_state.srt_cached_items
+        if cached is not None and cached[0] == srt_path:
+            items = cached[1]
+        else:
+            with st.spinner("SRT 파싱 중..."):
+                items = load_srt(srt_path)
+            if items:
+                st.session_state.srt_cached_items = (srt_path, items)
 
         if not items:
             st.error("SRT 파싱 실패: 인코딩/형식을 확인하세요 ('HH:MM:SS,ms --> ...' 형태여야 합니다).")

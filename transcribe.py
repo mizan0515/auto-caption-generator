@@ -7,6 +7,9 @@ import re
 import zlib
 import logging
 import warnings
+import numpy as np
+import wave
+from collections import Counter
 
 # 모든 경고/로그 숨기기
 warnings.filterwarnings("ignore")
@@ -39,6 +42,13 @@ PART_PATTERN = re.compile(
 PART_SUFFIX_PATTERN = re.compile(
     r'\s*-\s*Part\s+\d+\s+\(\d{2}-\d{2}-\d{2}\s+to\s+\d{2}-\d{2}-\d{2}\)'
 )
+
+# split_long_text() 에서 사용하는 사전 컴파일 패턴
+SPLIT_PATTERNS = [
+    re.compile(r'[.!?。~]\s*'),   # 문장 끝
+    re.compile(r'[,、]\s*'),       # 쉼표
+    re.compile(r'\s+'),            # 공백
+]
 
 
 # ──────────────────────────────────────────────
@@ -94,7 +104,12 @@ def extract_audio(video_path, log_func=print):
         audio_path,
     ]
     log_func(f"  음성 추출 중: {audio_path}")
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg 음성 추출 실패 (returncode={result.returncode}): {os.path.basename(video_path)}\n"
+            + result.stderr.decode("utf-8", errors="replace")[-400:]
+        )
     return audio_path
 
 
@@ -145,12 +160,11 @@ def format_timestamp(seconds):
 
 
 def load_audio(audio_path):
-    import numpy as np
-    import wave
-
     with wave.open(audio_path, "rb") as wf:
         frames = wf.readframes(wf.getnframes())
         audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    if len(audio) == 0:
+        raise ValueError(f"오디오 파일이 비어 있습니다: {audio_path}")
     return audio
 
 
@@ -176,10 +190,8 @@ def is_hallucination(text):
         # 2~5어절 n-gram 반복 체크
         for n in range(2, min(6, len(words) // 2 + 1)):
             ngrams = [" ".join(words[i:i+n]) for i in range(len(words) - n + 1)]
-            from collections import Counter
             counts = Counter(ngrams)
-            most_common_count = counts.most_common(1)[0][1]
-            if most_common_count >= 3:  # 같은 n-gram이 3회 이상 반복
+            if counts.most_common(1)[0][1] >= 3:  # 같은 n-gram이 3회 이상 반복
                 return True
 
     # 3) 짧은 텍스트가 반복되는 패턴 (예: "아 아 아 아 아")
@@ -262,6 +274,8 @@ def parse_whisper_tokens(decoded_text):
             continue
         start = float(start_str)
         end = float(end_str)
+        if end <= start:  # 역방향/동일 타임스탬프 필터
+            continue
         segments.append({"start": start, "end": end, "text": text})
         last_ts = max(last_ts, end)
 
@@ -288,13 +302,6 @@ def split_long_text(text, start, end):
     if duration <= MAX_SUBTITLE_SEC and len(text) <= MAX_CHARS_PER_LINE * MAX_LINES:
         return [{"start": start, "end": end, "text": text}]
 
-    # 문장 부호 기준 분할점 찾기 (우선순위: . ! ? 。 ~ > , 、 > 공백)
-    split_patterns = [
-        r'[.!?。~]\s*',       # 문장 끝
-        r'[,、]\s*',           # 쉼표
-        r'\s+',                # 공백
-    ]
-
     parts = []
     remaining_text = text
     remaining_start = start
@@ -304,9 +311,9 @@ def split_long_text(text, start, end):
         best_pos = -1
         target = len(remaining_text) // 2
 
-        for pattern in split_patterns:
+        for pattern in SPLIT_PATTERNS:
             # 텍스트 중간 부근에서 분할점 찾기
-            for match in re.finditer(pattern, remaining_text):
+            for match in pattern.finditer(remaining_text):
                 pos = match.end()
                 if pos < 5 or pos > len(remaining_text) - 5:
                     continue
@@ -396,9 +403,13 @@ def transcribe_audio(
     chunk_offset=0,
     total_chunks_global=0,
     precomputed_speech_segments=None,
+    preloaded_audio=None,
+    stop_event=None,
 ):
     """
     반환: (entries, total_chunks_in_this_part)
+    preloaded_audio: VAD prescan 시 이미 로드한 ndarray → 재로드 생략
+    stop_event: threading.Event — set() 시 루프 중단 후 부분 결과 반환
     """
     import torch
 
@@ -406,7 +417,7 @@ def transcribe_audio(
     log_func(f"  시간 오프셋: {format_timestamp(time_offset)}")
     t_start = time.time()
 
-    audio = load_audio(audio_path)
+    audio = preloaded_audio if preloaded_audio is not None else load_audio(audio_path)
     total_samples = len(audio)
     total_duration = total_samples / SAMPLE_RATE
 
@@ -442,6 +453,10 @@ def transcribe_audio(
     ).to(device)
 
     for ci, (chunk_start, chunk_end) in enumerate(chunks):
+        if stop_event is not None and stop_event.is_set():
+            log_func("  [취소] 처리 중단됨")
+            break
+
         chunk_audio = audio[chunk_start:chunk_end]
         chunk_start_sec = chunk_start / SAMPLE_RATE
 
@@ -602,17 +617,18 @@ def _get_merge_output_path(files_info: list) -> str:
 # 메인 엔트리 포인트
 # ──────────────────────────────────────────────
 
-def run_caption_generation(files_info, is_split, log_func=print, progress_func=None, cleanup=False):
+def run_caption_generation(files_info, is_split, log_func=print, progress_func=None, cleanup=False, stop_event=None):
     """
     files_info: [{"path": str, ...}, ...]
     is_split=False: files_info[0] 단일 파일 → 1시간 단위 분할 후 처리
     is_split=True:  분할 파일 목록 → 손실 없이 병합 → 동일 파이프라인으로 처리
 
     진행률 2패스 방식:
-      1. VAD 선행 스캔 → total_chunks_global 계산
-      2. transcribe_audio에 precomputed_speech_segments 전달 (VAD 중복 실행 방지)
+      1. VAD 선행 스캔 → total_chunks_global 계산 (오디오 캐싱으로 이중 로드 방지)
+      2. transcribe_audio에 precomputed_speech_segments + preloaded_audio 전달
 
     cleanup=True: SRT 저장 후 중간 생성 파일(분할 파트, WAV, 병합 파일) 자동 삭제
+    stop_event: threading.Event — set() 시 다음 청크에서 중단 후 부분 SRT 저장
 
     반환: SRT 파일 경로 (str)
     """
@@ -672,15 +688,17 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
     log_func("=" * 50)
     model, processor, device, torch_dtype, vad_model, vad_utils = load_models(log_func)
 
-    # ── VAD 사전 스캔: total_chunks_global 계산 ─────────────
+    # ── VAD 사전 스캔: total_chunks_global 계산 (오디오 캐싱) ──
     log_func("\nVAD 사전 분석 중...")
     all_precomputed_segments = []
+    all_preloaded_audios = []
     all_chunk_counts = []
     for afi in audio_infos:
         audio = load_audio(afi["audio_path"])
         speech_segs = get_speech_segments(audio, vad_model, vad_utils)
         chunks = merge_vad_into_chunks(speech_segs, len(audio))
         all_precomputed_segments.append(speech_segs)
+        all_preloaded_audios.append(audio)   # 캐싱 → transcribe 시 재로드 불필요
         all_chunk_counts.append(len(chunks))
         log_func(f"  {os.path.basename(afi['audio_path'])}: {len(chunks)}개 청크")
 
@@ -695,7 +713,13 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
     chunk_offset = 0
     total_start = time.time()
 
-    for i, (afi, precomp_segs) in enumerate(zip(audio_infos, all_precomputed_segments)):
+    for i, (afi, precomp_segs, preloaded) in enumerate(
+        zip(audio_infos, all_precomputed_segments, all_preloaded_audios)
+    ):
+        if stop_event is not None and stop_event.is_set():
+            log_func("[취소] 파트 처리 중단됨")
+            break
+
         entries, part_chunks = transcribe_audio(
             model, processor, device, torch_dtype, vad_model, vad_utils,
             afi["audio_path"],
@@ -707,6 +731,8 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
             chunk_offset=chunk_offset,
             total_chunks_global=total_chunks_global,
             precomputed_speech_segments=precomp_segs,
+            preloaded_audio=preloaded,
+            stop_event=stop_event,
         )
         all_entries.extend(entries)
         chunk_offset += part_chunks
