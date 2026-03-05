@@ -1,0 +1,16 @@
+# Streamlit UI
+streamlit>=1.32.0
+
+# Whisper (openai/whisper-large-v3-turbo)
+torch>=2.1.0
+torchaudio>=2.1.0
+transformers>=4.38.0
+accelerate>=0.27.0
+
+# Audio processing
+numpy>=1.24.0
+
+# Silero VAD (torch.hub.load 으로 자동 다운로드됨, 별도 설치 불필요)
+# ffmpeg 는 pip 으로 설치 불가 — 아래 방법 중 하나로 설치:
+#   winget install Gyan.FFmpeg
+#   또는 https://ffmpeg.org/download.html

@@ -602,7 +602,7 @@ def _get_merge_output_path(files_info: list) -> str:
 # 메인 엔트리 포인트
 # ──────────────────────────────────────────────
 
-def run_caption_generation(files_info, is_split, log_func=print, progress_func=None):
+def run_caption_generation(files_info, is_split, log_func=print, progress_func=None, cleanup=False):
     """
     files_info: [{"path": str, ...}, ...]
     is_split=False: files_info[0] 단일 파일 → 1시간 단위 분할 후 처리
@@ -612,8 +612,11 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
       1. VAD 선행 스캔 → total_chunks_global 계산
       2. transcribe_audio에 precomputed_speech_segments 전달 (VAD 중복 실행 방지)
 
+    cleanup=True: SRT 저장 후 중간 생성 파일(분할 파트, WAV, 병합 파일) 자동 삭제
+
     반환: SRT 파일 경로 (str)
     """
+    temp_files = []  # 완료 후 삭제할 임시 파일 목록
 
     # ── 0단계: 분할 파일이면 먼저 병합 ──────────────────────
     if is_split:
@@ -635,6 +638,7 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
             file_paths = [fi["path"] for fi in files_info]
             merge_files(file_paths, merged_path, log_func)
 
+        temp_files.append(merged_path)  # 병합 파일은 임시 파일
         # 이후 단일 파일 파이프라인과 동일하게 처리
         original_input = merged_path
     else:
@@ -645,6 +649,7 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
     log_func("1단계: 영상/음성 분할")
     log_func("=" * 50)
     part_paths = split_video(original_input, log_func)
+    temp_files.extend(part_paths)  # 분할 파트는 임시 파일
 
     # ── 2단계: 음성 추출 ────────────────────────────────────
     log_func("\n" + "=" * 50)
@@ -653,6 +658,7 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
     audio_infos = []
     for i, part_path in enumerate(part_paths):
         audio_path = extract_audio(part_path, log_func)
+        temp_files.append(audio_path)  # 추출된 WAV는 임시 파일
         audio_infos.append({
             "audio_path": audio_path,
             "time_offset": i * SEGMENT_SECONDS,
@@ -731,6 +737,23 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
     write_srt(all_entries, srt_output)
     log_func(f"저장 완료: {srt_output} (총 {len(all_entries)}개 자막)")
 
+    # ── 7단계: 임시 파일 정리 (cleanup=True 일 때만) ────────
+    if cleanup:
+        log_func("\n" + "=" * 50)
+        log_func("7단계: 임시 파일 정리")
+        log_func("=" * 50)
+        deleted, failed = 0, 0
+        for fp in temp_files:
+            if os.path.isfile(fp):
+                try:
+                    os.remove(fp)
+                    log_func(f"삭제: {os.path.basename(fp)}")
+                    deleted += 1
+                except Exception as e:
+                    log_func(f"삭제 실패: {os.path.basename(fp)} ({e})")
+                    failed += 1
+        log_func(f"정리 완료: {deleted}개 삭제" + (f", {failed}개 실패" if failed else ""))
+
     return srt_output
 
 
@@ -763,6 +786,11 @@ def main():
         action="store_true",
         help="분할 파일 모드: 여러 파트 파일을 순서대로 처리 (파일명에서 시간 오프셋 자동 파싱)",
     )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="완료 후 분할 파트, WAV, 병합 파일 등 중간 생성 파일 자동 삭제",
+    )
 
     args = parser.parse_args()
 
@@ -778,13 +806,13 @@ def main():
         for fi in files_info:
             print(f"  Part {fi['part_num']}: {fi['path']} (offset={fi['time_offset']:.0f}s)")
         print()
-        run_caption_generation(files_info, is_split=True)
+        run_caption_generation(files_info, is_split=True, cleanup=args.cleanup)
     else:
         if len(args.files) > 1:
             print("오류: 통 파일 모드에서는 파일을 1개만 지정하세요. 여러 파일은 --split 옵션을 사용하세요.")
             sys.exit(1)
         files_info = [{"path": args.files[0], "time_offset": 0.0, "part_num": 1, "total_parts": 1}]
-        run_caption_generation(files_info, is_split=False)
+        run_caption_generation(files_info, is_split=False, cleanup=args.cleanup)
 
 
 if __name__ == "__main__":

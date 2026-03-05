@@ -1,6 +1,7 @@
 # 빌드 결과물
 dist/
 build/
+*.spec
 *.spec.bak
 
 # Python
@@ -13,9 +14,22 @@ __pycache__/
 # 출력 파일
 *.srt
 *.txt
+!requirements.txt
 
 # 구 tkinter GUI (Streamlit으로 대체)
 gui.py
+
+# CLI 스크립트 (Streamlit pages/로 대체)
+srt-preprocessing.py
+srt-chunk.py
+
+# 개발 문서
+PRD-electron.md
+
+# Claude Code 설정
+.claude/
+
+
 
 # 개발 도구
 .venv/

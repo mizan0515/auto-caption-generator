@@ -96,10 +96,6 @@ def build_candidates(
         seg_start2 = max(start0, seg_start - pad_sec)
         seg_end2 = min(end0, seg_end + pad_sec)
 
-        sample = [(s, t) for s, _, t in items if seg_start2 <= s <= seg_end2]
-        sample.sort(key=lambda x: x[0])
-        sample = sample[:sample_lines]
-
         lines_sum = sum(bins[i]["lines"] for i in range(a, b + 1))
         chars_sum = sum(bins[i]["chars"] for i in range(a, b + 1))
 
@@ -113,11 +109,29 @@ def build_candidates(
                 "lines": lines_sum,
                 "chars": chars_sum,
                 "density": density,
-                "sample": sample,
             }
         )
 
-    return candidates
+    # 패딩 적용 후 겹치는 후보 구간 병합
+    candidates.sort(key=lambda c: c["start"])
+    merged_candidates = []
+    for c in candidates:
+        if merged_candidates and c["start"] <= merged_candidates[-1]["end"]:
+            prev = merged_candidates[-1]
+            prev["end"] = max(prev["end"], c["end"])
+            prev["lines"] += c["lines"]
+            prev["chars"] += c["chars"]
+            prev["density"] = max(prev["density"], c["density"])
+        else:
+            merged_candidates.append(c)
+
+    # 병합된 구간 기준으로 sample 수집
+    for c in merged_candidates:
+        sample = [(s, t) for s, _, t in items if c["start"] <= s <= c["end"]]
+        sample.sort(key=lambda x: x[0])
+        c["sample"] = sample[:sample_lines]
+
+    return merged_candidates
 
 
 def render_output(candidates: list) -> str:

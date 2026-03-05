@@ -62,7 +62,7 @@ def pick_files(multiple: bool = False, is_audio: bool = False):
     return result
 
 
-def worker(files_info, is_split, log_q, prog_q):
+def worker(files_info, is_split, log_q, prog_q, cleanup=False):
     """백그라운드 스레드: 자막 생성 파이프라인 실행."""
     try:
         srt_path = run_caption_generation(
@@ -70,6 +70,7 @@ def worker(files_info, is_split, log_q, prog_q):
             is_split=is_split,
             log_func=lambda msg: log_q.put(str(msg)),
             progress_func=lambda cur, tot: prog_q.put(("PROG", cur, tot)),
+            cleanup=cleanup,
         )
         prog_q.put(("DONE", srt_path))
     except Exception as exc:
@@ -187,6 +188,13 @@ with st.container(border=True):
 
 st.write("")
 
+# ── 옵션 ──
+cleanup = st.checkbox(
+    "완료 후 임시 파일 자동 삭제 (분할 파트, WAV, 병합 파일)",
+    value=False,
+    help="자막 생성이 끝나면 중간 과정에서 만들어진 파일(분할 파트, 추출 WAV, 병합 파일)을 자동으로 삭제합니다. 원본 파일은 삭제되지 않습니다.",
+)
+
 # ── 실행 버튼 ──
 job = st.session_state.job
 is_running = job is not None and job.get("status") == "running"
@@ -237,7 +245,7 @@ if start_btn and not is_running:
         prog_q = queue.Queue()
         t = threading.Thread(
             target=worker,
-            args=(files_info, is_split, log_q, prog_q),
+            args=(files_info, is_split, log_q, prog_q, cleanup),
             daemon=True,
         )
         t.start()
