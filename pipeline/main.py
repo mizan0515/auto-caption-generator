@@ -1,0 +1,392 @@
+"""
+Chzzk VOD 자동 모니터링 & 요약 파이프라인 — 메인 오케스트레이터
+
+사용법:
+  python -m pipeline.main                   # 데몬 모드 (포그라운드)
+  pythonw -m pipeline.main                  # 데몬 모드 (백그라운드)
+  python -m pipeline.main --once            # 1회 실행 후 종료
+  python -m pipeline.main --process <VOD번호>  # 특정 VOD 수동 처리
+  python -m pipeline.main --setup-cookies   # 쿠키 대화형 설정
+"""
+
+import argparse
+import os
+import sys
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+# 프로젝트 루트를 sys.path에 추가
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from .config import (
+    load_config, save_config, get_cookies, ensure_dirs,
+    validate_cookies, interactive_cookie_setup,
+)
+from .state import PipelineState
+from .monitor import check_new_vods
+from .downloader import download_vod_144p
+from .chat_collector import fetch_all_chats, save_chat_log
+from .chat_analyzer import find_edit_points
+from .transcriber import transcribe_video
+from .chunker import chunk_srt
+from .scraper import scrape_fmkorea
+from .summarizer import process_chunks, merge_results, generate_reports
+from .models import VODInfo, PipelineResult
+from .utils import setup_logging, sec_to_hms, format_duration
+
+
+def _cleanup_whisper_temp(video_path: str, work_dir: str, logger):
+    """Whisper가 생성한 임시 WAV/분할 파일 정리"""
+    import glob
+    base = os.path.splitext(video_path)[0]
+    # Whisper가 생성하는 임시 WAV 파일
+    for pattern in [f"{base}*.wav", f"{base}*_part_*"]:
+        for f in glob.glob(pattern):
+            try:
+                os.remove(f)
+                logger.debug(f"  Whisper 임시 파일 삭제: {f}")
+            except OSError:
+                pass
+    # work_dir 내 split 파일들
+    for f in glob.glob(os.path.join(work_dir, "*.wav")):
+        try:
+            os.remove(f)
+            logger.debug(f"  임시 WAV 삭제: {f}")
+        except OSError:
+            pass
+
+
+def _cleanup_work_dir(work_dir: str, logger):
+    """에러 발생 시 work_dir 내 임시 파일 정리"""
+    if not os.path.isdir(work_dir):
+        return
+    for f in os.listdir(work_dir):
+        fpath = os.path.join(work_dir, f)
+        if os.path.isfile(fpath) and f.endswith((".mp4", ".wav", ".downloading")):
+            try:
+                os.remove(fpath)
+                logger.info(f"  에러 정리: {fpath}")
+            except OSError:
+                pass
+
+
+def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> PipelineResult:
+    """단일 VOD 전체 파이프라인 처리"""
+    result = PipelineResult(video_no=vod.video_no, vod_info=vod)
+    cookies = get_cookies(cfg)
+    work_dir = os.path.join(cfg["work_dir"], vod.video_no)
+    output_dir = cfg["output_dir"]
+    os.makedirs(work_dir, exist_ok=True)
+
+    try:
+        # ── 1단계: 병렬 데이터 수집 ──
+        result.stage = "collecting"
+        state.update(vod.video_no, status="collecting")
+        logger.info(f"{'='*60}")
+        logger.info(f"VOD 처리 시작: [{vod.video_no}] {vod.title}")
+        logger.info(f"  길이: {format_duration(vod.duration)}, 카테고리: {vod.category}")
+        logger.info(f"{'='*60}")
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            # 다운로드, 채팅 수집, 커뮤니티 스크래핑 병렬 실행
+            download_future = pool.submit(
+                download_vod_144p, vod.video_no, cookies, work_dir
+            )
+            chat_future = pool.submit(fetch_all_chats, vod.video_no)
+            # fmkorea 스크레이핑 (설정으로 비활성화 가능)
+            community_future = None
+            if cfg.get("fmkorea_enabled", True):
+                community_future = pool.submit(
+                    scrape_fmkorea,
+                    cfg.get("fmkorea_search_keywords", [cfg.get("streamer_name", "")]),
+                    max_pages=cfg.get("fmkorea_max_pages", 3),
+                    max_posts=cfg.get("fmkorea_max_posts", 20),
+                    broadcast_start=vod.publish_date,
+                )
+
+            # 결과 수집
+            video_path = download_future.result()
+            result.video_path = video_path
+            logger.info(f"✓ 다운로드 완료: {video_path}")
+
+            chats = chat_future.result()
+            logger.info(f"✓ 채팅 수집 완료: {len(chats):,}개")
+
+            community_posts = []
+            if community_future:
+                try:
+                    community_posts = community_future.result()
+                    result.community_posts = community_posts
+                    logger.info(f"✓ 커뮤니티 수집 완료: {len(community_posts)}개 게시글")
+                except Exception as e:
+                    logger.warning(f"커뮤니티 수집 실패 (건너뜀): {e}")
+            else:
+                logger.info("커뮤니티 수집 비활성화됨 (fmkorea_enabled=false)")
+
+        # 채팅 로그 저장
+        if chats:
+            chat_log_path = os.path.join(work_dir, f"{vod.video_no}_chat.log")
+            save_chat_log(chats, chat_log_path)
+            result.chat_log_path = chat_log_path
+
+        # ── 2단계: 채팅 분석 ──
+        result.stage = "analyzing"
+        state.update(vod.video_no, status="analyzing")
+
+        highlights = []
+        if chats:
+            highlights = find_edit_points(chats)
+            result.highlights = highlights
+            logger.info(f"✓ 하이라이트 분석 완료: {len(highlights)}개 구간")
+        else:
+            logger.warning("채팅 없음 → 하이라이트 분석 건너뜀")
+
+        # ── 3단계: 자막 생성 ──
+        result.stage = "transcribing"
+        state.update(vod.video_no, status="transcribing")
+
+        srt_path = transcribe_video(video_path)
+        result.srt_path = srt_path
+        logger.info(f"✓ 자막 생성 완료: {srt_path}")
+
+        # Whisper 임시 파일 정리 (WAV, 분할 파일)
+        _cleanup_whisper_temp(video_path, work_dir, logger)
+
+        # ── 4단계: SRT 청크 분할 ──
+        result.stage = "chunking"
+        state.update(vod.video_no, status="chunking")
+
+        chunks = chunk_srt(
+            srt_path,
+            max_chars=cfg.get("chunk_max_chars", 150000),
+            overlap_sec=cfg.get("chunk_overlap_sec", 45),
+        )
+        logger.info(f"✓ 청크 분할 완료: {len(chunks)}개")
+
+        if not chunks:
+            logger.warning("SRT가 비어있어 요약을 건너뜁니다. 최소 리포트만 생성합니다.")
+            result.stage = "completed"
+            md_path, html_path, meta_path = generate_reports(
+                "자막이 비어있어 요약을 생성할 수 없습니다.",
+                vod, highlights, chats, output_dir,
+            )
+            result.summary_md_path = md_path
+            result.summary_html_path = html_path
+            result.metadata_path = meta_path
+            state.update(vod.video_no, status="completed",
+                         output_md=md_path, output_html=html_path)
+            return result
+
+        # ── 5단계: Claude 요약 ──
+        result.stage = "summarizing"
+        state.update(vod.video_no, status="summarizing")
+
+        claude_timeout = cfg.get("claude_timeout_sec", 300)
+
+        chunk_results = process_chunks(chunks, highlights, chats, vod, claude_timeout)
+        logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
+
+        summary = merge_results(chunk_results, vod, community_posts, highlights, claude_timeout)
+        logger.info(f"✓ 통합 요약 생성 완료")
+
+        # ── 6단계: 리포트 저장 ──
+        result.stage = "saving"
+        state.update(vod.video_no, status="saving")
+
+        md_path, html_path, meta_path = generate_reports(
+            summary, vod, highlights, chats, output_dir
+        )
+        result.summary_md_path = md_path
+        result.summary_html_path = html_path
+        result.metadata_path = meta_path
+
+        # ── 완료 ──
+        result.stage = "completed"
+        state.update(
+            vod.video_no,
+            status="completed",
+            output_md=md_path,
+            output_html=html_path,
+        )
+
+        logger.info(f"{'='*60}")
+        logger.info(f"✓ VOD [{vod.video_no}] 처리 완료!")
+        logger.info(f"  Markdown: {md_path}")
+        logger.info(f"  HTML:     {html_path}")
+        logger.info(f"{'='*60}")
+
+        # 임시 파일 정리
+        if cfg.get("auto_cleanup", True) and video_path:
+            try:
+                os.remove(video_path)
+                logger.info(f"  임시 영상 삭제: {video_path}")
+            except OSError:
+                pass
+
+        return result
+
+    except Exception as e:
+        result.stage = "error"
+        result.error = str(e)
+        state.update(vod.video_no, status="error", error=str(e))
+        logger.error(f"VOD [{vod.video_no}] 처리 실패: {e}")
+        logger.debug(traceback.format_exc())
+
+        # 에러 시 임시 파일 정리
+        if cfg.get("auto_cleanup", True):
+            _cleanup_work_dir(work_dir, logger)
+
+        return result
+
+
+def run_daemon(cfg: dict):
+    """데몬 모드: 주기적으로 새 VOD 폴링 후 처리"""
+    log_dir = os.path.join(cfg["output_dir"], "logs")
+    logger = setup_logging(log_dir)
+    ensure_dirs(cfg)
+
+    state_path = os.path.join(cfg["output_dir"], "pipeline_state.json")
+    state = PipelineState(state_path)
+    state.clear_stop()
+
+    channel_id = cfg["target_channel_id"]
+    poll_interval = cfg.get("poll_interval_sec", 300)
+    cookies = get_cookies(cfg)
+
+    logger.info("=" * 60)
+    logger.info("  Chzzk VOD 자동 모니터링 파이프라인 시작")
+    logger.info(f"  채널: {channel_id}")
+    logger.info(f"  스트리머: {cfg.get('streamer_name', '?')}")
+    logger.info(f"  폴링 간격: {poll_interval}초")
+    logger.info(f"  출력 디렉터리: {cfg['output_dir']}")
+    logger.info("=" * 60)
+
+    if not validate_cookies(cfg):
+        logger.error("쿠키가 설정되지 않았습니다. --setup-cookies로 설정하세요.")
+        return
+
+    while True:
+        if state.should_stop():
+            logger.info("종료 요청 감지. 파이프라인을 종료합니다.")
+            break
+
+        try:
+            new_vods = check_new_vods(channel_id, cookies, state)
+
+            for vod in new_vods:
+                if state.should_stop():
+                    break
+                process_vod(vod, cfg, state, logger)
+
+            # 실패한 VOD 재시도
+            failed = state.get_failed_vods(max_retries=3)
+            for video_no in failed:
+                if state.should_stop():
+                    break
+                logger.info(f"실패 VOD 재시도: {video_no}")
+                state.increment_retry(video_no)
+                # 재시도를 위해 VOD 정보 재조회
+                try:
+                    from content.network import NetworkManager
+                    _, _, _, _, _, metadata = NetworkManager.get_video_info(video_no, cookies)
+                    vod = VODInfo(
+                        video_no=video_no,
+                        title=metadata.get("title", ""),
+                        channel_id=channel_id,
+                        channel_name=metadata.get("channelName", ""),
+                        duration=metadata.get("duration", 0),
+                        publish_date=metadata.get("createdDate", ""),
+                        category=metadata.get("category", ""),
+                    )
+                    process_vod(vod, cfg, state, logger)
+                except Exception as e:
+                    logger.error(f"재시도 VOD 정보 조회 실패: {e}")
+
+        except Exception as e:
+            logger.error(f"메인 루프 오류: {e}")
+            logger.debug(traceback.format_exc())
+
+        logger.info(f"다음 폴링까지 {poll_interval}초 대기...")
+        time.sleep(poll_interval)
+
+
+def run_once(cfg: dict):
+    """1회 실행: 새 VOD 확인 후 처리하고 종료"""
+    log_dir = os.path.join(cfg["output_dir"], "logs")
+    logger = setup_logging(log_dir)
+    ensure_dirs(cfg)
+
+    state_path = os.path.join(cfg["output_dir"], "pipeline_state.json")
+    state = PipelineState(state_path)
+
+    cookies = get_cookies(cfg)
+    if not validate_cookies(cfg):
+        return
+
+    new_vods = check_new_vods(cfg["target_channel_id"], cookies, state)
+    if not new_vods:
+        logger.info("처리할 새 VOD가 없습니다.")
+        return
+
+    for vod in new_vods:
+        process_vod(vod, cfg, state, logger)
+
+
+def run_single(video_no: str, cfg: dict):
+    """특정 VOD 수동 처리"""
+    log_dir = os.path.join(cfg["output_dir"], "logs")
+    logger = setup_logging(log_dir)
+    ensure_dirs(cfg)
+
+    state_path = os.path.join(cfg["output_dir"], "pipeline_state.json")
+    state = PipelineState(state_path)
+
+    cookies = get_cookies(cfg)
+    if not validate_cookies(cfg):
+        return
+
+    from content.network import NetworkManager
+    logger.info(f"VOD {video_no} 정보 조회 중...")
+
+    _, _, _, _, _, metadata = NetworkManager.get_video_info(video_no, cookies)
+    vod = VODInfo(
+        video_no=video_no,
+        title=metadata.get("title", ""),
+        channel_id=cfg["target_channel_id"],
+        channel_name=metadata.get("channelName", ""),
+        duration=metadata.get("duration", 0),
+        publish_date=metadata.get("createdDate", ""),
+        category=metadata.get("category", ""),
+    )
+
+    process_vod(vod, cfg, state, logger)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Chzzk VOD 자동 모니터링 & 요약 파이프라인")
+    parser.add_argument("--once", action="store_true", help="1회 실행 후 종료")
+    parser.add_argument("--process", type=str, help="특정 VOD 번호를 수동 처리")
+    parser.add_argument("--setup-cookies", action="store_true", help="쿠키 대화형 설정")
+    parser.add_argument("--config", type=str, help="설정 파일 경로 (기본: pipeline_config.json)")
+    args = parser.parse_args()
+
+    if args.setup_cookies:
+        interactive_cookie_setup()
+        return
+
+    cfg = load_config()
+
+    if args.process:
+        run_single(args.process, cfg)
+    elif args.once:
+        run_once(cfg)
+    else:
+        run_daemon(cfg)
+
+
+if __name__ == "__main__":
+    main()

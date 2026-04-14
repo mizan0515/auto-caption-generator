@@ -11,25 +11,16 @@ __pycache__/
 *.pyd
 .Python
 
-# 출력 파일
-*.srt
-*.txt
-!requirements.txt
+# 파이프라인 런타임
+output/
+work/
+pipeline_config.json
 
-# 구 tkinter GUI (Streamlit으로 대체)
-gui.py
-
-# CLI 스크립트 (Streamlit pages/로 대체)
-srt-preprocessing.py
-srt-chunk.py
-
-# 개발 문서
-PRD-electron.md
+# 아카이브 (이전 프로젝트)
+_archive/
 
 # Claude Code 설정
 .claude/
-
-
 
 # 개발 도구
 .venv/
