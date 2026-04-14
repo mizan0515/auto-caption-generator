@@ -125,13 +125,23 @@ function Normalize-LocalReference([string]$Reference) {
 }
 
 function Test-IsEphemeralReference([string]$Reference) {
+    $normalized = $Reference -replace '\\', '/'
+
     return $Reference -in @(
         'state.json',
         'summary.md',
         'Document/dialogue/state.json'
     ) -or
     $Reference -match '^Document/dialogue/sessions/' -or
-    $Reference -match '^turn-\{N\}\.yaml$'
+    $Reference -match '^turn-\{N\}\.yaml$' -or
+    $normalized -eq 'pipeline_config.json' -or
+    $normalized -eq '.claude/settings.local.json' -or
+    $normalized -eq '_archive/' -or
+    $normalized -like '_archive/*' -or
+    $normalized -eq 'output/' -or
+    $normalized -like 'output/*' -or
+    $normalized -eq 'work/' -or
+    $normalized -like 'work/*'
 }
 
 function Resolve-LocalReferencePath([string]$Reference, [string]$SourcePath) {

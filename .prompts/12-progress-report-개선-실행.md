@@ -10,7 +10,7 @@
 
 1. `PROJECT-RULES.md` — source-of-truth 순서, guardrails, 검증 기대치
 2. `experiments/results/progress_report.md` — 본 세션의 baseline 한계 목록
-3. 선택 대상 항목이 언급한 live 파일 (예: `pipeline/summarizer.py`, `pipeline/claude_cli.py`, `pipeline/subtitle_analyzer.py`)
+3. 선택 대상 항목이 언급한 live 파일 (예: `pipeline/summarizer.py`, `pipeline/claude_cli.py`)
 4. 관련 최신 실험 결과 (`experiments/results/summary.md` 등)
 
 ## 입력
@@ -41,8 +41,8 @@
 
 | 항목 | 목표 산출물 | 검증 기준 |
 |---|---|---|
-| B1. 강조어 사전 확장 | `pipeline/subtitle_analyzer.py`의 `_EMPHASIS_WORDS`에 100+ 항목, 또는 TF-IDF 동적 추출 | baseline 대비 자막 피크 상위 15개 중 의미 있는 구간 비율 ↑ (수동 라벨링) |
-| B2. 커뮤니티 매칭 검수 | `pipeline/community_matcher.py` 매칭 샘플 30개 수동 검수 | 허위 매칭(stopword, 일반어)이 10% 미만 |
+| B1. 강조어 사전 확장 | 자막 강조어 사전에 100+ 항목 추가, 또는 TF-IDF 동적 추출 | baseline 대비 자막 피크 상위 15개 중 의미 있는 구간 비율 ↑ (수동 라벨링) |
+| B2. 커뮤니티 매칭 검수 | 커뮤니티 매칭 샘플 30개 수동 검수 | 허위 매칭(stopword, 일반어)이 10% 미만 |
 | B3. SRT 전처리 통합 결정 | `srt-preprocessing.py`를 `pipeline/`에 통합 OR 명시적 제거 결정 문서화 | 결정 근거 ≥ 200자 decision 문서 (experiments/results 하위, 파일명: srt_preprocessing_decision) |
 
 ### Phase C — 운영 성숙도
