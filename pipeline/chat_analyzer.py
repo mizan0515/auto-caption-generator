@@ -50,7 +50,8 @@ def build_time_series(chats: list[dict], window_sec: int = WINDOW_SEC) -> dict:
         return {"buckets": {}, "duration_sec": 0}
 
     buckets = defaultdict(lambda: {"count": 0, "score": 0.0})
-    duration_ms = chats[-1]["ms"]
+    # 채팅이 정렬되어 있다는 보장이 없으므로 max() 로 계산
+    duration_ms = max(c["ms"] for c in chats)
 
     for chat in chats:
         sec = chat["ms"] / 1000.0

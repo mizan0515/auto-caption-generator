@@ -86,16 +86,23 @@ def _build_chunk_prompt(
 {chunk['text']}
 
 ## 작업
-이 구간의 타임라인 요약을 작성해줘:
-1. 주요 순간을 시간순으로 정리 (각 항목에 타임코드, 내용, 분위기 포함)
-2. 특히 재미있거나 의미있는 순간을 하이라이트로 표시
-3. 채팅 반응이 뜨거웠던 순간을 강조
-4. 간결하게, 핵심만 작성
+이 구간의 주요 순간을 타임라인으로 정리해줘.
 
-포맷:
-- **[HH:MM:SS] 세션명** (분위기: 🔥/💬/💤)
-    - 내용: ...
-    - 근거: (채팅 반응 등)
+**선정 기준 — 종합적으로 판단**:
+- 자막 내용이 드라마틱하거나 반전이 있거나 핵심 철학·인용이 나오는 순간
+- 채팅 반응이 뜨거웠던 순간 (다만 채팅 피크만을 기준으로 삼지 말 것)
+- 밈·유행어·별명이 탄생하거나 반복되는 순간
+- 느슨한 잡담 구간도 맥락상 의미있으면 포함 (분위기 💬로)
+
+## 포맷 (엄수)
+- **[HH:MM:SS] 짧고 함축적인 세션명** (분위기: 🔥/💬/💤)
+    - 내용: 1~2문장으로 무슨 일이 있었는지. 대표 발화 인용 OK. (`**`로 본문 안 강조 금지)
+    - 근거: 실제 채팅 반응 2~3개를 짧은 따옴표로. "...", "..." 형식.
+
+## 금지
+- 내부 메트릭(점수, 확률, 퍼센트, 채팅수 등)을 근거에 노출하지 말 것
+- 한 줄에 `**` 굵은 강조를 2회 이상 사용 금지 (제목 한 번만)
+- 채팅 인용 외 "채팅 41개", "종합점수 0.7" 같은 숫자 근거 금지
 """
     return prompt
 
@@ -134,8 +141,14 @@ def merge_results(
     community_posts: list[CommunityPost],
     highlights: list[dict],
     claude_timeout: int = 300,
+    srt_path: str = "",
 ) -> str:
-    """모든 청크 결과를 통합하여 최종 리포트 생성"""
+    """모든 청크 결과를 통합하여 최종 리포트 생성.
+
+    Args:
+        srt_path: 자막 파일 경로. 주어지면 자막 기반 드라마틱 시그널 + 커뮤니티 매칭을
+                  multi-signal 하이라이트 후보로 프롬프트에 주입한다.
+    """
     logger.info("최종 통합 요약 생성 중...")
 
     # 통합 프롬프트 로드
@@ -175,6 +188,26 @@ def merge_results(
     else:
         prompt = merge_template.replace("{CHUNK_RESULTS_ALL}", all_results)
 
+    # ── Multi-signal 하이라이트 후보 (자막 + 커뮤니티 매칭) ──
+    subtitle_signal_text = ""
+    community_signal_text = ""
+    if srt_path:
+        try:
+            from .subtitle_analyzer import find_subtitle_peaks, format_subtitle_signal_for_prompt
+            peaks = find_subtitle_peaks(srt_path, window_sec=60, top_n=15)
+            subtitle_signal_text = format_subtitle_signal_for_prompt(peaks)
+            logger.info(f"  자막 드라마틱 시그널: 상위 {len(peaks)}개 구간")
+        except Exception as e:
+            logger.warning(f"자막 시그널 분석 실패 (무시): {e}")
+
+        if community_posts:
+            try:
+                from .community_matcher import build_community_signal, format_community_signal_for_prompt
+                comm_sig = build_community_signal(community_posts, srt_path)
+                community_signal_text = format_community_signal_for_prompt(comm_sig)
+            except Exception as e:
+                logger.warning(f"커뮤니티 매칭 분석 실패 (무시): {e}")
+
     # 추가 컨텍스트 삽입
     context_section = f"""
 ## 방송 정보
@@ -184,10 +217,23 @@ def merge_results(
 - 방송 날짜: {vod_info.publish_date}
 - 방송 길이: {sec_to_hms(vod_info.duration)}
 
-## 채팅 기반 하이라이트 (Top 10)
-{highlight_text if highlight_text else "(하이라이트 데이터 없음)"}
+---
 
-## 방송중 커뮤니티 글 내용 (현실시간 중계/요약, 부분적 관련 가능)
+# 🔎 Multi-signal 하이라이트 후보
+
+아래 세 축의 시그널을 **종합적으로** 판단하여 최종 하이라이트를 선정하라.
+어느 한 축의 숫자가 크다고 자동 선정하지 말 것. 3개 축이 교차하는 구간을 우선한다.
+
+## 채팅 반응 기반 (Top 10) — 채팅 밀도 피크
+{highlight_text if highlight_text else "(데이터 없음)"}
+
+{subtitle_signal_text if subtitle_signal_text else "## 자막 드라마틱 시그널\\n(SRT 미주입)"}
+
+{community_signal_text if community_signal_text else "## 커뮤니티 매칭\\n(데이터 없음)"}
+
+---
+
+## 방송중 커뮤니티 글 원문 (시간 축 불일치 — 맥락 참고용)
 {community_text}
 """
     # 컨텍스트를 프롬프트 앞에 삽입
@@ -252,6 +298,7 @@ def generate_reports(
     highlights: list[dict],
     chats: list[dict],
     output_dir: str,
+    community_posts: list = None,
 ) -> tuple[str, str, str]:
     """Markdown + HTML + metadata JSON 저장"""
     os.makedirs(output_dir, exist_ok=True)
@@ -277,7 +324,7 @@ def generate_reports(
 
     # HTML
     html_path = os.path.join(output_dir, f"{base}.html")
-    html_content = _generate_html(summary, vod_info, highlights, chats)
+    html_content = _generate_html(summary, vod_info, highlights, chats, community_posts)
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
     logger.info(f"HTML 리포트 저장: {html_path}")
@@ -305,167 +352,444 @@ def generate_reports(
     return md_path, html_path, meta_path
 
 
+def _parse_summary_sections(md: str) -> dict:
+    """Claude 요약 Markdown을 섹션별로 구조화.
+
+    반환: {
+      'title': str, 'hashtags': [str], 'pull_quote': str,
+      'timeline': [{'tc': '00:26:06', 'title': '...', 'mood': 'hot|chat|chill|veryhot',
+                    'summary': '...', 'evidence': '...'}],
+      'highlights': [{'tc_range': '...', 'title': '...', 'reason': '...'}],
+      'editor_notes': [paragraphs],
+      'raw_fallback': full md (파싱 실패 시 원본 렌더링용)
+    }
+    """
+    import re
+
+    out = {
+        "title": "", "hashtags": [], "pull_quote": "",
+        "timeline": [], "highlights": [], "editor_notes": [],
+        "raw_fallback": md,
+    }
+
+    # 제목 (첫 ## 헤더)
+    m = re.search(r"^##\s+.*?방송 분석 리포트\s*:\s*(.+)$", md, flags=re.M)
+    if m:
+        out["title"] = m.group(1).strip()
+
+    # 해시태그 — `#태그` 또는 #태그 형태를 넓게 수집
+    m = re.search(r"핵심 요약[:\*\s]*(.+)", md)
+    if m:
+        tags = re.findall(r"[`#]+([\w가-힣]+)", m.group(1))
+        # 중복 제거 + 순서 유지
+        seen = set()
+        out["hashtags"] = [t for t in tags if not (t in seen or seen.add(t))]
+
+    # pull quote — 첫 blockquote
+    m = re.search(r'^\s*>\s*"?(.+?)"?\s*$', md, flags=re.M)
+    if m:
+        out["pull_quote"] = m.group(1).strip().strip('"')
+
+    # 타임라인 섹션 추출
+    tl_match = re.search(
+        r"###\s*📍[^\n]*타임라인[^\n]*\n(.+?)(?=\n###\s|\Z)",
+        md, flags=re.S
+    )
+    if tl_match:
+        tl_body = tl_match.group(1)
+        # 각 엔트리: - **[HH:MM:SS] 제목** (분위기: 🔥)  followed by indented 내용/근거 lines
+        # 엔트리 시작을 기준으로 분할
+        entries = re.split(r"\n(?=\s*-\s*\*\*\s*\[\d{2}:\d{2}:\d{2}\])", tl_body)
+        for ent in entries:
+            em = re.match(
+                r"\s*-\s*\*\*\s*\[(\d{2}:\d{2}:\d{2})\]\s*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?",
+                ent
+            )
+            if not em:
+                continue
+            tc, title, mood_raw = em.group(1), em.group(2).strip(), (em.group(3) or "").strip()
+
+            # mood 정규화
+            mood = "chill"
+            if "🔥🔥" in mood_raw:
+                mood = "veryhot"
+            elif "🔥" in mood_raw:
+                mood = "hot"
+            elif "💬" in mood_raw:
+                mood = "chat"
+            elif "💤" in mood_raw:
+                mood = "chill"
+
+            # 내용 / 근거 추출
+            summary_lines = re.findall(r"내용\s*[:：]\s*(.+)", ent)
+            evidence_lines = re.findall(r"근거\s*[:：]\s*(.+)", ent)
+            summary_text = " ".join(s.strip() for s in summary_lines) or ""
+            evidence_text = " ".join(e.strip() for e in evidence_lines) or ""
+
+            # 제목 끝의 남은 마크다운 기호만 정리 (따옴표는 유지 — 인용이 제목에 포함될 수 있음)
+            title = title.rstrip(" *`").strip()
+
+            out["timeline"].append({
+                "tc": tc,
+                "title": title,
+                "mood": mood,
+                "mood_raw": mood_raw,
+                "summary": summary_text,
+                "evidence": evidence_text,
+            })
+
+    # 하이라이트 섹션
+    hl_match = re.search(
+        r"###\s*🎬[^\n]*하이라이트[^\n]*\n(.+?)(?=\n###\s|\Z)",
+        md, flags=re.S
+    )
+    if hl_match:
+        hl_body = hl_match.group(1)
+        for em in re.finditer(
+            r"^\s*(\d+)\.\s*\*\*\[?(\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?)\]?\*?\*?\s*(.+?)\*?\*?\s*$",
+            hl_body, flags=re.M
+        ):
+            tc_range = em.group(2)
+            title_raw = em.group(3).strip()
+            # 제목과 이유 분리 — "(추천 이유: ...)" 패턴
+            rm = re.match(r"(.+?)\s*\(?추천 이유[:：]\s*(.+?)\)?\s*$", title_raw)
+            if rm:
+                title, reason = rm.group(1).strip(" *"), rm.group(2).strip(" *")
+            else:
+                title, reason = title_raw.strip(" *"), ""
+            out["highlights"].append({
+                "tc_range": tc_range,
+                "title": title,
+                "reason": reason,
+            })
+
+    # 에디터 후기 섹션
+    ed_match = re.search(
+        r"###\s*📝[^\n]*(?:에디터|후기)[^\n]*\n(.+?)(?=\n###\s|\Z)",
+        md, flags=re.S
+    )
+    if ed_match:
+        body = ed_match.group(1).strip()
+        # 문단 = 빈 줄 기준
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
+        out["editor_notes"] = paragraphs
+
+    return out
+
+
+def _html_escape(s: str) -> str:
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+             .replace('"', "&quot;"))
+
+
+def _render_inline_md(s: str) -> str:
+    """간단한 인라인 마크다운(**strong**, `code`) → HTML"""
+    import re
+    s = _html_escape(s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return s
+
+
 def _generate_html(
     summary_md: str,
     vod_info: VODInfo,
     highlights: list[dict],
     chats: list[dict],
+    community_posts: list = None,
 ) -> str:
-    """Markdown 요약을 시각적 HTML로 변환"""
-    # 채팅 시계열 데이터 (차트용)
+    """구조화된 카드 레이아웃 HTML 렌더링 (Tokyo Night 팔레트, 중앙 정렬)"""
     from .chat_analyzer import build_time_series, WINDOW_SEC
+
+    # 채팅 시계열 데이터 (차트용)
     ts = build_time_series(chats, WINDOW_SEC) if chats else {"buckets": {}, "duration_sec": 0}
     bucket_keys = sorted(ts["buckets"].keys())
     chart_labels = json.dumps([sec_to_hms(k) for k in bucket_keys], ensure_ascii=False) if bucket_keys else "[]"
     chart_counts = json.dumps([ts["buckets"][k]["count"] for k in bucket_keys]) if bucket_keys else "[]"
-
     peak_secs = json.dumps([h["sec"] for h in highlights[:20]]) if highlights else "[]"
 
-    # Markdown → HTML (블록 단위 변환)
-    import re
-    lines = summary_md.split("\n")
-    html_parts = []
-    in_list = False
+    # 요약 구조화
+    sec = _parse_summary_sections(summary_md)
+    title_display = sec["title"] or vod_info.title
+    comm_count = len(community_posts) if community_posts else 0
 
-    for line in lines:
-        stripped = line.strip()
+    # ── 히어로 섹션 (해시태그 + pull quote)
+    tag_chips = ""
+    if sec["hashtags"]:
+        tag_chips = "\n".join(
+            f'<span class="tag">#{_html_escape(t)}</span>' for t in sec["hashtags"][:6]
+        )
 
-        # 빈 줄
-        if not stripped:
-            if in_list:
-                html_parts.append("</ul>")
-                in_list = False
-            html_parts.append("")
-            continue
+    pull_quote_html = ""
+    if sec["pull_quote"]:
+        pull_quote_html = f'<div class="quote">"{_html_escape(sec["pull_quote"])}"</div>'
 
-        # 헤더
-        if stripped.startswith("### "):
-            if in_list:
-                html_parts.append("</ul>")
-                in_list = False
-            html_parts.append(f"<h3>{stripped[4:]}</h3>")
-            continue
-        if stripped.startswith("## "):
-            if in_list:
-                html_parts.append("</ul>")
-                in_list = False
-            html_parts.append(f"<h2>{stripped[3:]}</h2>")
-            continue
-        if stripped.startswith("# "):
-            if in_list:
-                html_parts.append("</ul>")
-                in_list = False
-            html_parts.append(f"<h1>{stripped[2:]}</h1>")
-            continue
+    hero_html = ""
+    if tag_chips or pull_quote_html:
+        hero_html = f'''
+<div class="hero"><div class="bleed-inner">
+  {f'<div class="tags">{tag_chips}</div>' if tag_chips else ''}
+  {pull_quote_html}
+</div></div>'''
 
-        # 인용
-        if stripped.startswith("> "):
-            if in_list:
-                html_parts.append("</ul>")
-                in_list = False
-            html_parts.append(f"<blockquote>{stripped[2:]}</blockquote>")
-            continue
+    # ── 타임라인 카드들
+    timeline_html = ""
+    if sec["timeline"]:
+        items = []
+        for t in sec["timeline"]:
+            mood_class = f"mood-{t['mood']}"
+            mood_emoji = t["mood_raw"] or {"hot": "🔥", "veryhot": "🔥🔥", "chat": "💬", "chill": "💤"}.get(t["mood"], "")
+            evidence_html = ""
+            if t["evidence"]:
+                evidence_html = f'<div class="t-evidence">{_render_inline_md(t["evidence"])}</div>'
+            items.append(f'''
+<div class="t-item {mood_class}">
+  <div class="t-head">
+    <span class="tc">{t["tc"]}</span>
+    <span class="t-title">{_render_inline_md(t["title"])}</span>
+    <span class="mood">{_html_escape(mood_emoji)}</span>
+  </div>
+  <div class="t-body">{_render_inline_md(t["summary"])}</div>
+  {evidence_html}
+</div>''')
+        timeline_html = f'''
+<div class="card">
+  <div class="card-head">
+    <h2>📍 타임라인 상세</h2>
+    <button class="t-toggle" onclick="toggleAll(this)">근거 모두 펼치기</button>
+  </div>
+  <div class="card-body">
+    <div class="timeline">{''.join(items)}</div>
+  </div>
+</div>'''
 
-        # 리스트 항목
-        if stripped.startswith("- ") or stripped.startswith("* "):
-            if not in_list:
-                html_parts.append("<ul>")
-                in_list = True
-            content = stripped[2:]
-            content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
-            html_parts.append(f"<li>{content}</li>")
-            continue
+    # ── 하이라이트 카드
+    highlights_html = ""
+    if sec["highlights"]:
+        items = []
+        for h in sec["highlights"]:
+            reason_html = f'<div class="hl-reason">{_render_inline_md(h["reason"])}</div>' if h["reason"] else ""
+            items.append(f'''
+<div class="hl">
+  <div class="hl-body">
+    <div class="hl-title"><span class="tc">{_html_escape(h["tc_range"])}</span>&nbsp;&nbsp;{_render_inline_md(h["title"])}</div>
+    {reason_html}
+  </div>
+</div>''')
+        highlights_html = f'''
+<div class="card">
+  <div class="card-head"><h2>🎬 하이라이트 추천</h2></div>
+  <div class="card-body"><div class="hl-list">{''.join(items)}</div></div>
+</div>'''
 
-        # 번호 리스트
-        m = re.match(r'^(\d+)\.\s+(.+)$', stripped)
-        if m:
-            if not in_list:
-                html_parts.append("<ol>")
-                in_list = True  # 단순화: ol도 ul 플래그로 관리
-            content = m.group(2)
-            content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
-            html_parts.append(f"<li>{content}</li>")
-            continue
+    # ── 에디터 후기 카드
+    notes_html = ""
+    if sec["editor_notes"]:
+        paras = "\n".join(f'<p>{_render_inline_md(p)}</p>' for p in sec["editor_notes"])
+        notes_html = f'''
+<div class="card">
+  <div class="card-head"><h2>📝 에디터의 방송 후기</h2></div>
+  <div class="card-body"><div class="notes">{paras}</div></div>
+</div>'''
 
-        # 들여쓰기 (서브 항목)
-        if line.startswith("    ") and in_list:
-            content = stripped
-            content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
-            html_parts.append(f"<li style='margin-left:20px'>{content}</li>")
-            continue
+    # ── 파싱 실패 fallback (구조화 결과가 전부 비어있으면)
+    fallback_html = ""
+    if not any([sec["timeline"], sec["highlights"], sec["editor_notes"]]):
+        # 원본 Markdown을 단순 렌더
+        import re
+        body = _html_escape(summary_md)
+        body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)
+        body = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", body, flags=re.M)
+        body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
+        body = body.replace("\n\n", "</p><p>")
+        fallback_html = f'<div class="card"><div class="card-body"><div class="notes"><p>{body}</p></div></div></div>'
 
-        # 일반 텍스트
-        if in_list:
-            html_parts.append("</ul>")
-            in_list = False
-        content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', stripped)
-        html_parts.append(f"<p>{content}</p>")
-
-    if in_list:
-        html_parts.append("</ul>")
-
-    html_body = "\n".join(html_parts)
+    # ── 날짜 포맷 정돈
+    pub_display = vod_info.publish_date
+    try:
+        from datetime import datetime as _dt
+        pub_display = _dt.fromisoformat(vod_info.publish_date.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        pass
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{vod_info.title} — 방송 분석 리포트</title>
+<title>{_html_escape(vod_info.title)} — 방송 분석 리포트</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-  :root {{ --bg: #0d0f14; --surface: #161921; --surface2: #1e2230; --border: #2a2f42;
-           --accent: #00ffa3; --accent2: #ff6b6b; --text: #e2e8f0; --muted: #64748b; }}
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  :root {{
+    --bg:          #1a1b26;
+    --surface:     #24283b;
+    --surface-2:   #2a2f43;
+    --border:      #363b54;
+    --border-soft: #2e3248;
+    --text:        #c0caf5;
+    --text-strong: #e8ebf3;
+    --muted:       #7982a9;
+    --faint:       #565c7e;
+    --tc:          #7aa2f7;
+    --mood-hot:    #f7768e;
+    --mood-chat:   #bb9af7;
+    --mood-chill:  #7dcfff;
+    --accent:      #9ece6a;
+    --accent-warm: #e0af68;
+  }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ background: var(--bg); color: var(--text); font-family: 'Noto Sans KR', sans-serif;
-          min-height: 100vh; line-height: 1.7; }}
-  header {{ padding: 32px 40px 20px; border-bottom: 1px solid var(--border);
-            background: linear-gradient(135deg, #0d0f14 60%, #0d1f17); }}
-  header h1 {{ font-size: 24px; font-weight: 700; }}
-  header h1 span {{ color: var(--accent); }}
-  header p {{ color: var(--muted); margin-top: 6px; font-size: 13px;
-              font-family: 'JetBrains Mono', monospace; }}
-  .stats {{ display: flex; gap: 24px; padding: 20px 40px; border-bottom: 1px solid var(--border);
-            background: var(--surface); }}
-  .stat {{ display: flex; flex-direction: column; gap: 2px; }}
-  .stat-label {{ font-size: 11px; color: var(--muted); text-transform: uppercase; }}
-  .stat-value {{ font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
-                 color: var(--accent); }}
-  .main {{ padding: 32px 40px; display: flex; flex-direction: column; gap: 32px; }}
-  .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }}
-  .card h2 {{ font-size: 15px; color: var(--muted); text-transform: uppercase;
-              letter-spacing: 1px; margin-bottom: 16px; }}
-  .chart-wrap {{ height: 200px; position: relative; }}
-  .content {{ line-height: 1.8; }}
-  .content h1, .content h2, .content h3 {{ margin-top: 24px; margin-bottom: 12px; }}
-  .content h2 {{ color: var(--accent); font-size: 20px; }}
-  .content h3 {{ color: var(--text); font-size: 16px; }}
-  .content li {{ margin-left: 20px; margin-bottom: 4px; }}
-  .content blockquote {{ border-left: 3px solid var(--accent); padding-left: 16px;
-                         color: var(--muted); font-style: italic; margin: 12px 0; }}
-  .content strong {{ color: var(--accent); }}
+  html, body {{ background: var(--bg); color: var(--text); }}
+  body {{ font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; line-height: 1.7; font-size: 15px; }}
+
+  /* Centered Layout */
+  .bleed-inner {{ max-width: 960px; margin: 0 auto; padding: 0 40px; }}
+
+  header {{
+    border-bottom: 1px solid var(--border);
+    background: radial-gradient(ellipse at top left, rgba(122,162,247,0.08), transparent 60%), var(--bg);
+  }}
+  header .bleed-inner {{ padding: 36px 40px 28px; }}
+  header .crumb {{ font-family: 'JetBrains Mono', monospace; color: var(--muted); font-size: 12px;
+                   letter-spacing: 0.5px; margin-bottom: 10px; }}
+  header h1 {{ font-size: 26px; font-weight: 700; color: var(--text-strong); line-height: 1.35; letter-spacing: -0.3px; }}
+  header .meta {{ color: var(--muted); margin-top: 10px; font-size: 13px; font-family: 'JetBrains Mono', monospace; }}
+  header .meta span + span::before {{ content: "·"; margin: 0 10px; color: var(--faint); }}
+
+  .hero {{ background: var(--surface); border-bottom: 1px solid var(--border); }}
+  .hero .bleed-inner {{ padding: 28px 40px; }}
+  .tags {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }}
+  .tag {{
+    display: inline-block; padding: 6px 14px;
+    background: rgba(158,206,106,0.12); color: var(--accent);
+    border: 1px solid rgba(158,206,106,0.28); border-radius: 999px;
+    font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
+  }}
+  .quote {{
+    font-size: 17px; color: var(--text-strong); font-weight: 500; line-height: 1.55;
+    padding-left: 16px; border-left: 3px solid var(--accent-warm); font-style: italic;
+  }}
+
+  .stats-wrap {{ background: var(--surface); border-bottom: 1px solid var(--border); }}
+  .stats-wrap .bleed-inner {{ padding: 0; }}
+  .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border-soft); }}
+  .stat {{ background: var(--surface); padding: 18px 24px; }}
+  .stat-label {{ font-size: 11px; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: 1.2px; margin-bottom: 6px; }}
+  .stat-value {{ font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--text-strong); }}
+  .stat-value.accent {{ color: var(--tc); }}
+
+  .main {{ padding-top: 32px; padding-bottom: 60px; display: flex; flex-direction: column; gap: 28px; }}
+
+  .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }}
+  .card-head {{ padding: 18px 24px; border-bottom: 1px solid var(--border-soft);
+                display: flex; align-items: center; justify-content: space-between; }}
+  .card-head h2 {{ font-size: 13px; color: var(--muted); text-transform: uppercase;
+                    letter-spacing: 1.5px; font-weight: 600; }}
+  .card-body {{ padding: 24px; }}
+  .chart-wrap {{ height: 220px; position: relative; }}
+
+  .timeline {{ display: flex; flex-direction: column; gap: 12px; }}
+  .t-item {{
+    padding: 16px 20px 16px 18px; background: var(--surface-2); border-radius: 8px;
+    border-left: 3px solid var(--border); transition: background 0.15s; cursor: pointer;
+  }}
+  .t-item:hover {{ background: #2e334b; }}
+  .t-item.mood-hot {{ border-left-color: var(--mood-hot); }}
+  .t-item.mood-chat {{ border-left-color: var(--mood-chat); }}
+  .t-item.mood-chill {{ border-left-color: var(--mood-chill); }}
+  .t-item.mood-veryhot {{ border-left-color: var(--mood-hot); border-left-width: 5px;
+                          box-shadow: inset 3px 0 0 var(--mood-hot); }}
+  .t-head {{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }}
+  .tc {{
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+    color: var(--tc); background: rgba(122,162,247,0.12);
+    padding: 3px 9px; border-radius: 4px; letter-spacing: 0.3px;
+  }}
+  .t-title {{ font-size: 15px; font-weight: 600; color: var(--text-strong); }}
+  .mood {{ font-size: 14px; margin-left: auto; }}
+  .t-body {{ color: var(--text); font-size: 14px; line-height: 1.65; }}
+  .t-evidence {{
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-soft);
+    color: var(--faint); font-size: 12px; line-height: 1.55;
+    font-family: 'JetBrains Mono', monospace; display: none;
+  }}
+  .t-item[data-open="1"] .t-evidence {{ display: block; }}
+
+  .t-toggle {{
+    font-size: 11px; color: var(--muted); cursor: pointer; user-select: none;
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px;
+    background: transparent; font-family: inherit;
+  }}
+  .t-toggle:hover {{ color: var(--text); border-color: var(--muted); }}
+
+  .hl-list {{ display: flex; flex-direction: column; gap: 12px; counter-reset: hl; }}
+  .hl {{ display: flex; gap: 16px; padding: 16px 20px; background: var(--surface-2);
+         border-radius: 8px; counter-increment: hl; }}
+  .hl::before {{
+    content: counter(hl); font-family: 'JetBrains Mono', monospace;
+    font-size: 22px; font-weight: 700; color: var(--accent-warm); min-width: 28px;
+  }}
+  .hl-body {{ flex: 1; }}
+  .hl-title {{ font-weight: 600; color: var(--text-strong); margin-bottom: 4px; }}
+  .hl-reason {{ color: var(--muted); font-size: 13px; }}
+
+  .notes {{ color: var(--text); font-size: 14.5px; line-height: 1.85; }}
+  .notes p {{ margin-bottom: 14px; }}
+  .notes p:last-child {{ margin-bottom: 0; }}
+  .notes strong {{ color: var(--text-strong); font-weight: 600; }}
+  code {{ font-family: 'JetBrains Mono', monospace; font-size: 0.92em;
+          background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: var(--accent); }}
+
+  ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+  ::-webkit-scrollbar-track {{ background: var(--bg); }}
+  ::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 5px; }}
+  ::-webkit-scrollbar-thumb:hover {{ background: var(--muted); }}
+
+  @media (max-width: 720px) {{
+    .bleed-inner {{ padding-left: 20px; padding-right: 20px; }}
+    header .bleed-inner {{ padding: 28px 20px 20px; }}
+    .hero .bleed-inner {{ padding: 22px 20px; }}
+    header h1 {{ font-size: 22px; }}
+    .stats {{ grid-template-columns: repeat(2, 1fr); }}
+  }}
 </style>
 </head>
 <body>
-<header>
-  <h1>📋 <span>{vod_info.title}</span></h1>
-  <p>{vod_info.channel_name} · {vod_info.publish_date} · {sec_to_hms(vod_info.duration)}</p>
-</header>
-<div class="stats">
-  <div class="stat"><span class="stat-label">총 채팅</span><span class="stat-value">{len(chats):,}</span></div>
-  <div class="stat"><span class="stat-label">방송 길이</span><span class="stat-value">{sec_to_hms(vod_info.duration)}</span></div>
-  <div class="stat"><span class="stat-label">하이라이트</span><span class="stat-value">{len(highlights)}</span></div>
-</div>
-<div class="main">
+
+<header><div class="bleed-inner">
+  <div class="crumb">{_html_escape(vod_info.channel_name)} · VOD {_html_escape(vod_info.video_no)}</div>
+  <h1>{_html_escape(title_display)}</h1>
+  <div class="meta">
+    <span>{_html_escape(pub_display)}</span>
+    <span>{sec_to_hms(vod_info.duration)}</span>
+    {f'<span>{_html_escape(vod_info.category)}</span>' if vod_info.category else ''}
+  </div>
+</div></header>
+
+{hero_html}
+
+<div class="stats-wrap"><div class="bleed-inner"><div class="stats">
+  <div class="stat"><div class="stat-label">총 채팅</div><div class="stat-value accent">{len(chats):,}</div></div>
+  <div class="stat"><div class="stat-label">방송 길이</div><div class="stat-value">{sec_to_hms(vod_info.duration)}</div></div>
+  <div class="stat"><div class="stat-label">하이라이트</div><div class="stat-value accent">{len(highlights)}</div></div>
+  <div class="stat"><div class="stat-label">커뮤니티 글</div><div class="stat-value">{comm_count}</div></div>
+</div></div></div>
+
+<div class="main bleed-inner">
+
   <div class="card">
-    <h2>채팅 밀도 시각화</h2>
-    <div class="chart-wrap"><canvas id="chatChart"></canvas></div>
+    <div class="card-head"><h2>채팅 밀도 시각화</h2></div>
+    <div class="card-body"><div class="chart-wrap"><canvas id="chatChart"></canvas></div></div>
   </div>
-  <div class="card content">
-    {html_body}
-  </div>
+
+  {timeline_html}
+  {highlights_html}
+  {notes_html}
+  {fallback_html}
+
 </div>
+
 <script>
 const labels = {chart_labels};
 const counts = {chart_counts};
@@ -473,18 +797,41 @@ const peakSecs = {peak_secs};
 const windowSec = {WINDOW_SEC};
 const peakSet = new Set(peakSecs.map(s => Math.floor(s / windowSec) * windowSec));
 const bgColors = labels.map((_, i) =>
-  peakSet.has(i * windowSec) ? 'rgba(255,107,107,0.85)' : 'rgba(0,255,163,0.55)'
+  peakSet.has(i * windowSec) ? 'rgba(247,118,142,0.75)' : 'rgba(122,162,247,0.35)'
 );
-new Chart(document.getElementById('chatChart'), {{
-  type: 'bar',
-  data: {{ labels, datasets: [{{ data: counts, backgroundColor: bgColors, borderWidth: 0, borderRadius: 2 }}] }},
-  options: {{
-    responsive: true, maintainAspectRatio: false,
-    plugins: {{ legend: {{ display: false }} }},
-    scales: {{ x: {{ display: false }}, y: {{ grid: {{ color: 'rgba(255,255,255,0.05)' }},
-              ticks: {{ color: '#64748b', font: {{ size: 11 }} }} }} }}
-  }}
+if (labels.length > 0) {{
+  new Chart(document.getElementById('chatChart'), {{
+    type: 'bar',
+    data: {{ labels, datasets: [{{ data: counts, backgroundColor: bgColors, borderWidth: 0, borderRadius: 2 }}] }},
+    options: {{
+      responsive: true, maintainAspectRatio: false,
+      plugins: {{ legend: {{ display: false }}, tooltip: {{
+        backgroundColor: '#24283b', borderColor: '#363b54', borderWidth: 1,
+        titleColor: '#c0caf5', bodyColor: '#c0caf5'
+      }}}},
+      scales: {{
+        x: {{ grid: {{ display: false }}, ticks: {{ color: '#565c7e', font: {{ size: 10 }}, maxTicksLimit: 12 }} }},
+        y: {{ grid: {{ color: 'rgba(255,255,255,0.04)' }}, ticks: {{ color: '#565c7e', font: {{ size: 11 }} }} }}
+      }}
+    }}
+  }});
+}}
+
+// 타임라인 아이템 클릭 시 근거 토글
+document.querySelectorAll('.t-item').forEach(item => {{
+  item.addEventListener('click', (e) => {{
+    if (e.target.tagName === 'BUTTON') return;
+    const open = item.getAttribute('data-open') === '1';
+    item.setAttribute('data-open', open ? '0' : '1');
+  }});
 }});
+function toggleAll(btn) {{
+  const items = document.querySelectorAll('.t-item');
+  const anyClosed = Array.from(items).some(i => i.getAttribute('data-open') !== '1');
+  items.forEach(i => i.setAttribute('data-open', anyClosed ? '1' : '0'));
+  btn.textContent = anyClosed ? '근거 모두 접기' : '근거 모두 펼치기';
+}}
 </script>
+
 </body>
 </html>"""
