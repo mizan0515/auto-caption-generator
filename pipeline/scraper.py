@@ -9,6 +9,7 @@
 """
 
 import logging
+import random
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -31,10 +32,24 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    # Brotli(br) 은 requests 기본 설치에 포함 안 됨 — gzip/deflate 만 사용
+    "Accept-Encoding": "gzip, deflate",
+    "Referer": "https://www.fmkorea.com/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Upgrade-Insecure-Requests": "1",
 }
 
-REQUEST_DELAY = 2.5  # 요청 간 딜레이(초)
+REQUEST_DELAY = 5.0   # 요청 간 기본 딜레이(초)
+REQUEST_JITTER = 2.5  # 0~N 사이 랜덤 딜레이 추가
+
+
+class FmkoreaBlocked(Exception):
+    """fmkorea 안티봇 차단 감지 — 재시도 없이 즉시 중단"""
+    pass
 
 
 def _build_search_url(keyword: str, page: int = 1) -> str:
@@ -46,11 +61,33 @@ def _build_search_url(keyword: str, page: int = 1) -> str:
     )
 
 
-@retry(max_retries=2, backoff_base=3.0, exceptions=(requests.RequestException,))
-def _fetch_page(url: str) -> Optional[str]:
-    resp = requests.get(url, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    return resp.text
+def _fetch_page(url: str, session: Optional[requests.Session] = None) -> Optional[str]:
+    """fmkorea 페이지 요청.
+
+    - 430 / 429 등 레이트리밋 응답은 FmkoreaBlocked 로 즉시 중단 (재시도 무의미)
+    - 그 외 네트워크 오류는 최대 2회 재시도
+    """
+    sess = session or requests
+    last_err = None
+    for attempt in range(2):
+        try:
+            resp = sess.get(url, headers=HEADERS, timeout=15)
+            if resp.status_code in (429, 430):
+                raise FmkoreaBlocked(f"HTTP {resp.status_code} (rate limit/anti-bot)")
+            resp.raise_for_status()
+            text = resp.text
+            logger.debug(
+                f"fmkorea 응답: status={resp.status_code}, len={len(text)}, "
+                f"preview={text[:200].replace(chr(10), ' ')!r}"
+            )
+            return text
+        except FmkoreaBlocked:
+            raise
+        except requests.RequestException as e:
+            last_err = e
+            if attempt == 0:
+                time.sleep(3.0)
+    raise last_err
 
 
 def _select_first(element, selectors: list[str]):
@@ -224,29 +261,58 @@ def scrape_fmkorea(
         except (ValueError, TypeError):
             logger.warning(f"방송 시작 시각 파싱 실패: {broadcast_start}")
 
+    # 세션으로 쿠키 유지 (fmkorea 는 세션 쿠키를 봄)
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    # 메인 페이지 방문 — 세션 쿠키 획득 (안티봇 통과 용도)
+    try:
+        session.get("https://www.fmkorea.com/", timeout=10)
+        time.sleep(1.5)
+    except requests.RequestException as e:
+        logger.debug(f"fmkorea 메인 방문 실패 (무시): {e}")
+
+    blocked = False
     for keyword in keywords:
+        if blocked:
+            break
         logger.info(f"fmkorea 검색: '{keyword}'")
 
         for page in range(1, max_pages + 1):
             url = _build_search_url(keyword, page)
             try:
-                html = _fetch_page(url)
+                html = _fetch_page(url, session=session)
                 if html is None:
                     break
 
                 posts = _parse_search_results(html)
                 if not posts:
-                    logger.info(f"  페이지 {page}: 결과 없음")
+                    # 응답 내용 간단 검사 — 안티봇 / 차단 / 로그인 필요 페이지 구분
+                    html_lower = html.lower()
+                    hint = ""
+                    if "captcha" in html_lower or "robot" in html_lower:
+                        hint = " (CAPTCHA 또는 봇 감지 페이지로 추정)"
+                    elif "login" in html_lower and "fmkorea" in html_lower and len(html) < 5000:
+                        hint = " (로그인 리다이렉트로 추정)"
+                    elif len(html) < 1000:
+                        hint = f" (응답이 너무 짧음: {len(html)}바이트 — 차단 의심)"
+                    logger.info(f"  페이지 {page}: 결과 없음{hint} (응답 {len(html):,}바이트)")
                     break
 
                 all_posts.extend(posts)
                 logger.info(f"  페이지 {page}: {len(posts)}개 수집")
 
+            except FmkoreaBlocked as e:
+                logger.warning(f"  ⚠ fmkorea 레이트리밋 감지 ({e}) — 추가 요청 중단")
+                blocked = True
+                break
             except Exception as e:
                 logger.warning(f"  페이지 {page} 수집 실패: {e}")
                 break
 
-            time.sleep(REQUEST_DELAY)
+            # 다음 요청까지 지터 포함 딜레이
+            delay = REQUEST_DELAY + random.uniform(0, REQUEST_JITTER)
+            time.sleep(delay)
 
     # 중복 제거 (URL 기준)
     seen_urls = set()

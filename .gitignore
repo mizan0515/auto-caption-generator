@@ -19,8 +19,10 @@ pipeline_config.json
 # 아카이브 (이전 프로젝트)
 _archive/
 
-# Claude Code 설정
-.claude/
+# Claude Code 설정 (로컬 권한/세션 캐시는 무시, 공유 명령은 유지)
+.claude/*
+!.claude/commands/
+!.claude/commands/**
 
 # 개발 도구
 .venv/

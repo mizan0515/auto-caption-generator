@@ -50,50 +50,69 @@ def _download_range(url: str, start: int, end: int, dest_path: str, part_num: in
 
 
 def _download_direct(url: str, dest_path: str, progress_func=None) -> str:
-    """HTTP Range 기반 멀티스레드 다운로드"""
+    """HTTP Range 기반 멀티스레드 다운로드.
+
+    `.downloading` 임시 파일에 쓰고 모든 파트가 성공한 뒤에야 최종 이름으로 변경한다.
+    중간 실패 시 임시 파일이 남아 있으면 다음 실행에서 정리되도록 한다.
+    """
     total_size = _get_content_length(url)
     if total_size == 0:
         raise RuntimeError("Content-Length가 0입니다. URL을 확인하세요.")
 
     logger.info(f"다운로드 시작: {format_size(total_size)}")
 
-    # 빈 파일 생성
-    with open(dest_path, "wb") as f:
-        f.truncate(total_size)
+    tmp_path = dest_path + ".downloading"
 
-    # 파트 분할
-    parts = []
-    offset = 0
-    part_num = 0
-    while offset < total_size:
-        end = min(offset + PART_SIZE - 1, total_size - 1)
-        parts.append((offset, end, part_num))
-        offset = end + 1
-        part_num += 1
+    try:
+        # 임시 파일을 미리 total_size 로 확장
+        with open(tmp_path, "wb") as f:
+            f.truncate(total_size)
 
-    downloaded = 0
-    max_workers = min(4, len(parts))
+        # 파트 분할
+        parts = []
+        offset = 0
+        part_num = 0
+        while offset < total_size:
+            end = min(offset + PART_SIZE - 1, total_size - 1)
+            parts.append((offset, end, part_num))
+            offset = end + 1
+            part_num += 1
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(_download_range, url, start, end, dest_path, pn): (start, end, pn)
-            for start, end, pn in parts
-        }
-        for future in as_completed(futures):
-            start, end, pn = futures[future]
+        downloaded = 0
+        max_workers = min(4, len(parts))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_download_range, url, start, end, tmp_path, pn): (start, end, pn)
+                for start, end, pn in parts
+            }
+            for future in as_completed(futures):
+                start, end, pn = futures[future]
+                try:
+                    written = future.result()
+                    downloaded += written
+                    pct = downloaded / total_size * 100
+                    logger.debug(f"  파트 {pn}: {format_size(written)} 완료 ({pct:.1f}%)")
+                    if progress_func:
+                        progress_func(downloaded, total_size)
+                except Exception as e:
+                    logger.error(f"  파트 {pn} 다운로드 실패: {e}")
+                    raise
+
+        # 모든 파트 완료 후 최종 이름으로 변경
+        os.replace(tmp_path, dest_path)
+        logger.info(f"다운로드 완료: {dest_path} ({format_size(total_size)})")
+        return dest_path
+
+    except Exception:
+        # 실패 시 불완전 파일 삭제
+        if os.path.exists(tmp_path):
             try:
-                written = future.result()
-                downloaded += written
-                pct = downloaded / total_size * 100
-                logger.debug(f"  파트 {pn}: {format_size(written)} 완료 ({pct:.1f}%)")
-                if progress_func:
-                    progress_func(downloaded, total_size)
-            except Exception as e:
-                logger.error(f"  파트 {pn} 다운로드 실패: {e}")
-                raise
-
-    logger.info(f"다운로드 완료: {dest_path} ({format_size(total_size)})")
-    return dest_path
+                os.remove(tmp_path)
+                logger.info(f"  불완전 다운로드 파일 삭제: {tmp_path}")
+            except OSError as e:
+                logger.warning(f"  불완전 파일 삭제 실패: {e}")
+        raise
 
 
 def _download_m3u8(m3u8_url: str, dest_path: str, progress_func=None) -> str:
