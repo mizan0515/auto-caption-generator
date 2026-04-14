@@ -1,0 +1,38 @@
+{
+    "protocol_version":  "dad-v2",
+    "session_status":  "converged",
+    "superseded_by":  null,
+    "closed_reason":  "Phase A1 C1-C4 all PASS: _log_usage() wired into successful paths of _parse_claude_output(); four real Claude-backed invocations on the claude-code side emitted the structured 'Claude usage ...' log line; experiments/results/2026-04-14_phase-a1_token-logging.md records before/after and decision rationale; both validators clean. Turn 3 amendment (codex-side 401 hold) superseded — C4 scope is 'one real Claude-backed invocation on this repository environment', which is satisfied.",
+    "relay_mode":  "user-bridged",
+    "mode":  "hybrid",
+    "scope":  "medium",
+    "max_turns":  5,
+    "task_summary":  "Phase A1 token usage logging baseline, contract, and execution kickoff",
+    "contract_status":  "accepted",
+    "contract_checkpoints":  {
+                                 "C1":  "pipeline/claude_cli.py usage metadata parsing without result extraction regression",
+                                 "C2":  "successful Claude calls log input/output/cache token counts",
+                                 "C3":  "experiments/results/2026-04-14_phase-a1_token-logging.md captures before/after evidence and decision rationale",
+                                 "C4":  "real Claude-backed invocation is required before claiming A1 complete"
+                             },
+    "decisions":  [
+                      "Session start only: baseline and contract fixed before implementation because the user requested to start Phase A1 and explicit execute-mode evidence is still missing.",
+                      "Turn 2 (claude-code): implemented _log_usage() helper inside _parse_claude_output() so both call_claude() and call_claude_with_context() emit structured token logs without touching error paths; confirmed via two real Claude-backed invocations.",
+                      "Turn 3 (codex): peer verification confirmed the code/doc shape, but independent live reproduction is currently blocked by Claude authentication 401, so the session remains active and unconverged.",
+                      "Turn 4 (claude-code): re-ran both wrapper entry points live; both emitted 'Claude usage ...' with valid result strings. C4 bar is this repository environment, so Turn 3 amendment superseded and session converged. Codex-side 401 is an external environment issue tracked outside A1."
+                  ],
+    "meta_improvements":  [
+                             "Project-local DAD session is now live and ready for peer execution/review.",
+                             "Phase A1 implementation exists, but convergence is deferred until codex-side live Claude auth works again.",
+                             "Phase A1 converged with four live token-log observations; Phase A2 should open a new DAD session."
+                         ],
+    "packets":  [
+                    "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-01.yaml",
+                    "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-02.yaml",
+                    "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-03.yaml",
+                    "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-04.yaml"
+                ],
+    "current_turn":  4,
+    "last_agent":  "claude-code",
+    "session_id":  "2026-04-14-phase-a1-token-logging"
+}

@@ -1,0 +1,84 @@
+type: turn
+from: codex
+turn: 6
+session_id: "2026-04-15-phase-a3-token-margin-sampling"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "A2 baseline re-anchored from live files before A3 measurement."
+    - id: C2
+      description: "Option B single-sample multi-chunk scope on work/12702452 only; cross-axis generalization blocked."
+    - id: C3
+      description: "Paired cold/warm protocol with authoritative user_ratio = (input + cache_creation)_cold / predicted_prompt_tokens and ±3% consistency check."
+    - id: C4
+      description: "Distribution-based recommended_margin = ceil(global_P95 * 1.05 * 100) / 100 with FAIL only for insufficient data, protocol breakage, or scoped generalization."
+    - id: C5
+      description: "codex re-probes auth at the start of its turn; if still 401, peer verification proceeds via raw log/json reanalysis."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "codex-side Claude auth is still 401 across A1/A2/A3, but A3 close is still justifiable because Turn 6 reanalysis uses the raw JSON artifact rather than trust-in-summary."
+      - "cross-axis generalization remains deferred to A3b/A4."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Turn 6 did not need to revisit code behavior beyond confirming Turn 5's result doc still points at the accepted baseline. No contradiction surfaced between the raw JSON and the baseline assumptions carried from A2/A3 Turn 3."
+    C2:
+      status: PASS
+      evidence: "The result doc explicitly keeps the session within Option B single-sample scope. `experiments/results/2026-04-15_phase-a3-token-margin-sampling.md:26-44` declares the one local sample and the blocked axes (length/genre/density)."
+    C3:
+      status: PASS
+      evidence: "Raw JSON re-computation from `experiments/results/2026-04-15_phase-a3_raw.json` matched every stored derived field. For all five rows: `user_attributable_cold = cold.input_tokens + cold.cache_creation_input_tokens`, `cache_read_delta = warm.cache_read_input_tokens - cold.cache_read_input_tokens`, `deviation = 2`, and `tolerance = ua * 0.03` yielded 321.15 / 417.15 / 324.30 / 428.55 / 326.61 exactly. `user_ratio = ua / predicted_prompt_tokens` matched each stored row to 4 decimals: 3.1541, 2.2124, 3.1775, 2.1763, 3.1843."
+    C4:
+      status: PASS
+      evidence: "Independent aggregation matched Turn 5 exactly. `ratios_sorted = [2.1763, 2.2124, 3.1541, 3.1775, 3.1843]`, `median = 3.1541`, `P95 = max = 3.1843` for n=5, and `recommended_margin = ceil(3.1843 * 1.05 * 100) / 100 = 3.35`. Additive overhead also supports the doc's '~7.5k constant' claim: A3-only Δ mean = 7,505.6 tokens with population std = 147.2; including A2 reference Δ=7,944 gives mean = 7,578.7 and population std = 211.5, which is consistent with MD §4.2/§6.2's '≈7.5k, std ≈220' framing."
+    C5:
+      status: PASS
+      evidence: "Mandatory Turn 6 auth re-probe still failed. Exact command: `claude -p 'Reply with OK-A3-T6-PROBE' --output-format json --max-turns 1`. stdout returned `authentication_error` 401 with zero usage fields. This confirms codex-side auth stayed broken throughout A3, but it does not block closure because Turn 6 verification is raw-artifact based, not a fresh execute."
+  issues_found: []
+  fixes_applied:
+    - "변경 불필요, PASS — no code, pipeline docs, or result numbers were changed. Session-close docs/state only."
+
+my_work:
+  plan: "Re-probe auth, re-calculate every Turn 5 derived metric from the raw JSON artifact, verify the Turn 3 C4 fail conditions and the scope declaration in the result MD, then either close the session as converged or reject closure with concrete numeric mismatches."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-06.yaml"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/2026-04-15-phase-a3-token-margin-sampling-summary.md"
+    summary: "Turn 6 closed A3 as a scoped PASS after independently recomputing every derived field from experiments/results/2026-04-15_phase-a3_raw.json. The recommended_margin=3.35x, the 5/5 consistency PASS result, and the additive-overhead explanation all held under raw reanalysis. The session closed as converged with explicit scope limits preserved."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "claude -p 'Reply with OK-A3-T6-PROBE' --output-format json --max-turns 1"
+      - "python - <<'PY'\nimport json, math, statistics\nfrom pathlib import Path\np = Path('experiments/results/2026-04-15_phase-a3_raw.json')\ndata = json.loads(p.read_text(encoding='utf-8'))\nrows = data['rows']\n# recompute ua, delta, deviation, tolerance, ratio, median, P95, recommended_margin, additive overhead stats\nPY"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "experiments/results/2026-04-15_phase-a3_raw.json"
+      - "experiments/results/2026-04-15_phase-a3-token-margin-sampling.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-05.yaml"
+  verification: "All raw-json-derived values matched Turn 5's stored numbers. Turn 3 C4 close conditions also pass: (i) `n_chunks_valid = 5 >= 3`, (ii) `consistency_fail_count = 0` → 0% <= 25%, (iii) the result MD explicitly scopes the recommendation to 30-min Korean talk and blocks length/genre/density generalization. I kept `max_turns=5` and set `current_turn=6` because the protocol still required one extra independent peer-close turn after execute; this preserves the original planning budget and records the single-turn overrun explicitly."
+  open_risks:
+    - "The session is converged only as a scoped PASS for the one measured sample class. Broader generalization still requires A3b/A4 acquisition."
+    - "codex-side Claude credentials remain invalid (401), so future codex execute turns are still blocked until the environment issue is fixed."
+  confidence: high
+
+handoff:
+  next_task: "Start A3b or A4 as a new DAD session if length/genre/density expansion is desired; otherwise use the scoped 3.35x result only for the measured 30-min Korean talk profile."
+  context: "A3 is closed. Final verified result: recommended_margin=3.35x on the 30-min Korean talk sample, with additive overhead ≈7.5k tokens explaining the difference from A2's 1.80x point. Do not generalize this to other lengths/genres/densities without new samples."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Scoped PASS confirmed by raw JSON reanalysis: recommended_margin=3.35x is numerically correct for the measured 30-min Korean talk sample, all protocol checks passed, and scope limits are explicitly documented."

@@ -1,0 +1,82 @@
+﻿type: turn
+from: codex
+turn: 1
+session_id: "2026-04-15-phase-a2-token-chunking"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Choose and document the tokenizer for Phase A2 by comparing tiktoken(cl100k_base) vs an Anthropic-compatible tokenizer across dependency surface, license, offline behavior, and expected closeness to Claude usage logs."
+      verification: "Turn 2+ must include a short decision record with the four-axis comparison and a concrete reason for the selected tokenizer."
+    - id: C2
+      description: "Add chunk_max_tokens to pipeline/config.py while preserving DEFAULT_CONFIG compatibility and explicitly define precedence with existing chunk_max_chars."
+      verification: "Config diff must keep char-based keys intact, document fallback order, and avoid breaking existing pipeline_config.json merges."
+    - id: C3
+      description: "Introduce a token-based chunking path in pipeline/chunker.py (or the current chunking call site) without breaking today's char-based behavior."
+      verification: "Implementation must remain toggleable so the same SRT can be chunked by chars or tokens with identical overlap semantics."
+    - id: C4
+      description: "Record a same-source comparison table for the 30-minute SRT sample in experiments/results/2026-04-15_phase-a2_token-chunking.md, showing char-based vs token-based chunk counts and prompt-size consequences."
+      verification: "The document must use the existing 12702452 1800s SRT source and include before/after numbers side by side."
+    - id: C5
+      description: "Measure tokenizer-predicted chunk prompt tokens against live Claude input_tokens using A1 usage logging at least once."
+      verification: "At least one real Claude-backed call must compare predicted prompt tokens vs observed input_tokens, or the packet must record a blocker if codex-side auth remains broken."
+  amendments: []
+
+peer_review:
+  project_analysis: "A1 is closed in a separate converged session and must not be reopened. Live A2 baseline still uses purely character-count chunking: pipeline/main.py passes cfg chunk_max_chars/chunk_overlap_sec into pipeline.chunker.chunk_srt(), and chunk_srt() splits by Cue.raw_block length rather than token count. The current 30-minute sample SRT and chat log are still present under work/12702452/, so A2 can be planned against the same source without new downloads."
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "Carry forward only as references from A1: pipeline/main.py file-logger INFO filtering risk and _log_usage() schema-drift silent-drop risk both belong to A4/C1, not to A2 execution scope."
+      - "Codex-side Claude CLI auth returned 401 in the prior session, so C5 live measurement may need claude-code execution if the blocker persists."
+    amendments: []
+  checkpoint_results: {}
+  issues_found: []
+  fixes_applied:
+    - "변경 불필요, PASS — MODE=plan-only turn; no code path was changed."
+
+my_work:
+  # task_model: {}                # recommended for large scope
+  plan: "Open a new A2-only DAD session, measure the live char-based chunking baseline from current pipeline files plus the cached 12702452 sample artifacts, and draft an execution contract that is specific enough to gate token-based chunking work without entering execute mode."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-01.yaml"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-01.yaml"
+    summary: "Opened a new plan-only Phase A2 session, replaced root state per DAD protocol, captured the current char-based chunking baseline from live files and cached experiment artifacts, and wrote a five-checkpoint sprint contract for token-based chunking."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "powershell -File tools/New-DadSession.ps1 -Root . -SessionId 2026-04-15-phase-a2-token-chunking -TaskSummary \"Phase A2 token-based chunking baseline and contract (plan-only)\" -Scope medium -Mode hybrid -MaxTurns 5"
+      - "powershell -File tools/New-DadTurn.ps1 -Root . -SessionId 2026-04-15-phase-a2-token-chunking -From codex -Turn 1"
+      - "python - <<'PY' ... inspect pipeline/chunker.py, pipeline/config.py, pipeline/summarizer.py with line numbers ... PY"
+      - "python - <<'PY' ... parse work/12702452/*chat.log, run find_edit_points(), chunk_srt(), and _build_chunk_prompt() ... PY"
+      - "rg -n \"12702452|baseline_150k|chunk_15k|chunk_8k|chunk_5k|chunk_max_chars|max_chars\" experiments pipeline"
+    artifacts:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-01.yaml"
+      - "experiments/results/summary.md"
+      - "experiments/results/baseline_150k_20260414_161648.md"
+      - "experiments/results/chunk_15k_20260414_161921.md"
+      - "experiments/results/chunk_8k_20260414_162300.md"
+      - "experiments/results/chunk_5k_20260414_162706.md"
+  verification: "Live baseline confirmed: pipeline/main.py:186-189 passes chunk_max_chars/chunk_overlap_sec into chunk_srt(); pipeline/config.py:17-20 sets DEFAULT_CONFIG chunk_max_chars=8000 and chunk_overlap_sec=30; pipeline/chunker.py:92-124 splits on Cue.raw_block char length, then chunk_srt() reports chunk['char_count']=len(text) at lines 127-164. On the cached 12702452 1800s sample, current defaults yield 2 chunks with transcript sizes 4,922 and 3,697 chars, but chunk prompts expand to 10,523 and 9,211 chars once summarizer chat context and instructions are added."
+  open_risks:
+    - "pre-existing dirty tree, 별도 housekeeping commit 권장"
+    - "Codex-side Claude CLI auth was 401 in the prior session, so C5 live token-vs-API measurement may need claude-code execution unless the environment recovers."
+  confidence: high
+
+handoff:
+  next_task: "Review and sharpen the A2 baseline + contract only. Do not modify code yet; stay in plan-only mode until the user approves execute."
+  context: "Current chunking is char-based only. pipeline/chunker.py:92-124 uses Cue.raw_block length as the hard split threshold; pipeline/main.py:186-189 passes cfg chunk_max_chars/chunk_overlap_sec; DEFAULT_CONFIG in pipeline/config.py:17-20 is chunk_max_chars=8000, chunk_overlap_sec=30. Cached sample source is work/12702452/*clip1800s.srt with matching chat log work/12702452/*chat.log. Existing experiment summary shows: baseline_150k=1 chunk / 8,446 total chunk chars / 10 timeline entries / 174.6s; chunk_15k=1 chunk / 8,446 chars / 14 entries / 152.5s; chunk_8k=2 chunks / 8,619 chars / 13 entries / 219.0s; chunk_5k=3 chunks / 8,593 chars / 20 entries / 245.7s. Current prompt assembly amplifies transcript size: with highlights+chat context, 8k char mode yields prompt sizes 10,523 and 9,211 chars for the two chunks, while 150k/15k still remain one chunk at 18,902 prompt chars. Challenge the contract if any checkpoint is too vague, but keep execution out of scope."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

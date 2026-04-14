@@ -1,0 +1,91 @@
+type: turn
+from: codex
+turn: 4
+session_id: "2026-04-15-phase-a3-token-margin-sampling"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Re-anchor the A2 baseline from live files before any A3 measurement: raw_block token split in pipeline/chunker.py, precedence wiring in pipeline/main.py, token config keys in pipeline/config.py, four-field usage logging in pipeline/claude_cli.py, and the A2 §5 provisional 1.8x rule."
+    - id: C2
+      description: "Option B remains in force: A3 execute is single-sample multi-chunk on work/12702452/*clip1800s.srt + 12702452_chat.log only; cross-axis generalization stays explicitly blocked."
+    - id: C3
+      description: "Execute protocol remains paired cold/warm per chunk, authoritative user_ratio = (input + cache_creation)_cold / predicted_prompt_tokens, and predicted_prompt_tokens = tiktoken cl100k_base on the full _build_chunk_prompt() string."
+    - id: C4
+      description: "Decision rule remains distribution-based: recommended_margin = ceil(global_P95 * 1.05 * 100) / 100, with FAIL reserved for insufficient data, protocol breakage, or scoped generalization limits."
+    - id: C5
+      description: "codex must re-probe auth at the start of every codex turn; if still 401, claude-code remains execute owner."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "auth remained 401 on the mandatory Turn 4 probe, so execute ownership stays with claude-code."
+      - "No repository drift was found in the live anchors, so the accepted contract is still safe to execute as written."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Live anchors still match Turn 3. `pipeline/chunker.py:156-201` tokenizes `c.raw_block`; `pipeline/main.py:191-197` still passes `max_tokens=cfg.get('chunk_max_tokens')`; `pipeline/config.py:25-27` still contains `chunk_max_tokens` / `chunk_tokenizer_encoding`; `pipeline/claude_cli.py:23-58` still emits four usage fields separately; `experiments/results/2026-04-15_phase-a2_token-chunking.md:145-161` still records predicted=9,906 and sum=38,518."
+    C2:
+      status: PASS
+      evidence: "No scope drift since Turn 3. Option B is still the only executable plan under current inventory, and the repo still exposes only the 12702452 raw SRT+chat pair for measurement."
+    C3:
+      status: PASS
+      evidence: "Preflight signature check passed. `pipeline/summarizer.py:59-64` defines `_build_chunk_prompt(chunk, highlights, chats, vod_info) -> str`, which matches the accepted protocol shape. `pipeline/claude_cli.py:113-140` defines `call_claude(prompt: str, timeout: int = 300) -> str` and feeds prompt via stdin, so the cold/warm paired protocol can be executed without code changes."
+    C4:
+      status: PASS
+      evidence: "No decision-rule drift was found. The accepted distribution-based rule in Turn 3 remains the correct pre-registered rule. No fallback amendment was added for the ±3% threshold because widening it pre-emptively would weaken falsifiability before the first execute pass. Under the current contract, repeated >3% breaches are evidence of protocol breakage, not grounds for silent threshold expansion."
+    C5:
+      status: PASS
+      evidence: "Mandatory re-probe still failed with 401. Exact command re-run in this turn: `claude -p 'Reply with OK-A3-T4-PROBE' --output-format json --max-turns 1`. Observed stdout contained `authentication_error` with zero usage fields, so codex did not execute and claude-code remains the Turn 5 measurement owner."
+  issues_found: []
+  fixes_applied:
+    - "변경 불필요, PASS — no contract/code/doc drift required amendment in the 401 branch. Packet/state only."
+
+my_work:
+  plan: "Run the mandatory auth re-probe first, branch on 401 vs 200, and because auth remained 401, finish the final pre-execute audit only: confirm live anchor stability, verify `_build_chunk_prompt` and `call_claude` signatures, re-check `chunk_max_tokens=2500` chunk count, inspect whether the accepted ±3% tolerance needs pre-emptive relaxation, and hand execute ownership to claude-code for Turn 5."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-04.yaml"
+    summary: "The mandatory Turn 4 auth re-probe still returned 401, so no Claude measurements were started. Instead, this turn completed the final pre-execute audit: live anchors still match the accepted contract, `_build_chunk_prompt` and `call_claude` signatures are compatible with the paired cold/warm protocol, `chunk_max_tokens=2500` still produces 5 chunks, and the ±3% rule was kept unchanged as a real protocol check rather than relaxed before any data exists."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "claude -p 'Reply with OK-A3-T4-PROBE' --output-format json --max-turns 1"
+      - "Read pipeline/chunker.py:156-201"
+      - "Read pipeline/main.py:191-197"
+      - "Read pipeline/config.py:23-27"
+      - "Read pipeline/claude_cli.py:23-58"
+      - "Read pipeline/summarizer.py:59-64 and pipeline/claude_cli.py:113-140"
+      - "python - <<'PY'\nfrom pipeline.chunker import chunk_srt\nimport glob\nsrt = glob.glob('work/12702452/*clip1800s.srt')[0]\nprint(len(chunk_srt(srt, max_chars=150000, overlap_sec=30, max_tokens=2500)))\nPY"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-03.yaml"
+      - "pipeline/summarizer.py"
+      - "pipeline/claude_cli.py"
+      - "pipeline/chunker.py"
+      - "experiments/results/2026-04-15_phase-a2_token-chunking.md"
+  verification: "401 branch confirmed. `_build_chunk_prompt` exists as `_build_chunk_prompt(chunk, highlights, chats, vod_info)`, `call_claude(prompt, timeout=300)` remains stdin-based and protocol-compatible, and `chunk_srt(... max_tokens=2500)` still returns 5. No meaningful drift was found, so `contract.status` stays `accepted`."
+  open_risks:
+    - "codex-side Claude auth remains externally blocked by 401, so Turn 5 execute must still run on claude-code."
+    - "The ±3% consistency threshold is intentionally left unchanged before first data. If Turn 5 sees repeated clean-run breaches, that should be logged as protocol-breakage evidence and debated explicitly in a follow-up turn, not silently widened."
+    - "Turn 5 time/cost budget is non-trivial even for single-sample Option B: 5 chunks × 2 calls plus warm gaps is roughly 27 minutes minimum, with estimated cost around $0.85."
+    - "C4's 'generalization-blocked' outcome remains expected because A3 still has only one sample axis in-scope."
+  confidence: high
+
+handoff:
+  next_task: "사용자 승인 후 Turn 5 claude-code execute: run the accepted Option B protocol on work/12702452 with 5 chunks at chunk_max_tokens=2500, collect cold/warm usage pairs for each chunk, write experiments/results/2026-04-15_phase-a3_token-margin-sampling.md, and compute recommended_margin under the accepted C3/C4 rules."
+  context: "Turn 4 auth re-probe still returned 401, so codex did not execute. Preflight is complete: live anchors still match Turn 3, `_build_chunk_prompt(chunk, highlights, chats, vod_info)` exists, `call_claude(prompt, timeout=300)` is compatible with paired measurements, and `chunk_max_tokens=2500` still yields 5 chunks. Keep the accepted ±3% threshold unchanged for the first execute pass; if Turn 5 observes repeated breaches, treat that as evidence for protocol-breakage under current rules rather than silently expanding tolerance. Budget for Turn 5: ~27 minutes minimum and about $0.85, because 5 chunks require cold+warm calls and warm gaps."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

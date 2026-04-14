@@ -1,0 +1,123 @@
+type: turn
+from: claude-code
+turn: 2
+session_id: "2026-04-15-phase-a2-token-chunking"
+
+contract:
+  status: amended
+  checkpoints:
+    - id: C1
+      description: "Pick the A2 tokenizer by comparing concrete candidates — tiktoken(cl100k_base), anthropic SDK count_tokens endpoint, and a char÷4 heuristic — across six axes: dependency surface, license, offline/airgapped behavior, version/schema stability, speed on 10 KB transcripts, and observed closeness to A1 Claude usage totals."
+      verification: "Turn 2+ (amended Turn 3 execute) must include a decision record naming the selected tokenizer, enumerating all three candidates, and filling all six axes. If a candidate is rejected for an axis (e.g. anthropic count_tokens requires network), the record must say so explicitly rather than leaving the cell blank."
+    - id: C2
+      description: "Add chunk_max_tokens to pipeline/config.py DEFAULT_CONFIG AND reconcile the legacy fallback at pipeline/main.py:188 (currently hardcoded 150000, inconsistent with DEFAULT_CONFIG chunk_max_chars=8000). Define precedence in a single comment block covering: DEFAULT_CONFIG, pipeline_config.json merge, main.py fallback, and which key wins when both chunk_max_chars and chunk_max_tokens are set."
+      verification: "Execute-turn diff must touch pipeline/config.py AND pipeline/main.py, keep char-based keys intact, and load_config() must return both keys present. A small test (or REPL evidence) must show (a) legacy-only config still chunks by chars, (b) new-only config chunks by tokens, (c) both-set resolves per the documented precedence."
+    - id: C3
+      description: "Introduce a token-based chunking path in pipeline/chunker.py without breaking char-based behavior. The token-counting unit must be the SAME string the splitter evaluates today — i.e. per-cue `raw_block` — NOT the cues_to_txt output, because the current splitter at pipeline/chunker.py:102 thresholds on `len(cues[j].raw_block)` while pipeline/chunker.py:159 only reports cues_to_txt length as `char_count`. Document this unit decision in the function docstring so future readers don't conflate the two."
+      verification: "Execute-turn code must: (a) keep split_by_chars() intact, (b) add split_by_tokens(cues, max_tokens, overlap_sec, tokenizer) that calls tokenizer on cues[j].raw_block and accumulates the same way, (c) chunk_srt() selects the path based on config, (d) overlap semantics (rewind by overlap_sec) remain identical for both paths. Unit-level evidence: same SRT input into both paths must produce byte-for-byte identical overlap boundaries when max_tokens and max_chars are calibrated to target the same split points."
+    - id: C4
+      description: "Record a same-source comparison table for the 30-minute `work/12702452/*clip1800s.srt` sample in experiments/results/2026-04-15_phase-a2_token-chunking.md, showing for each config (150k, 15k, 8k, 5k char + matched-ish token configs): chunk count, per-chunk raw_block-char sum (the split unit), per-chunk cues_to_txt char_count (the reported unit), per-chunk tokenizer count of raw_block, per-chunk assembled prompt char size, and per-chunk tokenizer count of the assembled prompt. Call out the unit mismatch (raw_block vs cues_to_txt) explicitly so the table is not read as contradictory."
+      verification: "Result doc must contain a markdown table with all six columns filled for at least four configs, plus a short paragraph explaining why raw_block and cues_to_txt diverge by ~2x. Use work/12702452/*clip1800s.srt and work/12702452/*chat.log as declared source — do NOT reparse a different sample."
+    - id: C5
+      description: "Measure tokenizer-predicted prompt tokens against live Claude usage for at least one chunk. The comparison baseline on the Claude side must be `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` (sum of all three from A1's _log_usage output) — NOT input_tokens alone, because Claude's 1h prompt caching routes most of the prompt into cache_read_input_tokens (A1 reproduction observed input_tokens=3 vs cache_read_input_tokens=27737 on a 30-minute sample). The predicted-vs-actual row in the result doc must report all three fields separately AND the sum."
+      verification: "At least one real Claude-backed call via pipeline/summarizer.py's chunk path (or an equivalent wrapper invocation that reuses _build_chunk_prompt) must be captured in the A2 result doc, with: predicted prompt tokens from the chosen tokenizer, observed input_tokens, observed cache_creation_input_tokens, observed cache_read_input_tokens, observed sum, and the absolute+relative delta between prediction and sum. If codex-side Claude auth remains 401, the execute turn must either (a) explicitly delegate the C5 run to claude-code side, or (b) record the 401 blocker with the exact retry evidence and downgrade C5 to 'partial — predicted-only, observed TBD.' Any path other than one of those two is a contract violation."
+  amendments:
+    - id: A1
+      origin: "Turn 2 (claude-code) peer review"
+      affects: C1
+      rationale: "Turn 1's C1 named 'Anthropic-compatible tokenizer' as if it were an installable package. Anthropic does not ship a first-party tokenizer for Claude 3/4 as a pip library; the realistic candidates are tiktoken(cl100k_base) as approximation, the SDK's count_tokens HTTP endpoint (requires network + credits), or a char÷4 heuristic. C1 must enumerate these three and add version-stability and speed axes (6 axes total), because tiktoken's encoding cache updates can change counts silently between minor versions and because A2 will tokenize inside a hot loop."
+    - id: A2
+      origin: "Turn 2 (claude-code) peer review"
+      affects: C2
+      rationale: "pipeline/main.py:188 uses cfg.get('chunk_max_chars', 150000) as a hardcoded fallback that contradicts DEFAULT_CONFIG=8000 at pipeline/config.py:19. This is dead branch only while load_config() is the entrypoint; it stops being dead the moment someone instantiates the pipeline without load_config(). Execute turn cannot quietly add chunk_max_tokens without also reconciling this fallback, otherwise the two new-key/legacy-key precedence cases explode into four. C2 now requires touching main.py as well as config.py."
+    - id: A3
+      origin: "Turn 2 (claude-code) peer review"
+      affects: C3
+      rationale: "Splitter uses len(cues[j].raw_block) at pipeline/chunker.py:102; reports char_count=len(cues_to_txt(chunk_cues)) at pipeline/chunker.py:159. These are ~2x apart on the cached 30-min sample (threshold 8000 raw_block → ~4.9k/3.7k cues_to_txt text). Token path must tokenize the SAME string the char splitter accumulates, i.e. raw_block, otherwise token_max_tokens and chunk_max_chars become incomparable units and C4's comparison table degenerates into noise. Choosing raw_block is also simpler because overlap math already uses cue indices."
+    - id: A4
+      origin: "Turn 2 (claude-code) peer review"
+      affects: C4
+      rationale: "Turn 1 baseline summary shows 'transcript 4,922 chars' against an 8k threshold but never states that the 8k gates raw_block, not transcript. Reviewers will read this as 'splitter leaves 3k of slack' and make wrong calibration choices. The comparison table must surface both raw_block and cues_to_txt columns so the 2x gap is visible; otherwise the whole experiment is methodologically unsound."
+    - id: A5
+      origin: "Turn 2 (claude-code) peer review"
+      affects: C5
+      rationale: "A1 reproduction evidence (pipeline INFO Claude usage input_tokens=3 output_tokens=7 cache_creation_input_tokens=0 cache_read_input_tokens=27737) shows that Claude's 1h prompt cache routes the overwhelming majority of prompt bytes into cache_read_input_tokens. Comparing a tokenizer prediction against input_tokens alone would fail by 4 orders of magnitude on a 30-minute sample. C5 must explicitly compare against the sum of all three usage fields, report each field separately, and keep cache warming state out of the error analysis. Also adds an explicit blocker-delegation clause so the codex-side 401 cannot be used to silently skip C5."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "Turn 1 baseline did not decompose the 18,902 / 10,523 / 9,211 prompt char sizes into transcript text vs instructions vs chat_section. pipeline/summarizer.py:80-106 shows a fixed ~1.5 KB instruction block plus a variable chat_section from format_chat_highlights_for_prompt(relevant_highlights, chats, context_sec=20). Without this decomposition, C2 cannot decide whether chunk_max_tokens is a transcript budget or a full-prompt budget, and C4 cannot explain why the 150k/15k config stays at 1 chunk with identical 18,902-char prompts."
+      - "Turn 1 baseline did not clarify the raw_block-vs-cues_to_txt unit mismatch inside chunker.py, which propagates through every number in the contract."
+    scope_creep: []
+    risk_followups:
+      - "Codex-side Claude CLI auth was 401 during the prior session. C5 execution path must be explicit: either delegate to claude-code on execute turn, or record a precise retry blocker in the packet. Amendment A5 encodes this."
+      - "From A1: pipeline/main.py file-logger INFO filtering and _log_usage() schema-drift silent-drop. Still A4/C1 scope, not A2 responsibility — carry forward as reference only, unchanged from Turn 1."
+    amendments:
+      - "Contract moves from proposed → amended. See A1–A5 for specific rationale. Execute turn must adopt all five amendments or explicitly reject them per checkpoint in Turn 3."
+  checkpoint_results:
+    C1:
+      status: FAIL-then-FIXED
+      evidence: "Turn 1 C1 named 'Anthropic-compatible tokenizer' as a candidate; no such pip library exists for Claude 3/4. Replaced with three concrete candidates + two new axes (version stability, speed)."
+    C2:
+      status: FAIL-then-FIXED
+      evidence: "pipeline/main.py:188 hardcoded fallback 150000 disagrees with DEFAULT_CONFIG=8000 at pipeline/config.py:19. C2 now requires touching both files and specifying precedence across four cases."
+    C3:
+      status: FAIL-then-FIXED
+      evidence: "pipeline/chunker.py:102 thresholds on len(cues[j].raw_block); pipeline/chunker.py:159 reports char_count from cues_to_txt. Token path must tokenize raw_block to stay comparable. Encoded in amendment A3."
+    C4:
+      status: FAIL-then-FIXED
+      evidence: "Turn 1 comparison target implicitly conflates raw_block and cues_to_txt char counts. Table spec now requires six columns so the ~2x unit gap is explicit."
+    C5:
+      status: FAIL-then-FIXED
+      evidence: "A1 reproduction showed input_tokens=3 vs cache_read_input_tokens=27737 on a 30-min sample. Comparing predicted prompt tokens against input_tokens alone would produce a ~9000x error. C5 now requires all three usage fields + sum + blocker-delegation clause."
+  issues_found:
+    - "C1: Anthropic-compatible tokenizer is not a pip-installable package for Claude 3/4. Candidate list was aspirational."
+    - "C2: pipeline/main.py:188 hardcoded 150000 fallback contradicts DEFAULT_CONFIG=8000 and will produce a second precedence surface if chunk_max_tokens is added naively."
+    - "C3: raw_block vs cues_to_txt unit mismatch inside pipeline/chunker.py will make char-vs-token comparison meaningless unless both paths tokenize raw_block."
+    - "C4: Turn 1 baseline summary conflated the two units and did not decompose prompt size into transcript/instructions/chat_section."
+    - "C5: comparing tokenizer prediction to input_tokens alone ignores Claude's 1h prompt cache, which routes ~99.99% of prompt bytes into cache_read_input_tokens on warm runs."
+  fixes_applied:
+    - "Added five amendments A1–A5 directly to the contract (no code changes — plan-only). Each amendment names the offending file/line and the required execute-turn action."
+    - "Did NOT modify turn-01.yaml. Amendments are layered on top per DAD protocol."
+
+my_work:
+  plan: "Peer-review the A2 Turn 1 baseline and contract against live files, sharpen C1–C5 through five concrete amendments, keep plan-only stance by not touching any pipeline code, re-run validators, and hand back to codex (or user approval) before execute."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-02.yaml"
+    summary: "Peer-reviewed Phase A2 Turn 1 in plan-only mode. Identified five live-file-grounded contract gaps (C1 candidate list, C2 hardcoded fallback, C3 unit mismatch, C4 table columns, C5 usage-field selection) and encoded them as amendments A1–A5. Contract moved from proposed → amended. No code touched."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "Read pipeline/main.py:180-200"
+      - "Read pipeline/config.py:1-60  # confirmed DEFAULT_CONFIG chunk_max_chars=8000 at line 19"
+      - "Read pipeline/chunker.py:85-165  # split_by_chars uses raw_block at :102; chunk_srt reports cues_to_txt length at :159"
+      - "Grep _build_chunk_prompt pipeline/summarizer.py → Read pipeline/summarizer.py:55-135  # confirmed ~1.5 KB fixed instruction block + variable chat_section"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "pipeline/main.py"
+      - "pipeline/config.py"
+      - "pipeline/chunker.py"
+      - "pipeline/summarizer.py"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/summary.md"
+  verification: "Live files re-read; five contract gaps confirmed with line-number citations; amendments written; validators to be re-run before turn close."
+  open_risks:
+    - "Codex-side Claude CLI auth 401 still unresolved; C5 execution path may need claude-code delegation. Amendment A5 encodes the fork."
+    - "Tokenizer candidate short-list in C1 may still miss a Korean-script edge case — tiktoken cl100k_base is trained on English-heavy data; Korean character-to-token ratio is ~1.5–2x English, so tokenizer-predicted token counts for 한국어 transcripts may have higher variance than a naive char/4 heuristic. Execute turn should sanity-check on the cached 30-min sample before committing."
+    - "pre-existing dirty tree, 별도 housekeeping commit 권장 (carry-over from Turn 1)."
+  confidence: high
+
+handoff:
+  next_task: "User approval checkpoint: accept amendments A1–A5 and move to execute, or push back on any amendment before MODE flips to execute. If approved, Turn 3 (codex or claude-code) executes C1 decision record first, then C2 config/main wiring, then C3 chunker token path, then C4 comparison table, then C5 live measurement or blocker."
+  context: "A2 contract is now `amended` (was `proposed`). Five amendments A1–A5 are on the contract, each with origin, affected checkpoint, and rationale. No code has been changed. Live baseline is reconfirmed from pipeline/main.py:188, pipeline/config.py:19, pipeline/chunker.py:102, pipeline/chunker.py:159, pipeline/summarizer.py:80-106. Sample SRT work/12702452/*clip1800s.srt and work/12702452/*chat.log remain the declared source; reusing them avoids new downloads. Codex-side 401 blocker still applies to C5 — decide delegation vs blocker before execute. Amendment A3 (tokenize raw_block, not cues_to_txt) is the single highest-leverage correction because every other number in the contract depends on it."
+  questions:
+    - "Should C2 precedence resolve chunk_max_tokens > chunk_max_chars when both are set (favour new behaviour) or chunk_max_chars > chunk_max_tokens (preserve legacy)? This needs to be decided before execute to avoid a rework."
+    - "Should C5 be gated on claude-code-side run (because codex 401 has persisted for two sessions) or do we attempt codex auth recovery first? Impacts Turn 3 agent assignment."
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""
