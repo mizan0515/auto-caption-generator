@@ -1,0 +1,45 @@
+{
+    "protocol_version":  "dad-v2",
+    "session_status":  "converged",
+    "superseded_by":  null,
+    "closed_reason":  "Turn 5 codex peer verification rechecked live code, REPL chunk counts, C5 arithmetic, and same-turn doc sync; no checkpoint failure remained.",
+    "relay_mode":  "user-bridged",
+    "mode":  "hybrid",
+    "scope":  "medium",
+    "max_turns":  5,
+    "task_summary":  "Phase A2 token-based chunking baseline, contract, and execute",
+    "contract_status":  "accepted",
+    "contract_checkpoints":  {
+                                 "C1":  "tokenizer choice documented across six axes (dependency, license, offline, version stability, speed, A1-usage closeness) with three named candidates: tiktoken(cl100k_base), anthropic count_tokens API, char÷4 heuristic",
+                                 "C2":  "chunk_max_tokens added to DEFAULT_CONFIG AND pipeline/main.py:188 hardcoded 150000 fallback reconciled; precedence covers DEFAULT_CONFIG, pipeline_config.json merge, main.py fallback, and both-keys-set case",
+                                 "C3":  "token-based chunking path added in pipeline/chunker.py that tokenizes per-cue raw_block (the same string the char splitter thresholds on at :102), NOT cues_to_txt output",
+                                 "C4":  "same-source char-vs-token comparison table for work/12702452/*clip1800s.srt with six columns (chunk count, raw_block sum, char_count, tokenized raw_block, prompt chars, prompt tokens) plus an explicit note on the raw_block vs cues_to_txt ~2x unit gap",
+                                 "C5":  "tokenizer prediction compared against input_tokens + cache_creation_input_tokens + cache_read_input_tokens sum from A1 _log_usage; all three fields reported separately; execute path must either delegate to claude-code or record codex-side 401 blocker"
+                             },
+    "decisions":  [
+                      "Phase A2 starts in a new DAD session by protocol because Phase A1 was already converged and closed.",
+                      "Turn 1 remains plan-only: baseline + contract + experiment design only, with no code changes to chunking logic.",
+                      "Turn 2 (claude-code) peer review: contract amended proposed→amended with five amendments A1–A5 addressing C1 candidate list realism, C2 main.py fallback reconciliation, C3 raw_block vs cues_to_txt unit mismatch, C4 comparison-table column schema, and C5 Claude usage field selection (sum of input+cache_creation+cache_read, not input_tokens alone).",
+                      "Turn 3 (codex): accepted amendments A1–A5 after live re-check, resolved precedence to chunk_max_tokens > chunk_max_chars, and assigned the first C5 live measurement to claude-code because codex auth probe still returns 401.",
+                       "Turn 4 (claude-code) execute: implemented config/main/chunker changes with tiktoken cl100k_base, wrote experiments/results/2026-04-15_phase-a2_token-chunking.md with 6-column same-source table, closed C5 with live Claude call (predicted 9,906 vs observed sum 38,518; user-attributable ≈17,850 → tiktoken under-counts Korean by ~80%), all five checkpoints PASS.",
+                       "Turn 5 (codex) peer verification: independently reproduced legacy-only/token-only/both-set chunk counts (2/3/5), re-measured raw_block/text/token columns on the same SRT sample, confirmed codex-side Claude auth 401 blocker remains consistent with A1, and synced PROJECT-RULES/progress_report/config comments before closing the session as converged."
+                   ],
+    "meta_improvements":  [
+                              "A2 baseline now includes both chunk transcript sizes and actual prompt sizes for the cached 12702452 sample.",
+                              "Turn 2 surfaced the split-unit mismatch inside pipeline/chunker.py (raw_block at :102 vs cues_to_txt at :159), which every downstream A2 number depends on.",
+                              "Turn 3 leaves an execute kickoff contract in handoff.context so Turn 4 can start immediately after user approval.",
+                              "Turn 4 surfaced a concrete operational finding: Claude CLI adds ~20k tokens of cache_read_input_tokens per call for its own system prompt; cost estimates must use input+cache_creation, not the full usage sum.",
+                               "Turn 4 established that tiktoken cl100k_base under-counts Korean transcripts by ~80% vs Claude tokenizer, giving a 1.8× operational margin rule for chunk_max_tokens tuning.",
+                               "Turn 5 tightened self-documentation: pipeline/config.py now spells out DEFAULT_CONFIG/json-merge/main.py-fallback/both-set precedence, and progress_report.md links the A1/A2 result docs."
+                           ],
+    "packets":  [
+                    "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-01.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-02.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-03.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-04.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-05.yaml"
+                 ],
+    "current_turn":  5,
+    "last_agent":  "codex",
+    "session_id":  "2026-04-15-phase-a2-token-chunking"
+}

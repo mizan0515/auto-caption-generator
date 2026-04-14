@@ -1,0 +1,7 @@
+interface:
+  display_name: "ACG DAD v2 Dialogue Start"
+  short_description: "Start a Claude Code DAD session with Codex as turn 1"
+  default_prompt: "Use $acg-dialogue-start to start an auto-caption-generator DAD v2 session and produce Turn 1 plus the Claude Code handoff prompt."
+
+policy:
+  allow_implicit_invocation: false

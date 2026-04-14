@@ -1,0 +1,54 @@
+{
+    "protocol_version":  "dad-v2",
+    "session_id":  "2026-04-15-phase-a3-token-margin-sampling",
+    "session_status":  "converged",
+    "superseded_by":  null,
+    "closed_reason":  "A3 scoped PASS — raw JSON reanalysis confirmed recommended_margin=3.35x for the 30-min Korean talk sample; length/genre/density generalization is deferred to A3b/A4.",
+    "relay_mode":  "user-bridged",
+    "mode":  "hybrid",
+    "scope":  "medium",
+    "current_turn":  6,
+    "max_turns":  5,
+    "last_agent":  "codex",
+    "task_summary":  "Phase A3 tiktoken under-count margin sampling (Turn 5 execute complete — recommended_margin=3.35x, scoped to 30-min Korean talk)",
+    "contract_status":  "accepted",
+    "contract_checkpoints":  {
+                                 "C1":  "restate A2 baseline from live files with five file:line anchors (chunker.py:156-201 split_by_tokens, main.py:191-197 precedence, config.py:23-27 DEFAULT_CONFIG, claude_cli.py:23-58 _log_usage, A2 result doc §5 1.8x rule) before any new measurement",
+                                 "C2":  "Option B selected: A3 Turn 4 execute is single-sample multi-chunk on work/12702452/*clip1800s.srt + 12702452_chat.log (30-min Korean talk); cross-axis generalization (length/genre/density) explicitly blocked by sample scarcity (only 1 raw SRT+chat pair in repo) and deferred to A3b/A4 as acquisition-gated slice",
+                                 "C3":  "per-chunk protocol records paired cold/warm runs per chunk; user_ratio = user_attributable_cold / predicted_prompt_tokens where user_attributable_cold = input + cache_creation; warm run is consistency check with (cache_read_warm − cache_read_cold) ≈ user_attributable_cold ±3%; predicted_prompt_tokens = tiktoken cl100k_base encoding of full _build_chunk_prompt() output (instruction + chat_section + transcript)",
+                                 "C4":  "distribution-based recommended_margin = ceil(global_P95 * 1.05 * 100) / 100; FAIL outcomes = (i) n_chunks_valid < 3 insufficient-data, (ii) >25% chunks fail ±3% consistency protocol-breakage, (iii) single-axis-only generalization-blocked (recommendation valid but scoped); 1.8x demoted to prior expectation, not success criterion",
+                                 "C5":  "claude-code owns Turn 4 live measurement; codex-side `claude -p` 401 persisted across three turns (A2 Turn 3, A2 Turn 5, A3 Turn 2); codex role = peer review + independent recomputation of user_ratio/P95 from claude-code logs; codex turns must re-probe auth at start and re-assign on 200 response"
+                             },
+    "packets":  [
+                    "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-01.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-02.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-03.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-04.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-05.yaml",
+                    "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-06.yaml"
+                 ],
+    "decisions":  [
+                      "Phase A3 opens a new DAD session (not a continuation) because Phase A2 was converged and closed at Turn 5.",
+                      "Turn 1 is plan-only: baseline re-anchoring from live pipeline files, sample axis design, measurement protocol, decision-rule pre-registration, and agent assignment. No code or pipeline docs changed.",
+                      "Baseline anchors five live file:line citations so downstream turns cannot drift on A2 summaries alone: pipeline/chunker.py split_by_tokens, pipeline/main.py:191-197 precedence, pipeline/config.py DEFAULT_CONFIG chunk token keys, pipeline/claude_cli.py:23-58 _log_usage, experiments/results/2026-04-15_phase-a2_token-chunking.md §5 1.8x rule derivation.",
+                      "Sample axis design records blockers explicitly because the repo today has only one raw SRT+chat pair (work/12702452 30-min talk clip); 1h/3h and non-talk genres require pipeline.downloader or external acquisition before execute can start measuring those rows.",
+                      "Measurement protocol isolates cache_read from user_attributable because A2 Turn 4 showed Claude CLI itself contributes ~20k cache_read tokens/call unrelated to user prompt; user_ratio = user_attributable / predicted.",
+                      "Decision rule for the 1.8x margin is pre-registered (four clauses) to make 'insufficient evidence to generalize' a legitimate Turn 2+ outcome instead of forcing a spurious recommendation.",
+                      "C5 execution assignment: claude-code owns the first live measurement pass; codex peer-review is log-based until 401 is resolved.",
+                      "Turn 2 (codex) kept plan-only mode and amended the contract: sample acquisition/scope must be gated before execute because only one raw SRT+chat pair exists locally, warm-cache control must record both cold and warm observations instead of trusting a single second call, and the 1.8x decision rule must derive recommended_margin from observed distribution rather than hard-failing values above 2.0.",
+                      "Turn 3 (claude-code) accepted amendments A1-A3 with concrete reformulations: A1 → Option B (single-sample multi-chunk) over acquisition-first to avoid timeline uncertainty; A2 → paired cold/warm runs with ±3% consistency check and authoritative user_ratio = (input+cache_creation)_cold / predicted_prompt_tokens; A3 → recommended_margin = ceil(global_P95 * 1.05 * 100) / 100 with three operational FAIL conditions (insufficient data, protocol breakage, single-axis generalization). Contract status flipped amended → accepted. C1 anchors and C5 assignment preserved.",
+                      "Turn 4 (codex) re-probed Claude auth and still received authentication_error 401, so execute did not start. Instead, Turn 4 performed a final pre-execute drift audit: live anchors still match Turn 3, _build_chunk_prompt and call_claude signatures are contract-compatible, chunk_max_tokens=2500 still yields 5 chunks, and the accepted ±3% rule remains unchanged pending claude-code execution in Turn 5.",
+                      "Turn 5 (claude-code) executed the accepted Option B protocol on work/12702452 with 5 cold/warm pairs. All 5 chunks PASSED ±3% consistency (deviation=2 tokens each). ratios_sorted=[2.18, 2.21, 3.15, 3.18, 3.18], median=3.1541, P95=3.1843, recommended_margin = ceil(3.1843 * 1.05 * 100) / 100 = 3.35. Root-cause analysis shows additive overhead Δ=user_attributable−predicted is ≈ constant ~7.5k across A3's 5 chunks AND A2's n=1 reference, so ratio inflation at small predicted is a fixed Claude-side overhead, not multiplicative tokenizer drift. Pipeline/config.py deliberately not modified (Turn 3 C4 iii single-axis generalization block). Artifacts: experiments/results/2026-04-15_phase-a3_token-margin-sampling.md, experiments/results/2026-04-15_phase-a3_raw.json, experiments/a3_measure.py.",
+                      "Turn 6 (codex) independently re-calculated every raw JSON row and confirmed Turn 5's derived values: user_attributable_cold, cache_read_delta, deviation/tolerance, user_ratio, ratios_sorted, median=3.1541, P95=3.1843, recommended_margin=3.35, and additive overhead mean/std (A3-only mean 7,505.6; A2-included mean 7,578.7, std 211.5). With all three Turn 3 C4 fail conditions cleared and scope limits explicitly documented, the session was closed as converged despite the codex-side 401 probe remaining unresolved."
+                   ],
+    "meta_improvements":  [
+                              "A3 Turn 1 pre-registers the decision rule before measurement, reducing HARKing risk for small-n experiments.",
+                              "Sample acquisition blockers are surfaced at plan time, so Turn 2 execute cannot silently narrow scope to whatever is locally available.",
+                              "Turn 2 tightens the experiment contract against two planning errors: false confidence from cache state ambiguity and HARK-prone hard bounds that could reject a real but higher operating margin.",
+                              "Turn 3 reframes A3's goal from confirming 1.8x to estimating the real operational margin; the new decision rule makes 'insufficient evidence' and 'generalization-blocked' legitimate non-pass outcomes with bounded but useful output.",
+                              "Turn 3 adds a codex-turn-start auth re-probe rule so the 401 blocker cannot silently persist across executions when it might have been resolved externally.",
+                              "Turn 4 turns the 401 branch into a bounded preflight checklist rather than idle waiting: signature compatibility, chunk-count stability, cache-read interpretation, and execute time/cost budget are all pre-confirmed for Turn 5.",
+                              "Turn 5 cross-validates A3 against A2's n=1 reference via the additive-overhead lens (Δ ≈ constant ~7.5k across all 6 data points), turning what would have been two apparently contradictory numbers (A2's 1.80x vs A3's 3.35x) into a single coherent operational story. The result MD §6.3 records both multiplicative and additive forms so A3b/A4 can pick up the right one per scope.",
+                              "Turn 6 spent one turn beyond the original max_turns=5 budget because the protocol still required an independent codex-side close gate after Turn 5 execute. max_turns is preserved as the planned budget; current_turn=6 records the one-turn overrun explicitly."
+                          ]
+}

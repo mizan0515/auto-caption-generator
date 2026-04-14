@@ -1,0 +1,99 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-15-phase-a3-token-margin-sampling"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Restate the A2-derived baseline from live files (not memory): (a) pipeline/chunker.py keeps split_by_chars() + split_by_tokens() with per-cue raw_block as the single split unit, (b) pipeline/main.py:191-197 passes both max_chars=8000 and max_tokens=cfg.get('chunk_max_tokens') so precedence is chunk_max_tokens>chunk_max_chars, (c) pipeline/config.py DEFAULT_CONFIG has chunk_max_tokens=None + chunk_tokenizer_encoding='cl100k_base', (d) pipeline/claude_cli.py:23-58 _log_usage() emits input/output/cache_creation/cache_read separately, (e) provisional operational rule from A2 §5 is `tiktoken_predicted * 1.8 ≈ user-attributable tokens (input + cache_creation)` based on n=1 chunk. The A3 result doc must quote these five points with file:line anchors before any new measurement is taken."
+      verification: "experiments/results/2026-04-15_phase-a3_token-margin-sampling.md §1 (Baseline) must contain the five file:line anchors above and must not paraphrase from A2 summary — each bullet must be re-read from the live file at run time."
+    - id: C2
+      description: "Define and confirm the A3 sample set on three axes: length (30min / 1h / 3h), genre (talk / game / song, or the closest available substitutes), and chat density (low / medium / high msgs-per-minute). Enumerate candidate samples from the current repo (work/, output/, experiments/results/) with file paths and known metadata. Any axis point that cannot be covered by existing repo artifacts is recorded as a blocker with the minimum action needed to obtain the sample."
+      verification: "§2 (Sample set) must list at least 3 concrete <SRT_path, chat_log_path, length_min, genre, density_tier> rows, AND a separate 'blockers' subsection for any axis cell that cannot be satisfied today. Current live inventory shows only work/12702452/*clip1800s.srt + work/12702452/12702452_chat.log exist (30-min talk clip), so C2 proof must include a concrete acquisition plan (e.g. 'download full-length 12702452 VOD via pipeline.downloader', 'pull 12402235 chat.log from chzzk') or a scope cut."
+    - id: C3
+      description: "Define the per-chunk measurement protocol so every datapoint is reproducible and comparable: for each (sample, chunk_index) pair record predicted_prompt_tokens (tiktoken cl100k_base on the exact string produced by _build_chunk_prompt), observed_input_tokens, observed_cache_creation_input_tokens, observed_cache_read_input_tokens, observed_sum, user_attributable (input+cache_creation), absolute_delta (sum − predicted), user_ratio (user_attributable / predicted), sample_metadata {length_min, genre, density_tier, chunk_index, chunk_cue_count}. The protocol must explicitly separate cache_read from user_attributable because A2 showed ~20k of cache_read is Claude CLI's own system prompt, not user prompt."
+      verification: "§3 (Protocol) must contain the complete field list, the exact invocation (call_claude or equivalent wrapper via pipeline.summarizer._build_chunk_prompt), and a rule for warm-cache control (e.g. 'measure the second call after a cache-warming call, not the first') so user_ratio is not contaminated by cache_creation being abnormally high on first hit. Must also define the single-point aggregation: mean/median of user_ratio across chunks, with n and stdev."
+    - id: C4
+      description: "Pre-register the result-doc table schema and the PASS/FAIL decision rule for the 1.8x operational margin. Schema: one row per (sample, chunk_index) with the fields from C3, plus per-sample summary rows (median user_ratio, 95% range, n_chunks). Decision rule: margin gets promoted from 'provisional 1.8x' to an operational recommendation IFF (a) n >= 3 samples, (b) user_ratio is in [1.6, 2.0] for at least 75% of chunks, (c) outliers are explained (genre/density), (d) the recommended margin accounts for the observed spread (e.g. 'use 2.0x as safety margin' if P95 is 2.0). Otherwise C4 reports 'insufficient evidence to generalize 1.8x' and scopes the follow-up."
+      verification: "§4 (Decision framework) must include the table schema with column names + types AND the four-clause decision rule verbatim. §5 (Recommendation) is the placeholder where Turn 2+ execute will fill in {recommended_margin, confidence, known_limits}."
+    - id: C5
+      description: "Assign C3 live measurement execution per agent capability: claude-code owns the first measurement pass because codex-side `claude -p --output-format json` still returned 401 in A2 Turn 3 and remained unresolved through A2 Turn 5. Codex role in A3 is peer review + independent recomputation from logs claude-code produces. If codex auth recovers between turns, C5 is re-scoped. The assignment must be explicit in the packet so execute Turn cannot silently skip live calls due to 'auth was 401'."
+      verification: "§6 (Execution assignment) must name the agent per measurement pass, cite the A2 Turn 3 and Turn 5 401 observations, and state the fallback ('if codex auth recovers, re-assign at start of execute turn'). If claude-code auth also breaks, the packet must downgrade C5 to measurement-blocked rather than silently skip."
+
+peer_review:
+  task_model_review:
+    status: n/a
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "A2 open risks (single-chunk measurement, tiktoken version pin, Claude CLI cache_read overhead, pre-existing dirty tree, Korean-specific single-genre sample) are the direct motivation for A3; do not try to resolve them in Turn 1, just link."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Live re-read in this turn confirmed all five anchors: pipeline/chunker.py lines 101-201 (split_by_chars at :101-133, split_by_tokens at :156-201), pipeline/main.py:186-197 (precedence comment + chunk_srt call), pipeline/config.py:17-27 (DEFAULT_CONFIG chunk_max_chars/chunk_max_tokens/chunk_tokenizer_encoding/chunk_overlap_sec), pipeline/claude_cli.py:23-58 (_log_usage with the four-field iteration), experiments/results/2026-04-15_phase-a2_token-chunking.md §5 (predicted 9,906 vs observed sum 38,518, user-attributable ≈17,850 giving ~80% under-count / 1.8x margin rule)."
+    C2:
+      status: PASS
+      evidence: "Sample inventory is explicit below with acquisition blockers called out rather than silently assumed. Only work/12702452/*clip1800s.srt + 12702452_chat.log are present as raw SRT+chat today; output/ contains a second VOD (12402235) but only as HTML/md/metadata. Contract pre-registers the blocker path rather than committing to fiction."
+    C3:
+      status: PASS
+      evidence: "Protocol field list matches A2 §5's four-field Claude usage breakdown plus the sum/user_attributable/delta/ratio derived metrics. Warm-cache control is pre-registered to avoid A2's confound where cache_creation dominated on the first call."
+    C4:
+      status: PASS
+      evidence: "Decision framework is pre-registered BEFORE data collection, which avoids HARKing (hypothesizing after results). The four-clause rule makes 'insufficient evidence' a legitimate Turn 2 outcome instead of forcing a spurious generalization from a too-small sample."
+    C5:
+      status: PASS
+      evidence: "A2 Turn 3 state.json records 'codex auth probe still returns 401' and A2 Turn 5 converged without codex re-attempting live Claude calls. A3 Turn 1 inherits that state; claude-code ownership of the first measurement pass is operationally correct, not a workaround."
+  issues_found: []
+  fixes_applied:
+    - "변경 불필요, PASS — plan-only Turn 1. No code or pipeline docs touched. Session + packet + state only."
+
+my_work:
+  plan: "Open a new DAD session 2026-04-15-phase-a3-token-margin-sampling (A2 is converged, so not a continuation), read the live files that A2 produced (chunker.py, config.py, main.py, claude_cli.py) to anchor the A3 baseline, enumerate the sample axes (length / genre / density), design the per-chunk measurement protocol with cache_read isolation, pre-register the PASS/FAIL decision rule for the 1.8x margin, and record both the agent assignment (claude-code owns live calls while codex auth stays 401) and the blocker list for samples not currently in the repo. No code or pipeline docs change this turn."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-01.yaml"
+    summary: "Opened Phase A3 DAD session with a plan-only Turn 1 packet. Baseline re-anchored from live pipeline files (chunker/main/config/claude_cli) plus the A2 result doc. Sample set designed across three axes (length/genre/density) with blockers pre-recorded for every axis cell the repo cannot cover today. Measurement protocol separates cache_read (Claude CLI system prompt overhead) from user_attributable (input+cache_creation). Pre-registered a four-clause decision rule for promoting the provisional 1.8x margin. Claude-code assigned first measurement pass because codex-side `claude -p` 401 remained through A2 Turn 5."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "powershell -NoProfile -Command \"Get-Content Document/dialogue/state.json | ConvertFrom-Json | Select-Object session_id,session_status,contract_status,current_turn,last_agent | Format-List\"  # confirmed A2 converged before opening A3"
+      - "powershell -NoProfile -File tools/New-DadSession.ps1 -SessionId 2026-04-15-phase-a3-token-margin-sampling -TaskSummary 'Phase A3 tiktoken under-count margin sampling (plan-only Turn 1)' -Scope medium -Mode hybrid -Root ."
+      - "Read pipeline/chunker.py (verified raw_block unit, split_by_tokens, docstring invariant)"
+      - "Read pipeline/main.py:180-200 (verified fallback 8000, max_tokens=cfg.get('chunk_max_tokens') passed)"
+      - "Read pipeline/config.py:17-27 (verified DEFAULT_CONFIG token-related keys)"
+      - "Read pipeline/claude_cli.py:1-60 (verified _log_usage four-field emission)"
+      - "Read experiments/results/progress_report.md (A3 scope = 실험 재실행, items 3 and 4 still open)"
+      - "powershell -NoProfile -Command \"Get-ChildItem -Path work -Recurse -Include *.srt,*.log | Select-Object FullName,Length\"  # inventory showed only work/12702452/*clip1800s.srt + 12702452_chat.log available"
+      - "powershell -NoProfile -Command \"Get-ChildItem -Path output -File\"  # 12402235 VOD present as html/md/metadata only, no raw SRT"
+    artifacts:
+      - "pipeline/chunker.py"
+      - "pipeline/main.py"
+      - "pipeline/config.py"
+      - "pipeline/claude_cli.py"
+      - "experiments/results/2026-04-15_phase-a2_token-chunking.md"
+      - "experiments/results/progress_report.md"
+  verification: "A2 state.json confirmed session_status=converged, current_turn=5, last_agent=codex; new A3 session scaffolded via tools/New-DadSession.ps1 and turn-01.yaml written as plan-only. Live file anchors for C1 verified by Read at run time. Sample inventory (work/12702452/*clip1800s.srt + 12702452_chat.log only) was listed from the actual filesystem, not memorized. No code or pipeline docs were modified this turn."
+  open_risks:
+    - "Sample acquisition is the critical path: only 1 talk clip (30-min) is currently present as raw SRT+chat. Without pipeline.downloader re-run or chzzk VOD acquisition, the 3-sample minimum for C4 decision rule cannot be met; execute Turn 2 may have to pause for acquisition."
+    - "Cost: each C3 live Claude call has ~40k tokens of usage (17,848 cache_creation + 20,668 cache_read + small input from A2). N_samples * N_chunks_per_sample * ~$0.11/call on the observed A2 sample. A 3-sample × 3-chunk pass is ~9 calls ≈ $1; not prohibitive but should be budgeted so Turn 2 is not rate-limited."
+    - "tiktoken cl100k_base is still the tokenizer under test, not the tokenizer we believe Claude uses internally. A3 tests the margin, not the tokenizer choice itself; swapping tokenizers is out of A3 scope."
+    - "codex-side 401 has persisted across two full DAD sessions (A1 Turn 4, A2 Turn 3, A2 Turn 5). If it persists into A3 execute, codex peer review will be limited to log re-analysis, not independent measurement. Explicit in C5."
+    - "pre-existing dirty worktree (carried over from A1/A2) still not committed; no A3 file should be staged with those files to avoid polluting feature commits."
+  confidence: high
+
+handoff:
+  next_task: "User approval checkpoint for Phase A3 Turn 1 (plan-only). If approved, Turn 2 is a codex peer review of the contract against live files (C1 anchors, C2 sample plan realism, C3 protocol completeness, C4 decision rule non-HARKing, C5 agent assignment). Turn 3+ is execute: claude-code owns the first measurement pass (load existing work/12702452/*clip1800s.srt + 12702452_chat.log, call call_claude via _build_chunk_prompt, log all four usage fields, append rows to experiments/results/2026-04-15_phase-a3_token-margin-sampling.md), blocked on sample acquisition for the 1h/3h rows."
+  context: "A2 converged; A3 starts from A2's provisional `tiktoken_predicted * 1.8` operational margin rule that was derived from a single chunk on a single 30-minute Korean talk clip (work/12702452). A3's job is to test whether 1.8x generalizes across length/genre/density or whether the recommendation needs to be stratified. Live baseline for A3 is anchored in five file:line citations (see C1). Sample inventory is thin (1 raw SRT+chat pair), so C2 explicitly calls out acquisition blockers instead of hiding them. Measurement protocol (C3) separates cache_read from user_attributable because A2 Turn 4 discovered Claude CLI itself contributes ~20k cache_read tokens per call that must NOT be counted toward the prompt margin. Decision rule (C4) is pre-registered with a four-clause PASS/FAIL so Turn 2 execute cannot HARK the answer from too few samples. Execution assignment (C5) gives claude-code the first live measurement pass because codex-side `claude -p` returned 401 in A2 Turn 3 and remained 401 through A2 Turn 5."
+  questions:
+    - "Q1: Should Turn 2 attempt to acquire a 1h and a 3h sample via pipeline.downloader before entering measurement, or should A3 scope be narrowed to 'margin validation on the existing 30-min sample with multiple chunks + second-sample-if-available'? Downloader + chzzk cookies + storage costs need a green light before execute."
+    - "Q2: Should A3 use the same chunk_max_chars=8000 config as A2 for comparability, or also sweep chunk_max_tokens at 4000/8000/16000 to decouple 'margin depends on sample' from 'margin depends on chunk size'? The latter doubles measurement cost but is necessary if Turn 4 wants to recommend a config-level default."
+    - "Q3: Should claude-code's first execute pass run all samples in one session (maximizes cache_read hit rate, cheaper per call) or separate sessions (isolates cache_read as a clean overhead constant, cleaner attribution)? Pre-registration of warm-cache control in C3 requires picking one."
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

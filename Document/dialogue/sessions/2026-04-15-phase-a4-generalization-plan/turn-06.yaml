@@ -1,0 +1,151 @@
+type: turn
+from: codex
+turn: 6
+session_id: "2026-04-15-phase-a4-generalization-plan"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Re-anchor A2/A3 baseline from live files and document that no runtime config change has yet been made. Seven live anchors: pipeline/config.py:9-41 (chunk_max_tokens=None default), pipeline/main.py:186-197 (precedence), pipeline/chunker.py:156-201 (split_by_tokens per-cue raw_block), pipeline/chunker.py:204-257 (chunk_srt dispatcher), pipeline/claude_cli.py:23-58 (_log_usage four-field), pipeline/summarizer.py:59/:121 (_build_chunk_prompt signature + call), experiments/results/2026-04-15_phase-a3_token-margin-sampling.md §5-§6 (3.35x + ~7.5k). Any execute turn must re-read each anchor in its opening step."
+    - id: C2
+      description: "Pre-register the 3x3 generalization matrix (length {30min,1h,3h}, genre {talk,game,reaction-or-music}, chat_density {low <=20, medium 20-60, high >60 msgs/min}) as a planning scaffold. A3 covers only (30min, talk, high~76.21). A cell is covered iff >=3 chunks pass A3 C3 ±3% consistency. Global multiplicative promotion is allowed only when >=5 distinct cells are covered, at least one covered cell exists in each length bucket, coverage spans at least 2 genres and 2 density tiers, and each covered cell's P95 user_ratio stays within ±15% of the observed global median P95 (median defined over covered cells' per-cell P95_user_ratio using A3's small-n convention: ratios_sorted[n//2] for odd n, (ratios_sorted[n//2-1]+ratios_sorted[n//2])/2 for even n). Otherwise publish per-cell recommendations and/or additive form only."
+    - id: C3
+      description: "Separate acquisition slice from measurement slice. Acquisition options per uncovered cell: (a) re-transcribe existing full-VOD work/12702452_*144p.mp4 for length extension (subject to actual mp4 duration), (b) pipeline.downloader + Chzzk cookies for new VODs, (c) mark blockers for genre cells that Chzzk cannot reach. Measurement turns then run the A3 C3 protocol unchanged (tiktoken cl100k_base on _build_chunk_prompt, cold/warm, ±3%, ceil(P95*1.05*100)/100)."
+    - id: C4
+      description: "Pre-register A4 result-doc schema: per-(cell,sample,chunk) row = [sample_id, length_min, genre, density_tier, chat_density_msgs_per_min, chunk_index, predicted, input, cache_creation, cache_read, user_attributable, cache_read_delta, consistency_pass, user_ratio, additive_overhead]; per-cell aggregates = [n_chunks, n_valid_chunks, median_user_ratio, P95_user_ratio, median_additive_overhead]. Any cell with n_valid_chunks < 3 is insufficient-data and is excluded from global promotion calculations. The global section publishes both multiplicative margin AND additive form (+~7.5k + CLI cache 20,668). Four possible decisions remain: global multiplicative, global additive, per-cell multiplicative, scope-blocked."
+    - id: C5
+      description: "Execution ownership under persistent codex-side 401: claude-code owns every live measurement turn, codex owns peer verification + raw-artifact recomputation. Every codex turn re-probes auth at start; reassign C5 on 200. If claude-code auth degrades too, downgrade session from execute to measurement-blocked rather than silently stalling."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "Codex-side auth probe still returned 401 on Turn 6, so peer-only mode remained correct and no extra measurement was attempted."
+      - "W2 and W3 are numerically identical on chunk_index 1-4 for predicted/input/cache_creation/cache_read, which supports the Turn 5 interpretation that same-start-offset sampling inflated nominal density coverage without adding an independent cell."
+      - "The user-provided full-render template-hash probe does not match raw.json because A4 records the prompt-prefix hash from experiments/a4_measure.py::make_template_hash(), not the SHA over the full rendered prompt body."
+      - "Genre coverage is still one (`talk`) even though density labels span high/medium/low, so the C2 tree still blocks any global promotion regardless of arithmetic correctness."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "No anchor drift was found. pipeline/config.py:18-28 still declares chunk_max_chars=8000, chunk_max_tokens=None, chunk_tokenizer_encoding='cl100k_base', chunk_overlap_sec=30. pipeline/main.py:187-196 still applies precedence via chunk_srt(..., max_chars=cfg.get('chunk_max_chars', 8000), overlap_sec=cfg.get('chunk_overlap_sec', 30), max_tokens=cfg.get('chunk_max_tokens'), tokenizer_encoding=cfg.get('chunk_tokenizer_encoding', 'cl100k_base')). pipeline/chunker.py:156-179 still tokenizes per-cue raw_block via token_count_cache; pipeline/chunker.py:220-233 still dispatches on if max_tokens is not None and pipeline/chunker.py:252 still emits char_count from rendered text. pipeline/claude_cli.py:23-41 still emits four usage fields behind an empty-payload guard. pipeline/summarizer.py:59 and 121 still define/call _build_chunk_prompt(chunk, highlights, chats, vod_info). experiments/results/2026-04-15_phase-a3_token-margin-sampling.md:123-136 and 154-183 still carry the 3.35 / 3.1541 / 3.1843 / ~7.5k anchors."
+    C2:
+      status: PASS
+      evidence: "Recomputed the C2 decision tree from raw.json. covered_cell_count=3, covered_lengths={30,60,180}, covered_genres=['talk'], covered_density_tiers=['high','low','medium']; therefore axis_coverage_ok=false because covered<5 and genres<2. Per-cell P95s are [3.2008, 2.6606, 2.6606], so global_median_P95=2.6606, ±15% window=[2.2615, 3.0597], and W1-30min-talk-high is the sole dispersion failure. That yields dispersion_ok=false and the re-derived decision falls to per_cell_multiplicative, matching raw.json."
+    C3:
+      status: PASS
+      evidence: "All 12 rows independently satisfy the row equations. For every row, user_attributable_cold = cold.input_tokens + cold.cache_creation_input_tokens, additive_overhead = user_attributable_cold - predicted, user_ratio = user_attributable_cold / predicted, and cache_read_delta = warm.cache_read_input_tokens - cold.cache_read_input_tokens. The absolute deviation is 2 for every row, and deviation/user_attributable ranges from 0.000129 to 0.000187, well inside the 0.03 tolerance, so all 12 consistency_pass values remain true."
+    C4:
+      status: PASS
+      evidence: "Per-cell aggregates also match. W1 median_user_ratio=2.6983, P95_user_ratio=3.2008, median_additive_overhead=7514.0. W2 median_user_ratio=2.4253, P95_user_ratio=2.6606, median_additive_overhead=7604.0. W3 matches W2 exactly on all three aggregates. Because axis_coverage_ok and dispersion_ok are both false, recommended_margin remains null in raw.json, while the per-cell multiplicative margins reported in the result MD remain the correct operator-facing output."
+    C5:
+      status: PASS
+      evidence: "Mandatory Turn 6 auth re-probe `claude -p \"ping\" --output-format json --max-turns 1` returned rc=1 with authentication_error 401 and request_id=req_011Ca45jJmFXHnN3NPjJnaiK. C5 therefore stays unchanged: codex remained in peer-verification mode and did not perform any new measurement."
+  issues_found:
+    - "The user's optional full-render template-hash probe produced `b21b5fb85393312a`, which does not match raw.json's `4d732b40fa470862`. This is not a raw.json inconsistency: experiments/a4_measure.py hashes only the prompt prefix before the `__TRANSCRIPT__` placeholder, and running `experiments.a4_measure.make_template_hash()` reproduces `4d732b40fa470862` exactly."
+    - "W2 and W3 are identical across chunk_index 1-4 not only in predicted tokens but also in input/cache_creation/cache_read fields. The numerical evidence supports Turn 5's same-start-offset interpretation; no alternative pipeline bug is needed to explain the equality."
+    - "A4 remains operationally incomplete for global promotion because genre coverage is still one and W2/W3 behave like an effective duplicate cell. This is a scope limit, not a Turn 5 arithmetic error."
+  fixes_applied:
+    - "변경 불필요, PASS — Turn 6 only wrote the peer-verification packet and state updates. No runtime code, no pipeline docs, and no result artifacts were modified."
+
+my_work:
+  plan: |
+    Stay in peer-only mode, re-probe auth, re-audit all seven C1 anchors from live files,
+    recompute every raw.json row and cell aggregate from first principles, verify the C2
+    decision tree and the W2==W3 same-start-offset claim, optionally check the template-hash
+    implementation against the stored metric, then record a close recommendation without
+    performing any new live measurement.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-06.yaml"
+    summary: |
+      Independent recomputation matched all 12 raw rows, all 3 cell aggregates, the global
+      dispersion window, and the decision `per_cell_multiplicative`. W2 and W3 are numerically
+      identical on the core measurement fields, which confirms the same-start-offset overlap
+      interpretation. Codex auth remained 401, so no new measurement was attempted.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"duration_ms":641,"duration_api_ms":0,"num_turns":1,"result":"Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid authentication credentials\"},\"request_id\":\"req_011Ca45jJmFXHnN3NPjJnaiK\"}","stop_reason":"stop_sequence","session_id":"7b757886-194a-4fab-8fba-998fbceb47a7","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"fast_mode_state":"off","uuid":"1615fb69-f521-4577-9b59-5d9e22e27888"}
+        stderr=
+      - "rg -n \"chunk_max_chars|chunk_max_tokens|chunk_tokenizer_encoding|chunk_overlap_sec\" pipeline/config.py"
+      - "rg -n \"chunk_srt\\(|max_tokens=cfg.get|tokenizer_encoding=cfg.get|chunk_max_chars\" pipeline/main.py"
+      - "rg -n \"def split_by_tokens|token_count_cache|encoder.encode\\(c\\.raw_block\\)|while rewind_start|def chunk_srt|if max_tokens is not None|char_count\" pipeline/chunker.py"
+      - "rg -n \"def _log_usage|input_tokens|output_tokens|cache_creation_input_tokens|cache_read_input_tokens\" pipeline/claude_cli.py"
+      - "rg -n \"def _build_chunk_prompt|_build_chunk_prompt\\(\" pipeline/summarizer.py"
+      - "rg -n \"recommended_margin|3\\.35|3\\.1541|3\\.1843|7\\.5k|7620|additive\" experiments/results/2026-04-15_phase-a3_token-margin-sampling.md"
+      - |
+        python raw.json recomputation
+        row_errors=[]
+        cell_checks:
+          W1 median=2.6983 p95=3.2008 median_additive=7514.0
+          W2 median=2.4253 p95=2.6606 median_additive=7604.0
+          W3 median=2.4253 p95=2.6606 median_additive=7604.0
+        global:
+          median_P95=2.6606
+          dispersion_range=[2.2615, 3.0597]
+          dispersion_failures=['W1-30min-talk-high']
+          axis_coverage_ok=false
+          dispersion_ok=false
+          decision=per_cell_multiplicative
+        additive_overhead_stats:
+          mean=7578.8333 std=157.5689
+          mean_with_a2=7606.9231 std_with_a2=179.9626
+      - |
+        python W2/W3 equivalence comparison
+        chunk_index 1..4:
+          predicted_equal=true
+          input_equal=true
+          cache_creation_equal=true
+          cache_read_equal=true
+      - |
+        python full-render template hash probe
+        result=b21b5fb85393312a
+      - |
+        python -c "from experiments.a4_measure import make_template_hash; print(make_template_hash())"
+        rc=0
+        stdout=4d732b40fa470862
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "experiments/results/2026-04-15_phase-a4_raw.json"
+      - "experiments/results/2026-04-15_phase-a4_generalization.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-05.yaml"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-06.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+  verification: |
+    Recalculation was performed directly from experiments/results/2026-04-15_phase-a4_raw.json.
+    No Claude API measurement, ffmpeg, Whisper, or pipeline runtime code path was re-executed.
+    Both validators still pass after writing the Turn 6 packet and state.
+  open_risks:
+    - "Codex-side auth is still 401, so any future Codex execute turn would still need either recovered auth or delegation to claude-code."
+    - "The A4 decision is only `per_cell_multiplicative`; global promotion remains blocked on genre coverage and the effective duplication of W2/W3."
+    - "Turn 5's transcribe.py split-video bug remains unresolved and should stay as a separate follow-up slice, not a retroactive A4 blocker."
+  confidence: high
+
+handoff:
+  next_task: |
+    No Turn 7 is required for arithmetic correction. If the user accepts the peer-verification
+    result, the session can be closed as scoped done and the next follow-up can be a new slice
+    for genre-axis acquisition or the transcribe.py split-video bug.
+  context: |
+    Turn 6 independently confirmed that raw.json is numerically self-consistent and that the
+    C2 decision tree correctly lands on per_cell_multiplicative. The only material limit is
+    scope: global promotion is blocked by single-genre coverage and W2/W3 effective duplication.
+    The stored template_hash is also internally consistent once verified against
+    experiments.a4_measure.make_template_hash().
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "A4 generalization closed with per_cell_multiplicative; global promotion blocked on genre/density coverage"

@@ -1,0 +1,93 @@
+type: turn
+from: claude-code
+turn: 5
+session_id: "2026-04-15-phase-a3-token-margin-sampling"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "A2 baseline re-anchored from live files before A3 measurement: raw_block token split in pipeline/chunker.py:156-201, precedence wiring in pipeline/main.py:191-197, token config keys in pipeline/config.py:23-27, four-field usage logging in pipeline/claude_cli.py:23-58, A2 §5 provisional 1.8x rule."
+    - id: C2
+      description: "Option B: A3 execute is single-sample multi-chunk on work/12702452/*clip1800s.srt + 12702452_chat.log (30-min Korean talk, ~76 msgs/min); cross-axis generalization (length/genre/density) stays explicitly blocked."
+    - id: C3
+      description: "Paired cold/warm per chunk, authoritative user_ratio = (input + cache_creation)_cold / predicted_prompt_tokens, predicted = tiktoken cl100k_base on the full _build_chunk_prompt() string, ±3% consistency check on (cache_read_warm − cache_read_cold)."
+    - id: C4
+      description: "recommended_margin = ceil(global_P95 * 1.05 * 100) / 100, FAIL reserved for insufficient data (n<3), protocol breakage (>25% consistency fail), or scope limit (single-axis-only generalization)."
+    - id: C5
+      description: "claude-code owns Turn 5 execute; codex-side auth remained 401 at Turn 4 probe, so peer review via log reanalysis."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "recommended_margin 3.35x is materially higher than A2's provisional 1.8x; root cause is not tiktoken-multiplier drift but a ~7.5k-token additive overhead that sits closer to the Claude CLI / tokenizer boundary. §6.3 proposes both multiplicative and additive forms; config update deferred to A3b/A4 when scope is widened."
+      - "pipeline/config.py:23-27 still has chunk_max_tokens=13200 computed under A2's 1.8x. Under A3's 3.35x on the small-chunk regime this would under-budget by ~50%. Deliberately not touched this turn per Turn 3 C4 (iii) — changing the live config from single-axis A3 data would be silent generalization."
+      - "Scope cavats in §6.4 must be carried forward to any follow-up turn that references this recommendation; A3b (length) and A4 (genre/density) should cite §6.3's two-form recommendation explicitly."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "§1 of the result MD quotes five live anchors verified at run time: pipeline/chunker.py:156-201 split_by_tokens, pipeline/main.py:191-197 precedence, pipeline/config.py:23-27 chunk_max_tokens/chunk_tokenizer_encoding, pipeline/claude_cli.py:23-58 _log_usage four-field, experiments/results/2026-04-15_phase-a2_token-chunking.md §5 predicted=9906/user_attributable=17850/1.80x. All match Turn 4's preflight and Turn 3's acceptance."
+    C2:
+      status: PASS
+      evidence: "Option B executed exactly as contracted: single SRT (work/12702452/[탬탬버린] 7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다._clip1800s.srt) + single chat.log (work/12702452/12702452_chat.log), 5 chunks under chunk_max_tokens=2500. §2 of the MD enumerates blocked axes (length/genre/density) per Turn 3 A1 resolution."
+    C3:
+      status: PASS
+      evidence: "Protocol executed literally. predicted_prompt_tokens = len(tiktoken.cl100k_base.encode(_build_chunk_prompt(...))). Cold/warm pairs for all 5 chunks captured in experiments/results/2026-04-15_phase-a3_raw.json. ±3% check passed on all 5 with deviation=2 tokens (vs tolerance 321-428). Deviation=2 is exactly cold.input_tokens=2, so the cache mechanism transferred user prompt losslessly from cache_creation to cache_read."
+    C4:
+      status: PASS (scoped)
+      evidence: "n_chunks_valid=5 ≥ 3 (passes (i)). consistency_fail_count=0 (0% < 25%, passes (ii)). (iii) scope-limit is declared in §2 and §6.4 — recommendation valid only for 30-min Korean talk, ~76 msgs/min. ratios_sorted=[2.1763, 2.2124, 3.1541, 3.1775, 3.1843]; small-n P95=max=3.1843; recommended_margin = ceil(3.1843 * 1.05 * 100) / 100 = 3.35. §6 records A2 sanity comparison showing additive overhead (Δ) is ≈ constant ~7.5k across all samples including A2's 9906."
+    C5:
+      status: PASS
+      evidence: "claude-code-side `claude -p 'Reply with OK-A3-T5-PROBE' --output-format json --max-turns 1` returned 200 OK with full usage block (input=2, output=5, cache_creation_input_tokens≈750, cache_read_input_tokens≈19919). Execute proceeded as planned. 10 Claude calls over ~7 min wall, total cost ≈ $0.85 matching Turn 4's estimate."
+  issues_found: []
+  fixes_applied:
+    - "No code/config changes — Turn 3 C4 forbids generalizing single-axis A3 findings to pipeline runtime. Result MD, turn packet, and raw JSON are the only artifacts produced."
+
+my_work:
+  plan: "Execute Turn 5 under the Turn 3-accepted contract: (1) re-verify live anchors, (2) wire tiktoken + usage capture without modifying pipeline code, (3) run 5 cold/warm pairs on work/12702452 at chunk_max_tokens=2500, (4) compute ±3% consistency, median, P95, recommended_margin, (5) write §1-§6 result MD + raw JSON, (6) update packet/state, (7) run both PowerShell validators."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/state.json"
+    files_created:
+      - "experiments/a3_measure.py"
+      - "experiments/results/2026-04-15_phase-a3_raw.json"
+      - "experiments/results/2026-04-15_phase-a3_token-margin-sampling.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-05.yaml"
+    summary: "Executed single-sample multi-chunk measurement on work/12702452 with chunk_max_tokens=2500 → 5 chunks. All 5 chunks passed ±3% consistency (deviation=2 tokens each). ratios_sorted=[2.18, 2.21, 3.15, 3.18, 3.18], median=3.1541, P95=3.1843, recommended_margin=3.35 (vs A2 provisional 1.80x). Root cause: additive overhead Δ=user_attributable−predicted is ≈ constant ~7.5k across all chunks including A2's n=1 reference (9906 → 17850, Δ=7944), so the apparent ratio inflation at small predicted is actually a fixed Claude-side overhead, not a multiplicative tokenizer drift. §6 records both multiplicative (3.35x) and additive (+7800 tokens) operational forms; pipeline/config.py was deliberately not touched because single-axis A3 data must not be silently generalized to runtime (Turn 3 C4 iii)."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "claude -p 'Reply with OK-A3-T5-PROBE' --output-format json --max-turns 1   # 200 OK"
+      - "PYTHONPATH=. python -X utf8 experiments/a3_measure.py"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "experiments/a3_measure.py"
+      - "experiments/results/2026-04-15_phase-a3_raw.json"
+      - "experiments/results/2026-04-15_phase-a3_token-margin-sampling.md"
+      - "pipeline/summarizer.py"
+      - "pipeline/claude_cli.py"
+      - "pipeline/chunker.py"
+      - "pipeline/chat_analyzer.py"
+      - "pipeline/models.py"
+  verification: "5/5 chunks PASSED ±3% consistency with deviation=2 vs tolerance 321-428. recommended_margin=3.35 derived per contract formula. No pipeline module was modified. MD §1 quotes five live anchors verified immediately before execute. raw JSON is the primary reproducible source; §4-§6 of the MD re-derives aggregation from it."
+  open_risks:
+    - "3.35x is scope-limited to 30-min Korean talk with ~76 msgs/min. Applying it to 1h/3h length or game/reaction/music genres without A3b/A4 acquisition is an explicit contract violation."
+    - "pipeline/config.py:25 chunk_max_tokens=13200 was computed from A2's 1.8x rule. Under A3's small-chunk 3.35x it would under-budget roughly 2x. Config change deliberately deferred — post-A3b/A4 only."
+    - "Additive overhead 7.5k is likely CLI-wrapper + Korean tokenizer mismatch mix. If Claude CLI upgrades change the system prompt (today: 20,668 cache_read constant) or if _build_chunk_prompt instruction wording changes, this constant needs re-measurement."
+    - "small-n P95 = max; single new chunk outside [2.18, 3.18] would shift recommendation. A3b length-axis sampling is expected to add at least 3 more chunks per length bucket."
+  confidence: high
+
+handoff:
+  next_task: "사용자 승인 후 Phase A3 세션을 done 처리하거나 A3b (length expansion: 1h/3h acquisition) 로 새 세션 개설. Pipeline config 반영은 A3b/A4 완료 후에 수행."
+  context: "A3 세션은 Turn 3-accepted contract 의 모든 체크포인트를 scope-limited PASS 로 닫았다. 결과물 세 종: experiments/results/2026-04-15_phase-a3_token-margin-sampling.md (§1-§7), experiments/results/2026-04-15_phase-a3_raw.json (원자료), experiments/a3_measure.py (재현 스크립트). recommended_margin=3.35x 은 30-min Korean talk, ~76 msgs/min 스코프에서 유효하며 A2 의 1.80x 는 predicted≈10k 대역 특수해로 강등. 후속 방향은 §6.3 의 additive 식 (+7,800 tokens + 20,668 CLI cache) 을 A3b/A4 에서 재검증하는 것. pipeline/config.py:25 chunk_max_tokens=13200 은 이 turn 에서 의도적으로 건드리지 않음 (single-axis generalization 차단)."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Turn 3 C4 기준 3개 FAIL 조건 모두 비충족: (i) n_valid=5 ≥ 3, (ii) consistency_fail=0/5=0% ≤ 25%, (iii) single-axis 스코프가 §2/§6.4 에 명시적으로 선언됨 (scoped PASS). recommended_margin=3.35 는 contract formula 그대로 계산됨. A2 sanity comparison (additive overhead Δ≈7.5k 상수) 로 두 실험이 모순 없이 정렬됨. 남은 축 확장은 A3b/A4 신세션."
