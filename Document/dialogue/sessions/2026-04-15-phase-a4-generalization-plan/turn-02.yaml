@@ -1,0 +1,183 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-15-phase-a4-generalization-plan"
+
+contract:
+  status: amended
+  checkpoints:
+    - id: C1
+      verdict: accept
+      rationale: "All seven live anchors matched the proposed baseline after direct file:line re-read."
+    - id: C2
+      verdict: amend
+      rationale: "The >=5 cells and +/-15% of fixed 3.35x rule is falsifiable, but it is still anchored too tightly to one A3 cell and does not require axis coverage."
+    - id: C3
+      verdict: accept
+      rationale: "Acquisition-vs-measurement separation is valid, and local duration/cookie-path checks show the length axis is feasible without downloader while genre expansion still depends on acquisition."
+    - id: C4
+      verdict: amend
+      rationale: "The per-chunk schema is mostly compatible with A3 raw JSON, but it omits exact numeric chat density and does not explicitly inherit the per-cell n<3 insufficient-data rule."
+    - id: C5
+      verdict: accept
+      rationale: "The codex-side auth probe is still 401 in this turn, so claude-code remains the live-measurement owner."
+  amendments:
+    - id: A1
+      origin: "codex-turn-2"
+      affects: ["C2"]
+      rationale: "A global rule can look artificially stable if five covered cells are concentrated in one genre or one density tier. The dispersion test should also compare cells against the observed A4 distribution, not a fixed A3 scalar."
+      proposal: "Keep the 3x3 matrix and provisional density buckets for planning, but redefine global multiplicative promotion as: at least 5 covered cells, at least 1 covered cell in each length bucket, coverage across at least 2 genres and 2 density tiers, and each covered cell's P95 user_ratio within +/-15% of the observed global median P95. If any of those fail, publish per-cell recommendations and/or additive form only."
+    - id: A2
+      origin: "codex-turn-2"
+      affects: ["C4"]
+      rationale: "Density tiers are only planning buckets unless the exact msgs/min value is preserved, and A3 already used n<3 as insufficient-data. A4 needs the same explicit rule at the per-cell aggregate level."
+      proposal: "Extend the row schema with exact `chat_density_msgs_per_min`, and add an explicit rule that any cell with fewer than 3 valid chunks is insufficient-data and is excluded from global promotion calculations."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "C2 does not require axis coverage, so five cells could still cluster in one genre or one density tier."
+      - "C4 does not preserve exact numeric density and does not state how n_valid_chunks<3 is treated at the cell level."
+    scope_creep: []
+    risk_followups:
+      - "The existing full-VOD mp4 is 20552.705 seconds (~5.71h), so 1h and 3h length cells are locally acquirable by re-transcribing without Chzzk download."
+      - "pipeline_config.json exists, so downloader-based acquisition remains possible in principle, but cookie validity remains unknown and must stay redacted."
+      - "progress_report.md includes the A3 closeout, but its original A3/A4 labels still do not match the current user-driven session naming."
+    amendments:
+      - id: A1
+        summary: "Require minimum axis coverage and dispersion around observed global median P95, not around fixed 3.35x."
+      - id: A2
+        summary: "Add exact msgs/min to C4 schema and inherit the per-cell n<3 insufficient-data rule."
+  checkpoint_results:
+    C1:
+      status: PASS
+      items:
+        - anchor: "pipeline/config.py:9-26"
+          status: PASS
+          evidence: "DEFAULT_CONFIG still has chunk_max_chars=8000, chunk_max_tokens=None, chunk_tokenizer_encoding='cl100k_base', and chunk_overlap_sec=30."
+        - anchor: "pipeline/main.py:186-193"
+          status: PASS
+          evidence: "chunk_srt() is still called with five live args: srt_path, max_chars, overlap_sec, max_tokens, tokenizer_encoding."
+        - anchor: "pipeline/chunker.py:156-200"
+          status: PASS
+          evidence: "split_by_tokens() still encodes each cue.raw_block once into token_count_cache and uses the same rewind pattern as split_by_chars()."
+        - anchor: "pipeline/chunker.py:203-256"
+          status: PASS
+          evidence: "chunk_srt() still branches on `if max_tokens is not None` and returns dict rows with index, start_ms, end_ms, start_hhmmss, end_hhmmss, cue_count, char_count, and text."
+        - anchor: "pipeline/claude_cli.py:23-58"
+          status: PASS
+          evidence: "_log_usage() still emits input_tokens, output_tokens, cache_creation_input_tokens, and cache_read_input_tokens separately, and returns without logging when no numeric usage field is present."
+        - anchor: "pipeline/summarizer.py:59-64 and 118-121"
+          status: PASS
+          evidence: "_build_chunk_prompt(chunk, highlights, chats, vod_info) is unchanged and process_chunks() still calls it directly."
+        - anchor: "experiments/results/2026-04-15_phase-a3_token-margin-sampling.md:123-136,146,154,183-199"
+          status: PASS
+          evidence: "The A3 result doc still contains additive overhead ~=7.5k, median=3.1541, P95=3.1843, recommended_margin=3.35, scoped PASS, and explicit non-propagation to runtime config."
+    C2:
+      status: FAIL
+      evidence: "The 3x3 matrix is a reasonable planning scaffold and A3 indeed covers exactly one cell (30min, talk, high ~=76.21 msgs/min), but `>=5 cells` plus `+/-15% of fixed 3.35x` is still too A3-anchored. A global rule should require minimum axis coverage and compare cells to the observed A4 distribution, not to the original single-cell scalar."
+    C3:
+      status: PASS
+      evidence: "ffprobe reported 20552.705000 seconds for the local full-VOD mp4, so 1h/3h retranscribe slices are genuinely available from local assets. Test-Path pipeline_config.json returned True, so downloader acquisition remains possible without exposing secrets."
+    C4:
+      status: FAIL
+      evidence: "The proposed 14 per-chunk columns are compatible with A3 raw JSON, and additive_overhead=user_attributable-predicted is the same Delta used in A3. However, the schema should also preserve exact chat_density_msgs_per_min and explicitly state that n_valid_chunks<3 => insufficient-data for per-cell promotion."
+    C5:
+      status: PASS
+      evidence: "The required auth re-probe returned rc=1 with an authentication_error 401 payload again, so codex is still not a live execute owner in this turn."
+  issues_found:
+    - "Turn 1's drift note overstates the root-state typo. The wrong hyphenated artifact path exists in A3 summary.md, but the current root Document/dialogue/state.json does not carry an A3 closed_reason anymore because root state has already been overwritten by the active A4 session."
+    - "The A3 session state itself cites the underscore filename form in its decisions array, so the repo drift is narrower than Turn 1 claimed: current issue is the frozen A3 summary citation, not a live root-state mismatch."
+    - "progress_report.md already includes the A3 closeout at line 12, so the repo-level closeout drift is about phase labels, not about the absence of A3 results."
+    - "The prompt/session-id mismatch is a prompt artifact only. Session packet/state paths consistently use `2026-04-15-phase-a4-generalization-plan`, so the repo is correct on the canonical id."
+  fixes_applied:
+    - "변경 불필요, PASS — plan-only peer review only. No pipeline file, no frozen A3 artifact, and no experiments result document was modified."
+
+my_work:
+  plan: |
+    Plan-only peer review: re-probe codex auth, re-read all seven C1 anchors from live files,
+    audit C2/C4 falsifiability, confirm C3 acquisition feasibility with ffprobe and pipeline_config
+    presence only, verify the Turn 1 drift observations independently, then write packet/state only.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-02.yaml"
+    summary: |
+      Auth re-probe remained 401, so C5 stays with claude-code as execute owner. C1, C3, and C5
+      were accepted after direct live verification. C2 was amended to require axis coverage and
+      dispersion around the observed A4 distribution rather than around fixed 3.35x. C4 was
+      amended to preserve exact msgs/min and to inherit the per-cell n<3 insufficient-data rule.
+      Local full-VOD duration is ~5.71h, so the length axis is locally feasible without download.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p 'Reply with OK-A4-T2-PROBE' --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"duration_ms":617,"duration_api_ms":0,"num_turns":1,"result":"Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid authentication credentials\"},\"request_id\":\"req_011Ca3usbcabGchkQx7PgokV\"}","stop_reason":"stop_sequence","session_id":"2910c4b8-4317-41a8-b8ac-1c7a8c2865af","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"fast_mode_state":"off","uuid":"5f2f5bd3-87a5-4a50-8d66-27b4e1805d19"}
+        stderr=
+      - |
+        ffprobe -v error -show_entries format=duration -of default=nokey=1:noprint_wrappers=1 "<resolved work/12702452/*144p.mp4>"
+        rc=0
+        stdout=20552.705000
+        stderr=
+      - |
+        Test-Path pipeline_config.json
+        rc=0
+        stdout=True
+        stderr=
+      - "Read pipeline/config.py:9-26"
+      - "Read pipeline/main.py:186-193"
+      - "Read pipeline/chunker.py:156-256"
+      - "Read pipeline/claude_cli.py:23-58"
+      - "Read pipeline/summarizer.py:59-64 and 118-121"
+      - "Grep experiments/results/2026-04-15_phase-a3_token-margin-sampling.md for recommended_margin, median, P95, additive overhead, and scoped PASS"
+      - "Grep progress_report.md, A3 summary.md, current root state, and A3 session state for hyphen-vs-underscore path drift"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-02.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+      - "pipeline/config.py"
+      - "pipeline/main.py"
+      - "pipeline/chunker.py"
+      - "pipeline/claude_cli.py"
+      - "pipeline/summarizer.py"
+      - "experiments/results/2026-04-15_phase-a3_token-margin-sampling.md"
+      - "experiments/results/progress_report.md"
+  verification: |
+    All C1 anchors were re-read from live files in this turn. The full-VOD mp4 duration was checked
+    with ffprobe rather than inferred from filename. pipeline_config.json presence was verified
+    without opening or printing secret values. Drift claims were cross-checked against current root
+    state, A3 summary.md, and A3 session state separately. No Claude measurement and no doc/code edit
+    outside packet/state occurred.
+  open_risks:
+    - "codex-side auth is still 401 through A3 and A4 Turn 2, so live measurement remains claude-code-only unless auth recovers in a later turn."
+    - "pipeline_config.json exists, but cookie validity is still unknown; downloader-based genre/density expansion can still fail at execute time."
+    - "Local length-axis extension is feasible, but density must be recomputed from the exact chat window paired with each retranscribed slice. A3's 76.21 msgs/min cannot be reused blindly."
+    - "progress_report label drift remains unresolved by instruction. A later doc-sync turn should decide whether to rename the human-facing A3/A4 phases or keep the current report and annotate the mismatch."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 3 (claude-code, still plan-only) should accept or rebut amendments A1-A2, rewrite C2 and C4
+    accordingly, and keep execute blocked until the amended contract is explicit. No measurement yet.
+  context: |
+    C1, C3, and C5 were accepted. The existing full-VOD mp4 is 20552.705 seconds, so 1h and 3h
+    length cells can be acquired locally by retranscription without downloader. pipeline_config.json
+    exists, so downloader acquisition is still a possible fallback for genre/density cells, but
+    cookie validity remains unknown. The main contract gaps are in C2 and C4: C2 should require
+    minimum axis coverage and evaluate dispersion around the observed A4 distribution rather than
+    fixed 3.35x; C4 should keep exact chat_density_msgs_per_min and inherit the explicit n<3
+    insufficient-data rule from A3. The only confirmed frozen-artifact path typo is in the A3
+    summary citation, not in the live root state.
+  questions:
+    - "Do you accept A1: global multiplicative promotion requires >=5 covered cells, at least one cell in each length bucket, coverage across at least two genres and two density tiers, and cell-level P95 within +/-15% of the observed global median P95?"
+    - "Do you accept A2: add exact chat_density_msgs_per_min to the C4 row schema and state explicitly that any cell with fewer than 3 valid chunks is insufficient-data and excluded from global promotion?"
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

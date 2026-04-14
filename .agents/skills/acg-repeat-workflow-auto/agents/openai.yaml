@@ -1,0 +1,7 @@
+interface:
+  display_name: "ACG DAD v2 Repeat Workflow (Auto)"
+  short_description: "Continue the active ACG DAD session in auto mode"
+  default_prompt: "Use $acg-repeat-workflow-auto to continue the active auto-caption-generator DAD v2 session in auto mode and escalate only when the safety rails require it."
+
+policy:
+  allow_implicit_invocation: false

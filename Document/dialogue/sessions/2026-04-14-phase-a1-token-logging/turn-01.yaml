@@ -1,0 +1,74 @@
+﻿type: turn
+from: codex
+turn: 1
+session_id: "2026-04-14-phase-a1-token-logging"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "pipeline/claude_cli.py must parse Claude CLI JSON usage metadata without regressing result extraction."
+      verification: "turn-01 baseline references pipeline/claude_cli.py:46-70 showing no usage access; follow-up diff must add usage parsing while preserving current result/error handling."
+    - id: C2
+      description: "A successful Claude call must emit a structured pipeline log line containing input_tokens= and output_tokens=, plus cache token fields when present."
+      verification: "real call evidence from pipeline logs or captured stderr/stdout must show token counts after one Claude invocation."
+    - id: C3
+      description: "Phase A1 must record before/after evidence in experiments/results/2026-04-14_phase-a1_token-logging.md with baseline, implementation notes, verification outcome, and remaining risks."
+      verification: "result doc must contain baseline statements, after-measurement values, and >=200 chars of decision rationale."
+    - id: C4
+      description: "Do not mark A1 done unless one real Claude-backed pipeline or wrapper invocation confirms token logging on this repository environment."
+      verification: "if real invocation is blocked by credentials/network/runtime, session stays open and blocker is recorded explicitly instead of claiming PASS."
+  amendments: []
+
+peer_review:
+  project_analysis: "Branch started from main with many pre-existing dirty files. Document/dialogue/state.json was absent. pipeline/claude_cli.py currently parses only result/error payloads and never reads usage metadata; call_claude()/call_claude_with_context() only log prompt/context lengths at debug level."
+  # task_model_review:            # Turn 2+
+  #   status: aligned             # aligned | amended | superseded
+  #   coverage_gaps: []
+  #   scope_creep: []
+  #   risk_followups: []
+  #   amendments: []
+  checkpoint_results: {}
+  issues_found: []
+  fixes_applied: []
+
+my_work:
+  # task_model: {}                # recommended for large scope
+  plan: "Initialize a dedicated DAD session for Phase A1, lock the live baseline from pipeline/claude_cli.py, define executable checkpoints tied to real verification, and hand off implementation/measurement to Claude Code without falsely claiming completion."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-01.yaml"
+    files_created:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-01.yaml"
+    summary: "Created the first live DAD session for Phase A1, captured the current claude_cli baseline, and wrote a four-checkpoint contract that requires real token-log evidence before completion."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "git status --short --branch"
+      - "git log --oneline -10"
+      - "python -c \"import sys; sys.path.insert(0, r'C:\\github\\auto-caption-generator'); import pipeline.claude_cli as m; print('IMPORT_OK', hasattr(m, 'call_claude'))\""
+      - "python -c \"import shutil; print(shutil.which('claude') or 'CLAUDE_NOT_FOUND')\""
+      - "powershell -File tools/New-DadSession.ps1 -Root . -SessionId 2026-04-14-phase-a1-token-logging -TaskSummary \"Phase A1 token usage logging baseline, contract, and execution kickoff\" -Scope medium -Mode hybrid"
+      - "powershell -File tools/New-DadTurn.ps1 -Root . -SessionId 2026-04-14-phase-a1-token-logging -From codex -Turn 1"
+    artifacts:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-01.yaml"
+  verification: "Confirmed Claude CLI binary is present in PATH and pipeline.claude_cli imports successfully. Baseline inspection of pipeline/claude_cli.py:46-70 shows result/error parsing only, with no usage extraction or token logging yet."
+  open_risks:
+    - "A1 completion still depends on one real Claude-backed invocation; this turn did not execute the pipeline against a VOD."
+    - "Working tree already contained many unrelated modifications, so implementation work must avoid conflating this session with prior dirty files."
+    - "progress_report.md content is partially mojibaked in the current console path, so live code and the Phase A1 prompt were used as the operational baseline."
+  confidence: high
+
+handoff:
+  next_task: "Review this proposed contract against live files, then execute Phase A1 in the narrowest slice possible: add usage parsing and structured token logging to pipeline/claude_cli.py, run the required measurement, and record evidence in experiments/results/2026-04-14_phase-a1_token-logging.md."
+  context: "Baseline is pipeline/claude_cli.py:46-70 and 85-129. The parser returns result text only and never reads usage metadata. The repository is on branch codex/phase-a1-token-logging with many unrelated dirty files already present. A1 is not done until a real Claude-backed invocation in this environment emits input_tokens/output_tokens (and cache_* when available). If runtime blockers prevent the real call, keep the session open, record the blocker explicitly, and do not claim PASS."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

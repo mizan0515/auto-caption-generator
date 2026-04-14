@@ -1,0 +1,212 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-15-phase-a4-generalization-plan"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Re-anchor the A2/A3 baseline from live files and document that no runtime config change has yet been made. Live anchors (verified immediately before this turn): (a) pipeline/config.py:9-41 DEFAULT_CONFIG still has chunk_max_tokens=None and chunk_max_chars=8000, so the default production path is char-based splitting, not the A3-measured token path; the token path is opt-in via pipeline_config.json; (b) pipeline/main.py:186-197 keeps the precedence comment `chunk_max_tokens (not None) > chunk_max_chars` and passes both to chunk_srt(); (c) pipeline/chunker.py:156-201 split_by_tokens() tokenizes each cue's raw_block once (cache at :172) and applies the same overlap rewind as split_by_chars(); (d) pipeline/claude_cli.py:23-58 _log_usage() still emits all four usage fields separately and guards against partial payloads; (e) pipeline/summarizer.py:59 _build_chunk_prompt(chunk, highlights, chats, vod_info) signature unchanged, still the function whose tiktoken-encoded length is used as predicted_prompt_tokens; (f) A3 result doc experiments/results/2026-04-15_phase-a3_token-margin-sampling.md §5-§6 records recommended_margin=3.35, median=3.1541, P95=3.1843, additive overhead Δ ≈ 7.5k constant; (g) experiments/results/progress_report.md §0 has been updated to list A3 as scoped-PASS, but pipeline/config.py:26 chunk_max_tokens=None is unchanged — the A3 recommendation has not been propagated to runtime."
+      verification: "§1 (Baseline) of the A4 plan packet must quote all seven live anchors with file:line references. An execute turn must not start until every anchor is re-read from the live files in that turn's opening."
+    - id: C2
+      description: "Pre-register the generalization matrix and the minimum sample threshold for promoting A3's scoped 3.35x to a repo-wide rule. Axes: length ∈ {30 min, 1 h, 3 h}, genre ∈ {talk, game, reaction-or-music}, chat_density ∈ {low ≤ 20 msgs/min, medium 20–60 msgs/min, high > 60 msgs/min}. A3's only sample sits at (30 min, talk, high ≈ 76.21 msgs/min). Promotion rule (proposed for amendment): a cell is 'covered' when ≥ 3 chunks were measured under the A3 C3 protocol and all passed the ±3% consistency check; a global recommendation is allowed only when ≥ 5 distinct cells are covered AND the P95 user_ratio spread across cells is within ±15% of the current 3.35x, otherwise the MD must publish per-cell recommendations rather than a global one. Additive-overhead form (Δ ≈ 7.5k + CLI cache 20,668) is retained as the alternative operational equation in §6.3 of the A3 doc."
+      verification: "§2 (Matrix + threshold) of the plan packet must list all 9 axis cells, mark the A3-covered cell explicitly, and state a concrete count threshold. Turn 2 (codex peer review) either accepts the thresholds or proposes an amendment with falsifiable numbers; no execute turn starts on an 'elastic' threshold."
+    - id: C3
+      description: "Separate acquisition slice from measurement slice. Acquisition turns are scoped to obtaining raw SRT + chat.log pairs for each uncovered cell; measurement turns run the A3 C3 protocol exactly (tiktoken cl100k_base on _build_chunk_prompt, cold/warm pairs, ±3% consistency, ceil(P95 * 1.05 * 100) / 100). Acquisition options per cell: (a) re-transcribe the existing full-length work/12702452_*144p.mp4 to get the length axis's 30-min→full-VOD extension; (b) use pipeline.downloader / Chzzk cookies to fetch new VODs for other cells; (c) accept uncovered cells as out-of-scope and mark blockers. A measurement turn must not begin until the acquisition slice for that turn's target cells is complete and recorded in work/."
+      verification: "§3 (Slice plan) lists every cell the plan intends to cover, the acquisition action for each, and the worst-case cost/time (transcribe-only vs full download+chat-collect). The packet must separately list cells it decides to leave uncovered with explicit blocker reasons (no cookies / no source VOD / genre unavailable on Chzzk)."
+    - id: C4
+      description: "Pre-register the A4 result-doc schema: one row per (cell, sample, chunk_index) with columns sample_id, length_min, genre, density_tier, chunk_index, predicted_prompt_tokens, input_tokens, cache_creation_input_tokens, cache_read_input_tokens, user_attributable_cold, cache_read_delta, consistency_pass (bool), user_ratio, additive_overhead (= user_attributable_cold − predicted), plus per-cell aggregate rows with n_chunks, median_user_ratio, P95_user_ratio, median_additive_overhead. The global section must publish BOTH candidate forms: multiplicative (single scalar margin) and additive (+~7.5k constant + CLI cache 20,668). Decision rule: if C2's ±15% spread holds across cells, publish one global multiplicative margin; otherwise publish per-cell margins plus the shared additive form."
+      verification: "§4 (Result doc schema) lists the full column set above, and §5 (Decision rule) states the four possible outcomes (global multiplicative, global additive, per-cell multiplicative, scope-blocked) with the quantitative condition that selects each."
+    - id: C5
+      description: "Execution ownership under A3's persistent 401 blocker: codex-side `claude -p` has been 401 through the end of A3 Turn 6. Until codex recovers auth, claude-code owns every live measurement turn and codex owns peer verification + raw-artifact recomputation. Every codex turn must re-probe auth at the start and reassign C5 on a 200 response. If claude-code auth also degrades, the session downgrades from execute to measurement-blocked rather than silently stalling."
+      verification: "§6 (Agent assignment) names the measurement owner per planned execute turn, cites the A3 Turn 6 401 observation, and states the dual fallbacks (codex recovers vs claude-code also blocked)."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Current repo state anchors verified at 2026-04-14 KST, plan-only (no code, no experiment executed).
+
+    Live baseline (files + lines):
+    - pipeline/config.py:9-41 — DEFAULT_CONFIG: chunk_max_tokens=None (opt-in), chunk_max_chars=8000,
+      chunk_tokenizer_encoding="cl100k_base", chunk_overlap_sec=30. Default production path is still
+      char-based; A3's 3.35x recommendation has NOT been propagated into the runtime default.
+    - pipeline/main.py:186-197 — precedence comment + chunk_srt() call. `chunk_max_tokens (not None) > chunk_max_chars`.
+    - pipeline/chunker.py:156-201 — split_by_tokens() with per-cue raw_block encode; cache at :172.
+    - pipeline/chunker.py:204-257 — chunk_srt() dispatcher; `if max_tokens is not None: split_by_tokens()`.
+    - pipeline/claude_cli.py:23-58 — _log_usage() four-field guarded logging.
+    - pipeline/summarizer.py:59, :121 — _build_chunk_prompt() defined and called; signature unchanged.
+    - experiments/results/2026-04-15_phase-a3_token-margin-sampling.md (underscore; see issues_found)
+      §5-§6 — recommended_margin=3.35, median=3.1541, P95=3.1843, additive Δ≈7.5k.
+    - experiments/results/progress_report.md §0 (this session's update window) — lists A3 closeout,
+      explicitly says pipeline/config.py:25 chunk_max_tokens config change is deferred to post-A3b/A4.
+
+    Sample inventory (bytes on disk right now):
+    - work/12702452/12702452_7시_...144p.mp4        (full VOD, ~ unknown length, not yet re-transcribed)
+    - work/12702452/12702452_...144p_clip1800s.srt  (30-min clip SRT — the A3 sample)
+    - work/12702452/12702452_...144p_clip1800s_part001.mp4  (30-min clip mp4)
+    - work/12702452/12702452_chat.log               (full VOD chat log; the 30-min clip used a window of it)
+    - output/12402235_*.md/html/metadata.json       (OTHER VOD; no raw SRT, no chat.log — not re-measurable
+                                                     without reacquiring the source)
+    - output/12702452_*.md/html/metadata.json       (processed output of the A3 sample)
+
+    Local acquisition feasibility under current blockers:
+    - Length axis: 30 min (covered by A3). 1 h and 3 h are partially feasible without download if
+      work/12702452/12702452_..._144p.mp4 is longer than 30 min and we re-run transcribe.py on it;
+      otherwise 1h/3h require Chzzk cookies + pipeline.downloader.
+    - Genre axis: only talk available locally. game, reaction, music require new VOD acquisition.
+    - Density axis: only high (~76 msgs/min) available; low/medium require a different VOD or subset.
+
+    Additional drift observations (not fixed in this plan-only turn, but recorded):
+    - A3 summary.md line 43 and Document/dialogue/state.json closed_reason both cite
+      `experiments/results/2026-04-15_phase-a3-token-margin-sampling.md` (HYPHEN between a3 and token),
+      but the actual file on disk is `...phase-a3_token-margin-sampling.md` (UNDERSCORE). A3 is
+      converged so that artifact is frozen; A4 must use the underscore form when citing.
+    - The user's A4 framing (generalization of margin) does not match progress_report.md A4's
+      original definition ("풀 파이프라인 종단 테스트"). progress_report's A3 entry
+      ("30분/1시간/3시간 각 1샘플") is actually what the user is now calling A4. The actual A3
+      session executed only the 30-min row, so progress_report's A3 is only partially complete.
+      This plan treats user-A4 as "A3 generalization" in intent, regardless of numeric label.
+  task_model_review:
+    status: aligned
+    coverage_gaps:
+      - "progress_report.md was not updated since the A3 closeout entry, so it still advertises
+        A3 as '실험 재실행' at §0, while the text actually lists A3 as scoped-PASS. This inconsistency
+        is logged here but deliberately not fixed in this plan-only turn per the prompt's
+        'progress_report 수정 금지 in this turn' instruction."
+    scope_creep: []
+    risk_followups:
+      - "If an execute turn uses the existing work/12702452 full-VOD mp4 for the length axis, the
+        chat.log window also changes from 0-1800 s to the full duration; this changes the chat
+        density arithmetic (msgs/min computed over a longer base). The C3 protocol must require
+        recomputing density from the chat.log window actually paired with the SRT, not assuming
+        A3's 76.21 stays constant."
+      - "pipeline/config.py:26 chunk_max_tokens=None is the default; any A4 measurement that sets
+        chunk_max_tokens MUST do so only inside the measurement script (as A3 did), not by editing
+        the runtime config, until C2's promotion rule is met."
+    amendments: []
+  checkpoint_results: {}
+  issues_found:
+    - "Session-id vs artifact-path inconsistency in the Turn 1 handoff prompt: body says session
+      id is `2026-04-15-phase-a4-generalization-plan` while the artifact path block references
+      `Document/dialogue/sessions/2026-04-15-phase-a4-generalization/turn-01.yaml`. Decision:
+      use the body-stated session id as authoritative, because session_id is the keyed identifier
+      in state.json and every DAD helper (New-DadSession, Validate-DadPacket) resolves by it.
+      Artifact written to `Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-01.yaml`."
+    - "Phase label drift: the user's A4 scope (length/genre/density generalization of A3's margin)
+      corresponds to progress_report.md's ORIGINAL A3 definition ('30분/1시간/3시간 각 1샘플'), not
+      progress_report's A4 ('풀 파이프라인 종단 테스트'). The session name uses the user-stated
+      label (A4) but §1 of the eventual result MD must include a one-line note stating this."
+    - "A3 summary.md and root Document/dialogue/state.json closed_reason both cite the A3 result
+      file with a HYPHEN (`phase-a3-token-margin-sampling.md`), but the real file uses UNDERSCORE
+      (`phase-a3_token-margin-sampling.md`). A3 is converged and those references are frozen; A4
+      must always cite the UNDERSCORE form to avoid propagating the typo."
+  fixes_applied:
+    - "변경 불필요 — plan-only Turn 1. Only artifacts written are the new session's state.json
+      (by tools/New-DadSession.ps1) and this packet turn-01.yaml. No code, no experiment, no
+      progress_report / result MD touched. Drift observations above are left for follow-up turns
+      to decide whether to fix or merely cite."
+
+my_work:
+  plan: |
+    Open A4 as a fresh DAD session (A3 already converged with current_turn=6) and produce a
+    plan-only Turn 1 that (a) re-anchors the baseline from the seven live files, (b) publishes the
+    generalization matrix and a falsifiable promotion threshold, (c) separates acquisition slice
+    from measurement slice so future execute turns cannot silently drop uncovered cells,
+    (d) pre-registers the result-doc schema and the four possible decision outcomes, (e) keeps
+    the claude-code / codex ownership split while the 401 blocker persists, (f) records drift
+    observations without modifying any frozen A3 artifact or pipeline file.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-01.yaml"
+    summary: |
+      New DAD session 2026-04-15-phase-a4-generalization-plan opened via
+      tools/New-DadSession.ps1 (scope=medium, mode=hybrid, max_turns=5). Plan-only Turn 1
+      proposes five checkpoints C1-C5: live baseline re-anchor with seven file:line citations,
+      generalization matrix with 9 cells and promotion thresholds, explicit acquisition-vs-measurement
+      slice separation, pre-registered result-doc schema with both multiplicative and additive
+      candidate decisions, and execution assignment under the persistent codex-side 401. Local
+      sample inventory re-checked at file level: only 30-min Korean talk high-density cell is
+      covered, other 8 cells require either transcribe-only extension (length axis, 1h/3h if the
+      existing full-VOD mp4 is long enough) or new VOD acquisition (genre / density axes).
+  self_iterations: 1
+  evidence:
+    commands:
+      - "Read Document/dialogue/state.json   # confirmed A3 converged, current_turn=6, last_agent=codex"
+      - "Read Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/summary.md"
+      - "Read pipeline/config.py (full)"
+      - "Read pipeline/main.py:180-210"
+      - "Read pipeline/chunker.py:150-257"
+      - "Read pipeline/claude_cli.py:23-58"
+      - "Grep `_build_chunk_prompt` pipeline/summarizer.py   # :59 def, :121 call"
+      - "Read experiments/results/2026-04-15_phase-a3_token-margin-sampling.md (already present)"
+      - "ls work/ output/ experiments/results/   # inventory"
+      - "ls work/12702452/   # confirmed one raw SRT+chat pair + full-VOD mp4"
+      - "powershell -File tools/New-DadSession.ps1 -SessionId 2026-04-15-phase-a4-generalization-plan
+         -TaskSummary '...' -Scope medium -Mode hybrid -MaxTurns 5"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+      - "Document/dialogue/state.json"
+      - "pipeline/config.py"
+      - "pipeline/main.py"
+      - "pipeline/chunker.py"
+      - "pipeline/claude_cli.py"
+      - "pipeline/summarizer.py"
+      - "experiments/results/2026-04-15_phase-a3_token-margin-sampling.md"
+      - "experiments/results/progress_report.md"
+  verification: |
+    Live anchors (C1) each re-read from the file at plan time, not paraphrased from A3 summary.
+    Sample inventory (C3) is a literal file listing of work/12702452/ and output/. Neither
+    pipeline/* nor any experiments/results/*.md was modified. No Claude API call was made.
+    Both validators planned for end-of-turn run below.
+  open_risks:
+    - "If Chzzk cookies are still unconfigured (pipeline_config.json is gitignored so state unknown
+      at plan time), the acquisition slice for any non-talk / non-76-msg/min cell is blocked."
+    - "If work/12702452_...144p.mp4 (full VOD) duration is actually close to 30 min, the length
+      axis extension by re-transcribing gains nothing. Turn 2 must ffprobe the mp4 before promising
+      a 1 h sample from it."
+    - "codex-side auth 401 has persisted for the entire A3 session (Turn 2, Turn 4, Turn 6). If it
+      stays 401 across multiple A4 turns, measurement capacity is fully on claude-code and the
+      codex role is recomputation-only, identical to A3."
+    - "Additive-overhead form Δ ≈ 7.5k depends on the current _build_chunk_prompt instruction
+      text; any edit to that template (e.g. a new instruction paragraph) invalidates the constant
+      and forces re-measurement. C3 must require hashing the instruction block at measure time."
+    - "progress_report.md A3/A4 phase labels are drifted vs what was actually executed and vs the
+      user's new framing. Not fixed this turn; recorded in issues_found for a doc-sync follow-up."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 2 (codex, plan-only, peer verification): re-probe `claude -p 'Reply with OK-A4-T2-PROBE'`
+    for auth status, re-anchor the seven live file:line references from C1 against the current
+    working tree, and either accept the C2 promotion thresholds or propose a falsifiable amendment
+    (min cells, spread, or per-cell fallback). Do not execute any experiment. Do not modify
+    pipeline/* or experiments/results/*. Record auth probe result in open_risks so Turn 3 can
+    decide execute ownership.
+  context: |
+    A3 session (2026-04-15-phase-a3-token-margin-sampling) closed converged at Turn 6 with
+    recommended_margin=3.35x scoped to the single 30-min Korean talk sample at chat density
+    ~76.21 msgs/min. A4 starts a fresh session to decide whether that margin can be promoted to
+    a repo-wide operational rule and, if so, under what condition. Local inventory confirms only
+    one raw SRT+chat pair on disk (work/12702452), so Turn 3+ will either (a) re-transcribe the
+    existing full-VOD mp4 for a length-axis extension without touching Chzzk, or (b) acquire new
+    VODs via pipeline.downloader, subject to cookie availability. pipeline/config.py is NOT being
+    modified until C2's promotion rule is satisfied; the A3 3.35x remains a scoped finding, not
+    a runtime default. codex-side `claude -p` was 401 through the entire A3 session, so codex's
+    A4 role is peer verification + raw-artifact recomputation until auth recovers.
+  questions:
+    - "Does codex accept C2's proposed thresholds (≥5 cells covered AND P95 spread within ±15%
+      of current 3.35x for global multiplicative recommendation), or does it propose falsifiable
+      numerical amendments?"
+    - "Does codex accept the decision to treat user-A4 as generalization intent and update
+      progress_report.md labels in a later doc-sync turn rather than now, or does codex insist
+      that progress_report labels be fixed before execute starts?"
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""
