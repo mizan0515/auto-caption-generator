@@ -1,0 +1,177 @@
+type: turn
+from: codex
+turn: 4
+session_id: "2026-04-15-a4-closeout-hygiene"
+
+contract:
+  status: amended
+  checkpoints:
+    - id: C1
+      description: "Live baseline for the hygiene session must match the actual repository state at peer-review time, including branch, HEAD, tracked-path counts, and the exact git-status entry inventory used by provenance-boundary.md and freeze-plan.md."
+    - id: C2
+      description: "Freeze provenance planning should keep the three-slice structure intact: canonical artifact-freeze commit, anchor-freeze commit, and optional sha256 manifest, without reopening A4 arithmetic or mutating git in this peer turn."
+    - id: C3
+      description: "The provenance boundary must map every current git-status entry 1:1 into a group, and the initial measurement-path scope remains the 5-file anchor set only."
+    - id: C4
+      description: "The G1-G5 rubric must stay falsifiable. G3 remains OR, while G5 must simulate a before/after allowlist diff using the actual current status inventory, including root dialogue state."
+    - id: C5
+      description: "Turn sequencing remains plan-first. Because Turn 3 artifacts need correction and only one turn remains in this session, Turn 5 should repair the plan artifacts and close the session as execute-ready rather than attempting a freeze commit without a peer turn left."
+  amendments:
+    - id: A1
+      origin: codex-turn-04
+      affects: [C1, C3, C4]
+      rationale: "Turn 3 recorded stale status counts. Live `git status --short` is 16 modified + 8 untracked entries, not 15 + 12."
+    - id: A2
+      origin: codex-turn-04
+      affects: [C3, C4]
+      rationale: "provenance-boundary.md omits `Document/dialogue/state.json` from the modified inventory and mixes collapsed-status counts with expanded-file counts for the hygiene-session directory."
+    - id: A3
+      origin: codex-turn-04
+      affects: [C4]
+      rationale: "freeze-plan.md before/after G5 snapshots omit the root state file, so the simulated removal count is off by one status entry."
+    - id: A4
+      origin: codex-turn-04
+      affects: [C2, C5]
+      rationale: "Choose `c6b0adc` as the canonical artifact-freeze SHA, treat `0c078ea` as a parallel README-only sibling, and defer the optional sha256-manifest commit unless a later ACK review explicitly demands it."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "Turn 3 provenance-boundary.md does not include `Document/dialogue/state.json` in §2.1 even though it is a live modified path."
+      - "Turn 3 freeze-plan.md §5 simulates G5 with a before snapshot that is missing the root state entry, so the expected-after snapshot is incomplete."
+      - "Turn 3 mixes raw git-status entry counts with expanded hygiene-session file counts, which makes the claimed `15 modified + 12 untracked` baseline non-reproducible from the actual command output."
+    scope_creep:
+      - "No scope creep detected in the core measurement manifest. The 5-file anchor boundary remains the right initial scope, and community/subtitle helper modules should still stay out unless report-render provenance is explicitly added."
+    risk_followups:
+      - "Current auth re-probe is back to 401, so any future git/doc execute can still proceed locally, but claude CLI should not be assumed available for nonessential probes."
+      - "`.gitignore` still protects `pipeline_config.json`, `output/`, and `work/`, so the current diff does not widen secret exposure on those core paths. However, `_a4_run_*.txt`, `a3_measure.log`, `parser_test_output.txt`, and `experiments/results/run.log` remain outside ignore coverage and should be triaged explicitly."
+      - "The merge base between `c6b0adc` and `0c078ea` is `b62ada1`, so the two freeze-candidate SHAs are sibling commits, not an ancestor chain."
+    amendments:
+      - id: A1
+        origin: codex-turn-04
+        affects: [C1, C3, C4]
+        rationale: "Correct the baseline to the actual peer-review inventory: 16 modified + 8 untracked status entries."
+      - id: A2
+        origin: codex-turn-04
+        affects: [C3, C4]
+        rationale: "Add `Document/dialogue/state.json` to the modified-path map and to the G5 before/after simulation."
+      - id: A3
+        origin: codex-turn-04
+        affects: [C2, C5]
+        rationale: "Use `c6b0adc` as the canonical SHA and treat `0c078ea` as a README-only sibling."
+      - id: A4
+        origin: codex-turn-04
+        affects: [C2, C5]
+        rationale: "Defer the optional sha256 manifest commit unless a later ACK round explicitly requires non-git provenance."
+  checkpoint_results:
+    C1:
+      status: FAIL-then-PASS
+      evidence: "Turn 3 correctly identified the branch drift (`codex/local-dirty-preserved`) and HEAD drift (`c6b0adc` over `b62ada1`), and correctly showed `git ls-files experiments/ Document/ tools/` = 74 plus A4 artifact git logs at `c6b0adc`. But the packet and both plan docs repeat `15 modified + 12 untracked`, while the live `git status --short` at peer-review time is 16 modified + 8 untracked entries because `Document/dialogue/state.json` is modified and the hygiene session is collapsed to one untracked directory entry. Amendment A1 is required."
+    C2:
+      status: PASS
+      evidence: "freeze-plan.md keeps the intended three-slice structure: canonical artifact-side commit at `c6b0adc`, a future 5-anchor freeze commit, and an optional sha256-manifest commit. The branch recommendation to cut `codex/a4-closeout-freeze` from `c6b0adc` is consistent with the live artifact logs and avoids replaying A4 artifacts from `main`."
+    C3:
+      status: FAIL-then-PASS
+      evidence: "The scope judgment is still correct: `pipeline/config.py`, `pipeline/main.py`, `pipeline/chunker.py`, `pipeline/claude_cli.py`, and `pipeline/summarizer.py` are the initial measurement manifest, while `pipeline/community_matcher.py`, `pipeline/subtitle_analyzer.py`, `_parse_summary_sections`, and `_generate_html` remain out of scope. However, provenance-boundary.md §2.1 omits `Document/dialogue/state.json`, and §2.2 says `12 entries` while the raw status output has 8 untracked entries and the expanded hygiene-session directory contains 6 files. The grouping logic survives, but the inventory needs correction."
+    C4:
+      status: FAIL-then-PASS
+      evidence: "Turn 3 correctly carries forward G3 = freeze-commit SHA OR sha256 manifest and G5 = allowlist diff. The flaw is in the concrete simulation: freeze-plan.md §5 before-snapshot omits `Document/dialogue/state.json`, so the claimed after-snapshot removal set is incomplete. Logical verification says commits 1+2 would clean 7 status entries (5 anchors + root state + hygiene-session directory), not just the 6 implied by the current text."
+    C5:
+      status: PASS
+      evidence: "Turn 3 stayed strict plan-only and did not mutate git. The preferred order B -> C -> A remains sound. Given the documentation defects above and the session turn budget, codex recommends Turn 5 repair the planning artifacts and close this hygiene-planning session as execute-ready rather than attempting freeze execution without a later peer turn."
+  issues_found:
+    - "`Document/dialogue/state.json` is a live modified path but is missing from provenance-boundary.md §2.1 and freeze-plan.md §5 before-snapshot."
+    - "Turn 3's repeated `15 modified + 12 untracked` claim is not reproducible from `git status --short`; the live peer-review inventory is 16 modified + 8 untracked status entries."
+    - "provenance-boundary.md §2.2 conflates collapsed git-status entries with expanded file counts inside the hygiene-session directory."
+    - "freeze-plan.md §5 undercounts the entries that would be cleaned by commits 1+2 because it forgets the root dialogue state file."
+  fixes_applied:
+    - "변경 불필요, PASS — strict peer-plan review only. Turn 3 artifacts were not edited; corrections are recorded as amendments for Turn 5."
+
+my_work:
+  task_model:
+    goal: "Peer-verify Turn 3's hygiene planning artifacts against live git state, identify inventory/snapshot drift, and decide whether the session should remain plan-only for one more corrective turn."
+    non_goals:
+      - "Any git mutation"
+      - "Any pipeline/* or transcribe.py edit"
+      - "Any edit under the frozen A4 session"
+      - "Any change to A4 raw/generalization artifact numbers"
+    recommendations:
+      - "Canonical SHA: prefer `c6b0adc` because both A4 artifact paths resolve to it in `git log`, it is the current branch HEAD, and `0c078ea` is only a README-only sibling off the same merge base `b62ada1`."
+      - "Commit 3 (sha256 manifest): defer unless a later ACK review explicitly requires non-git provenance; G3 is already OR, and Turn 5 should spend its last turn budget on correcting the planning artifacts."
+      - "Freeze branch base: cut `codex/a4-closeout-freeze` from `c6b0adc`, not `main`, because `c6b0adc` already freezes the A4 artifact side while `main` would force replay and widen the provenance gap."
+  plan: |
+    Re-probe auth, re-run the live git baseline checks from the relay checklist,
+    compare every current status entry to provenance-boundary.md and freeze-plan.md,
+    simulate G1-G5 without mutating git, record the canonical-SHA/manifest/branch-base
+    recommendations, then update turn/state and re-run both validators.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-04.yaml"
+    summary: |
+      Turn 4 found the core Turn 3 planning direction sound, but not the inventory details.
+      The live branch/HEAD/artifact-freeze claims hold, the 5-anchor gap is real, and the
+      freeze-branch strategy around `c6b0adc` is defensible. But both planning documents omit
+      the modified root dialogue state file and misstate the current status counts. The session
+      remains plan-only and moves back to amended.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401 ... request_id=req_011Ca4KnycZvCeBupPxyEtnt", "...":"..."}
+        stderr=
+      - "git status --short -> 16 modified entries, 8 untracked entries"
+      - "git branch --show-current -> codex/local-dirty-preserved"
+      - "git log --oneline -5 -> c6b0adc, b62ada1, f4eae41, 1adfb25, 6051e8c"
+      - "git ls-files experiments/ Document/ tools/ | Measure-Object -Line -> 74"
+      - "git log --oneline -- experiments/results/2026-04-15_phase-a4_raw.json -> c6b0adc"
+      - "git log --oneline -- experiments/results/2026-04-15_phase-a4_generalization.md -> c6b0adc"
+      - "git show --stat --oneline c6b0adc -- pipeline/config.py pipeline/main.py pipeline/chunker.py pipeline/claude_cli.py pipeline/summarizer.py -> no output, confirming the 5 anchors were not part of c6b0adc"
+      - "git diff --stat c6b0adc -- pipeline/config.py pipeline/main.py pipeline/chunker.py pipeline/claude_cli.py pipeline/summarizer.py -> 731 insertions, 182 deletions across 5 files"
+      - "git diff --stat c6b0adc 0c078ea -> README.md only"
+      - "git merge-base c6b0adc 0c078ea -> b62ada1bf2b9e95eaee2c3d806f8b43fa5f5132b"
+      - "git diff -- .gitignore -> still ignores pipeline_config.json/output/work; narrows .claude handling; does not yet ignore transient experiment logs"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/provenance-boundary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/freeze-plan.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-03.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+  verification: |
+    This turn remained strict plan-only. No git add/commit/reset/stash/push/PR,
+    no pipeline/transcribe edits, no A4 frozen-session edits, and no A4 result-number
+    changes were made. All findings come from live file reads, git read-only commands,
+    and validator re-runs.
+  open_risks:
+    - "If Turn 5 tries to execute a freeze commit without first correcting the status inventory and snapshot docs, G5 review will remain ambiguous."
+    - "Transient experiment logs/text files are still outside `.gitignore`; a later hygiene slice must decide whether to ignore them globally or delete them explicitly before freeze execution."
+    - "Auth has regressed from Turn 3's 200 probe back to 401, so claude CLI should not be treated as a stable prerequisite for future doc-only hygiene turns."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 5 should stay plan-only for one last corrective pass. Fix provenance-boundary.md
+    and freeze-plan.md so they reflect the actual current status inventory (16 modified +
+    8 untracked entries), add `Document/dialogue/state.json` to the modified-path map and
+    G5 snapshots, and explicitly choose `c6b0adc` as the canonical artifact-freeze SHA.
+    After those corrections, close this hygiene-planning session as execute-ready and defer
+    the actual freeze-commit execution to a new dedicated session.
+  context: |
+    The core Turn 3 strategy still stands: c6b0adc is the right artifact-side provenance
+    anchor, the 5 measurement anchors remain the only G3 gap, G3 is OR, and the intended
+    freeze branch should start from c6b0adc rather than main. What failed is the concrete
+    inventory accounting: Turn 3 omitted the modified root dialogue state file and mixed
+    collapsed-status counts with expanded file counts. Because this session has only one
+    turn left after Turn 4, codex recommends using Turn 5 to repair the planning artifacts
+    and end the session cleanly, not to attempt git mutation without another peer-review turn.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

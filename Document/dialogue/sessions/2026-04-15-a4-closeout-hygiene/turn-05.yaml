@@ -1,0 +1,149 @@
+type: turn
+from: claude-code
+turn: 5
+session_id: "2026-04-15-a4-closeout-hygiene"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Live baseline at Turn 5: branch codex/local-dirty-preserved, HEAD c6b0adc, git status --short raw line count = 16 modified + 8 untracked. Auth probe claude -p ping -> 200 OK (Turn 4 recorded 401; auth has recovered again). Documented in provenance-boundary.md §0 and freeze-plan.md §5 before-snapshot."
+    - id: C2
+      description: "Freeze provenance plan keeps the canonical c6b0adc + optional manifest form, with commit 3 deferred by default. Annotated tag remains out of the primary path. Documented in freeze-plan.md §0 and §2."
+    - id: C3
+      description: "Scope remains the 5-file A4 measurement anchor set plus Document/dialogue/state.json + hygiene-session directory for the session commit. Other dirty pipeline files and transient experiment txt/logs stay G-UNRELATED-DIRTY. Documented in provenance-boundary.md §2.1, §2.2, §4."
+    - id: C4
+      description: "G3 = freeze-commit SHA OR sha256 manifest (OR, not AND). G5 = before/after status-entry diff, with corrected snapshots in freeze-plan.md §5. Exactly 7 status entries leave the dirty set when commits 1+2 land."
+    - id: C5
+      description: "Execute order B -> C -> A with freeze execution deferred. This session closes as execute-ready planning; actual freeze commits move to a new dedicated session cut from c6b0adc."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: accepted
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "Auth has flipped 401 -> 200 -> 401 -> 200 across Turns 2/3/4/5, so codex-side execute ownership for future sessions remains a live concern. Follow-up session should re-probe at start rather than assume either state."
+      - ".gitignore still does not cover experiments/_a4_run_*.txt, experiments/a3_measure.log, experiments/parser_test_output.txt, experiments/results/run.log. A later unrelated-dirty cleanup session (not this one, not the freeze session) should decide between ignore-globally vs delete-explicitly."
+      - "codex/local-dirty-preserved accumulates the G-UNRELATED-DIRTY set indefinitely unless a separate cleanup plan is opened."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: FAIL-then-PASS
+      evidence: "Turn 3 recorded 15 modified + 12 untracked (status-entry-vs-expanded-file conflation). Turn 4 amendment A1 corrected to 16 modified + 8 untracked. Turn 5 re-ran git status --short and confirmed exactly 16 M entries (including Document/dialogue/state.json) and 8 ?? entries (hygiene-session dir collapsed). Both provenance-boundary.md and freeze-plan.md now reflect this."
+    C2:
+      status: PASS
+      evidence: "freeze-plan.md §0 and §2 now state canonical SHA = c6b0adc, 0c078ea = README-only sibling, commit 3 deferred by default. §1 adds the main-vs-c6b0adc rationale paragraph required by Turn 4."
+    C3:
+      status: PASS
+      evidence: "Document/dialogue/state.json added to provenance-boundary.md §2.1 as G-HYGIENE-SESSION. G3 coverage map §3 expanded to name both the session dir and the root state file under G-HYGIENE-SESSION. Non-anchor pipeline/*, prompts/*, and transient logs remain G-UNRELATED-DIRTY."
+    C4:
+      status: FAIL-then-PASS
+      evidence: "Turn 3 freeze-plan.md §5 before-snapshot missed Document/dialogue/state.json, so the after-snapshot diff said 6 entries were cleaned instead of 7. Turn 5 rewrote §5: before = 16 M + 8 ?? (24 entries), after = 10 M + 7 ?? (17 entries), diff = exactly 7 removed (5 anchors + root state + hygiene dir), added = 0."
+    C5:
+      status: PASS
+      evidence: "Turn 5 remained strict plan-only. No git add/commit/reset/stash/push/PR, no pipeline/* edits, no A4-frozen-session edits, no A4 result-number changes. Freeze execution is deferred to a new dedicated session."
+  issues_found:
+    - "Turn 3 status-entry vs expanded-file conflation (resolved in provenance-boundary.md §0 Counting convention + §2.1 + §2.2)."
+    - "Turn 3 missed Document/dialogue/state.json in modified inventory (resolved in §2.1 row and §3 G-HYGIENE-SESSION expansion)."
+    - "Turn 3 freeze-plan.md §5 undercounted cleaned entries by 1 (resolved via explicit 7-entry breakdown)."
+    - "Turn 3 did not document the rationale for not cutting the freeze branch from main (resolved with a new §1 paragraph)."
+  fixes_applied:
+    - "Rewrote provenance-boundary.md §0 with live Turn 5 counts, canonical SHA, counting convention block."
+    - "Added Document/dialogue/state.json row to §2.1 and regrouped G3 coverage map in §3 to include it under G-HYGIENE-SESSION; corrected §2.2 title to '8 status entries'."
+    - "Rewrote freeze-plan.md §5 with the full 24-entry before-snapshot, full 17-entry after-snapshot, and exact 7-entry diff breakdown."
+    - "Expanded freeze-plan.md §1 with the 'why not start from main' paragraph."
+    - "Reframed freeze-plan.md §2 commit 2 to include Document/dialogue/state.json in its allowlist and state the 9-file show-stat expectation; commit 3 is marked 'deferred by default'."
+    - "Added freeze-plan.md §7 resolutions block (canonical SHA, branch base, commit-3 deferral) and updated status field on both docs to execute-ready."
+
+my_work:
+  task_model:
+    goal: "Turn 5 corrective plan-only pass to absorb Turn 4 amendments A1-A4 and close the hygiene-planning session as execute-ready, with freeze execution deferred to a dedicated follow-up session."
+    non_goals:
+      - "git add / commit / reset / stash / push / PR"
+      - "Any pipeline/* or transcribe.py edit"
+      - "Any edit under the frozen A4 session directory"
+      - "Any number change in experiments/results/2026-04-15_phase-a4_*"
+      - "Executing the freeze commits themselves (deferred)"
+  plan: |
+    1) Read turn-04.yaml. 2) Re-probe auth and the full Turn 4 baseline checklist.
+    3) Amend provenance-boundary.md: live counts (16 M + 8 ??), new counting-convention
+       block, add Document/dialogue/state.json row, fix §2.2 untracked title, expand §3
+       G-HYGIENE-SESSION description, add canonical-SHA statement to §0 and §5.
+    4) Amend freeze-plan.md: rewrite §5 before/after snapshots with explicit 7-entry
+       diff, add main-vs-c6b0adc rationale in §1, move Document/dialogue/state.json
+       into commit 2 allowlist (9-file expectation), mark commit 3 as deferred,
+       add §7 Turn-5 resolutions block.
+    5) Write this turn-05.yaml and flip both state.json to current_turn=5,
+       last_agent=claude-code, contract_status=accepted, suggest_done=true,
+       done_reason='A4 closeout-hygiene planning converged; freeze execution deferred
+       to a dedicated follow-up session from c6b0adc'.
+    6) Run Validate-Documents.ps1 and Validate-DadPacket.ps1.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/provenance-boundary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/freeze-plan.md"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-05.yaml"
+    summary: |
+      Turn 5 absorbed all four Turn 4 amendments (live counts, state.json inclusion,
+      G5 snapshot correction, canonical-SHA + commit-3 deferral + main rationale) and
+      closes the hygiene-planning session as execute-ready. No git mutation, no
+      pipeline edits, no A4 artifact-number changes. Freeze execution moves to a
+      separate follow-up session.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=0
+        stdout={"type":"result","subtype":"success","is_error":false,"result":"pong", ...}
+      - "git status --short -> 16 modified entries, 8 untracked entries (confirms Turn 4 A1)"
+      - "git branch --show-current -> codex/local-dirty-preserved"
+      - "git log --oneline -5 -> c6b0adc / b62ada1 / f4eae41 / 1adfb25 / 6051e8c"
+      - "git ls-files experiments/ Document/ tools/ | wc -l -> 74"
+      - "git log --oneline -- experiments/results/2026-04-15_phase-a4_raw.json -> c6b0adc only"
+      - "git log --oneline -- experiments/results/2026-04-15_phase-a4_generalization.md -> c6b0adc only"
+      - "git show --stat c6b0adc -- pipeline/{config,main,chunker,claude_cli,summarizer}.py -> no rows (5 anchors absent from c6b0adc)"
+      - "git diff --stat c6b0adc -- pipeline/{config,main,chunker,claude_cli,summarizer}.py -> 5 files / 731 insertions / 182 deletions"
+      - "git diff --stat c6b0adc 0c078ea -> README.md only (1 file / 1 insertion / 1 deletion)"
+      - "git merge-base c6b0adc 0c078ea -> b62ada1bf2b9e95eaee2c3d806f8b43fa5f5132b"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/provenance-boundary.md (revised)"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/freeze-plan.md (revised)"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-05.yaml (new)"
+      - "Document/dialogue/state.json (updated)"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json (updated)"
+  verification: |
+    Turn 5 is git/doc-only. No git add, commit, reset, stash, push, or PR.
+    No pipeline/* edits. No A4 session edits. No experiments/results number
+    changes. All conclusions come from read-only git commands, live file
+    reads, and the two DAD validators. The planning artifacts now have
+    status: execute-ready, and freeze execution is deferred to a new session.
+  open_risks:
+    - "Auth has oscillated 401/200 across turns; the follow-up freeze session must re-probe before deciding execute ownership."
+    - "Transient experiment txt/log files remain outside .gitignore and belong to a separate later cleanup session."
+    - "codex/local-dirty-preserved will continue to carry G-UNRELATED-DIRTY until a dedicated cleanup session triages those 9 modified + 7 untracked non-scope entries."
+
+handoff:
+  next_task: |
+    Open a new dedicated session (suggested id: 2026-04-15-a4-freeze-execute) to
+    actually execute freeze-plan.md commits 1+2 from branch codex/a4-closeout-freeze
+    cut at c6b0adc. Commit 3 (sha256 manifest) stays deferred unless ACK demands it.
+    This hygiene-planning session is closed.
+  context: |
+    Final state of this session: planning artifacts are execute-ready. Canonical
+    artifact-freeze SHA is c6b0adc; 0c078ea is a README-only sibling. Freeze branch
+    base = c6b0adc (rationale in freeze-plan.md §1). G3 = freeze-commit SHA OR
+    sha256 manifest (OR). G5 = before/after status-entry diff; commits 1+2 must
+    clean exactly 7 entries (5 anchors + Document/dialogue/state.json + hygiene
+    session dir). Out-of-scope dirty state (G-UNRELATED-DIRTY) must be preserved.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "A4 closeout-hygiene planning converged; freeze execution deferred to a dedicated follow-up session from c6b0adc"

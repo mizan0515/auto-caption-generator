@@ -1,0 +1,280 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-15-a4-closeout-hygiene"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: |
+        Live baseline 고정. 본 세션이 참조하는 "현재 상태"는 다음 사실들로 정의한다:
+        (a) A4 세션 `2026-04-15-phase-a4-generalization-plan`은 session_status=converged,
+            closed_reason="A4 generalization closed with per_cell_multiplicative; global promotion
+            blocked on genre/density coverage", current_turn=7, max_turns=7, last_agent=claude-code,
+            packets 7개 (turn-01..turn-07).
+        (b) A4 close-ack.md의 verdict=OBJECT이며, state/summary/validator는 PASS였으나
+            git-frozen check가 FAIL이었다.
+        (c) 현재 working tree는 다음 state를 가진다 (2026-04-15 측정):
+            - branch: codex/phase-a1-token-logging
+            - HEAD commit: b62ada1 "Restore merge.py required by transcribe.py"
+              — A1/A2/A3/A4 작업 전부를 선행.
+            - `git status --short`: 14 modified + 11 untracked 경로
+              * Modified (12 tracked pipeline/*.py + .gitignore + README.md + prompts/청크 통합 프롬프트.md)
+              * Untracked: .agents/, .claude/, .prompts/, AGENTS.md, CLAUDE.md, DIALOGUE-PROTOCOL.md,
+                Document/, PROJECT-RULES.md, experiments/, tools/, pipeline/community_matcher.py,
+                pipeline/subtitle_analyzer.py
+            - `git diff --stat -- pipeline transcribe.py`: 12 files changed,
+              1043 insertions(+), 233 deletions(-)
+            - `git ls-files experiments/ Document/ tools/`: **0 files tracked in all three**.
+              → DAD infrastructure, experiments, A4 result artifacts 전부 working-tree-only.
+            - `git log -- experiments/results/2026-04-15_phase-a4_raw.json`: no history
+            - `git log -- experiments/results/2026-04-15_phase-a4_generalization.md`: no history
+        어떤 execute 턴도 본 C1 baseline 문단을 starting step에서 재읽음해야 한다.
+    - id: C2
+      description: |
+        A4 artifacts freeze provenance 확보 방법을 제안·선택한다. 대상 artifact:
+        - experiments/results/2026-04-15_phase-a4_raw.json
+        - experiments/results/2026-04-15_phase-a4_generalization.md
+        - Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/ 의 6개 파일
+          (state.json, summary.md, named summary, turn-05/06/07.yaml, close-ack.md)
+        후보:
+        (a) 단일 "freeze commit": 위 artifact들만 git add 후 commit해서 hash가 A4 converged
+            상태를 가리키게 함. 메시지 예: `Freeze A4 generalization artifacts (converged)`.
+            장점: 하나의 commit hash가 provenance 기준점이 됨. 단점: pipeline/ dirty가
+            같이 섞이지 않도록 staging 경계를 명확히 해야 함.
+        (b) "tag 기반 freeze": (a) 이후 annotated tag (예: `a4-closeout`) 부여.
+            장점: 사람이 읽을 수 있는 reference. 단점: 추가 복잡도.
+        (c) "SHA256 manifest": git 외부에 manifest 파일을 남김. 장점: git 미사용 환경에서도 유효.
+            단점: live filesystem 변경 시 재생성 필요.
+        본 세션의 기본 권고는 (a)이며, 실행은 별도 execute 턴에서 수행한다.
+    - id: C3
+      description: |
+        pipeline/ dirty tree가 A4 closeout 신뢰도에 미치는 영향을 정량 분리한다.
+        사실 관계:
+        - A4 summary와 turn-05/07은 "pipeline/config.py:26 chunk_max_tokens=None 그대로 유지"를
+          주장함.
+        - `pipeline/config.py`는 HEAD b62ada1 기준으로 dirty (20 line diff).
+        - 따라서 "A4 턴 중에 pipeline/*가 변경되지 않았다"는 주장은 git만으로는 증명 불가.
+          증명되는 것은 "현재 working tree의 pipeline/config.py 상태가 A4 측정 당시와 동일"이라는
+          **필요조건**뿐이며, 이는 claude_cli.py / chunker.py / summarizer.py / main.py
+          네 파일이 측정 전후로 바뀌지 않았다는 사실과 결합될 때만 의미가 있다.
+        분리 전략 (제안):
+        - A4 의사결정 자체: PASS 유지 (raw.json, result MD, state, summary, validator 모두 자체
+          일관성 확보).
+        - "Git-frozen closeout" 강한 주장: 현재 블록. 해소하려면 (1) A4 측정 시점의
+          pipeline/config.py / pipeline/chunker.py / pipeline/claude_cli.py /
+          pipeline/summarizer.py / pipeline/main.py 5개 파일의 snapshot을 A4 artifact에 sha256
+          manifest로 포함하거나, (2) 측정 직후 freeze commit을 이미 걸어놓거나, 둘 중 하나.
+        본 세션에서는 pipeline/* 코드 수정 금지. 단지 dirty 범위가 A4 frozen claim에 미치는
+        선행조건 gap을 문서화한다.
+    - id: C4
+      description: |
+        "Git-frozen closeout ACK" 판정 기준 사전등록:
+        - G1: A4 artifacts 6개(state/summary/named-summary/turn-05/06/07 + close-ack)가 단일
+          commit SHA로부터 `git log -- <path>`로 되짚을 수 있다.
+        - G2: experiments/results/2026-04-15_phase-a4_raw.json 및 _generalization.md가 G1의
+          commit (또는 이전 commit)에 포함되어 있고, 해당 commit 이후 두 파일은 수정되지 않았다.
+        - G3: A4 측정 기간 동안 사용된 pipeline/ 앵커 5개 파일의 sha256이 artifact 내부
+          (예: result MD 부록 또는 별도 manifest.json)에 기록되어 있고, 현재 filesystem의
+          sha256과 일치한다. (또는 측정 당시 freeze commit SHA가 artifact에 기록되어 있음.)
+        - G4: 본 세션의 close 시점에 root + session state.json의 closed_reason, session_status,
+          current_turn, last_agent가 모두 동일하고 validator 2종을 통과한다.
+        - G5: git status --short가 본 세션이 의도한 untracked/modified 경로만 포함하고,
+          계획 밖의 staged/working-tree 변경이 없다.
+        ACK = G1 ∧ G2 ∧ G3 ∧ G4 ∧ G5. 하나라도 미충족이면 OBJECT. 본 세션은 C5에서 제안될
+        execute slice에서 G1/G2/G3을 달성하도록 설계된다. G4/G5는 모든 턴에서 기본 gate.
+    - id: C5
+      description: |
+        execute slice 제안 (본 세션이 Turn 2+에서 쪼갤 후보; Turn 1은 plan-only로 실행하지 않음):
+        옵션 A (문서/summary provenance 보강):
+          - A4 result MD에 pipeline/ 앵커 5개 파일의 sha256 manifest를 §부록으로 추가
+          - close-ack.md 및 turn-07.yaml에서 언급한 "frozen" 주장을 G3 근거로 보강
+          - 장점: pipeline/* 수정 없이 G3 달성 가능. 단점: manifest hash가 artifact 내부에
+            기록되므로 MD/YAML이 touched 됨 → 이 자체를 별도 follow-up commit으로 freeze 필요.
+        옵션 B (dirty worktree 분리 전략):
+          - pipeline/*.py 12 modified + pipeline/community_matcher.py + pipeline/subtitle_analyzer.py
+            2 untracked를 "pre-A4-closeout snapshot"과 "post-closeout work"로 나누는 논리적
+            boundary 확정. 실제 commit/stash/reset 금지는 본 세션 전체에 유지.
+          - 출력: "dirty pipeline 변경의 어느 부분이 A4 측정 당시 이미 있었고, 어느 부분이
+            그 이후에 추가되었는가"의 근거 맵.
+          - 장점: freeze commit 시 staging 경계를 미리 결정해둠. 단점: 실제 git 작업은
+            본 세션 범위 밖 → 별도 hygiene-commit 세션 필요.
+        옵션 C (minimal commit hygiene):
+          - Document/, .agents/, .claude/, .prompts/, tools/, AGENTS.md, CLAUDE.md,
+            DIALOGUE-PROTOCOL.md, PROJECT-RULES.md, experiments/ (A4 artifacts 포함)을
+            pipeline/*와 분리된 commit 2-3개로 나누는 설계를 제안.
+          - pipeline/config.json / Chzzk 쿠키 / output/ / work/는 PROJECT-RULES Guardrails에
+            따라 절대 포함하지 않음.
+          - 장점: G1/G2 달성 및 단일 base commit SHA 확보. 단점: execute 시 본인이 아닌
+            별도 승인된 git-ops 턴이 필요. 본 세션에서는 계획만.
+        Turn 2+에서 사용자가 A/B/C 중 하나 이상을 골라 execute slice를 구체화한다.
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    현재 git working tree는 `codex/phase-a1-token-logging` 브랜치에서 HEAD=b62ada1이며,
+    이 HEAD는 A1 시작 이전 시점이다. A1~A4의 모든 측정 artifact, DAD 인프라 전체
+    (Document/, tools/, .prompts/, .agents/, .claude/, AGENTS.md, CLAUDE.md,
+    DIALOGUE-PROTOCOL.md, PROJECT-RULES.md), 그리고 2개의 새 pipeline 모듈
+    (community_matcher.py, subtitle_analyzer.py)이 전부 untracked 상태다. pipeline/
+    하위 12개 tracked 파일은 1043+/-233 규모로 modified되어 있다. 이 상태에서 "A4가
+    converged"라는 주장은 논리적으로는 자체 일관되지만(state/summary/validator PASS),
+    git-frozen 관점에서는 provenance가 없다 — `git log -- experiments/results/...json`이
+    빈 결과를 준다. 이것이 close-ack에서 OBJECT가 난 근본 원인이다.
+
+    본 세션(`2026-04-15-a4-closeout-hygiene`)은 A4 수치/결론을 재심하지 않는다. 범위는
+    (a) 위 사실을 fixed baseline으로 기록, (b) A4 artifact freeze provenance 확보 방법
+    제안, (c) pipeline dirty tree의 A4 claim 영향 분리, (d) future ACK 기준 사전등록,
+    (e) execute slice 후보 3종(A/B/C) 설계뿐이다. Turn 1은 strict plan-only.
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Live 재확인 결과 drift 없음 (본 세션은 Turn 1이므로 첫 제안). 수집한 baseline:
+        - Document/dialogue/state.json: New-DadSession.ps1 실행 직후, 이미 새 세션 헤더로 덮임.
+          A4 세션 state는 Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json
+          에 보존되어 있음을 live read로 확인.
+        - A4 session state.json: session_status=converged, current_turn=7, max_turns=7,
+          closed_reason 동일, packets 7개.
+        - A4 summary.md / named summary / close-ack.md 모두 현장 존재, 텍스트 본 세션 packet과
+          일관.
+        - git status --short: 14 modified paths + 11 untracked 경로 (위 C1 본문에 목록).
+        - git diff --stat -- pipeline transcribe.py: 12 files, 1043+/-233.
+        - git ls-files experiments/ Document/ tools/: 세 경로 모두 0 tracked.
+        - git log -- <A4 raw.json / generalization.md>: no output (= no history).
+    C2:
+      status: PASS
+      evidence: |
+        PROPOSED for Turn 2+ acceptance. 후보 (a)/(b)/(c) 3종을 등록. (a) 단일 freeze
+        commit 우선, (b) tag 부여는 선택, (c) sha256 manifest는 git-less fallback.
+        선택은 C5 옵션 A/B/C와 결합해 Turn 2+에서. 본 Turn 1 PASS는 "제안안이 self-review를
+        통과한다"는 뜻이며 아직 peer 승인 아님.
+    C3:
+      status: PASS
+      evidence: |
+        PROPOSED for Turn 2+ acceptance. pipeline/config.py는 dirty이므로 "A4 턴 중
+        미변경" 주장은 git만으로 증명 불가. 5개 앵커 파일의 sha256 manifest + 측정 시점
+        freeze commit 두 가지 경로를 분리 전략으로 기록. 본 세션에서 코드 수정 없음.
+        Turn 1 PASS는 분리 전략의 self-review 통과 의미.
+    C4:
+      status: PASS
+      evidence: |
+        PROPOSED for Turn 2+ acceptance. G1-G5 사전등록 완료. ACK = G1∧G2∧G3∧G4∧G5.
+        OBJECT trigger는 close-ack.md 기준과 동일 방향(git-frozen)이지만 판정식을
+        명시적으로 기록. Turn 1 PASS는 판정식이 self-consistent하다는 self-review 의미.
+    C5:
+      status: PASS
+      evidence: |
+        PROPOSED for Turn 2+ acceptance. 옵션 A/B/C 3종. Turn 2+에서 사용자/codex가
+        1개 이상 선택해 execute slice로 쪼갠다. Turn 1 PASS는 세 옵션이 mutually
+        separable하고 각각 본 세션 scope 내에서 실행 가능한 크기라는 self-review 의미.
+  issues_found:
+    - "Close-ack.md의 FAIL 진단은 'pipeline/ dirty'와 'result artifact git log 무이력'에
+      집중되어 있으나, 실제 working tree는 더 광범위하게 untracked이다: Document/, tools/,
+      .prompts/, .agents/, .claude/, AGENTS.md, CLAUDE.md, DIALOGUE-PROTOCOL.md,
+      PROJECT-RULES.md 전부 git 미인지. close-ack는 이 전체 범위를 언급하지 않았다."
+    - "현재 branch는 `codex/phase-a1-token-logging`이고 HEAD commit `b62ada1`은 A1 시작
+      이전이다. 즉 브랜치 이름의 의도와 실제 커밋 이력이 모순한다 — branch는 A1 작업용으로
+      만들어졌으나 A1/A2/A3/A4 전 과정의 commit이 단 하나도 기록되지 않았다."
+    - "pipeline/community_matcher.py와 pipeline/subtitle_analyzer.py는 untracked 신규 모듈이며,
+      CLAUDE.md에서 언급되지 않았다. 두 모듈이 A1/A2/A3/A4 측정 파이프라인 경로에 포함되는지
+      여부는 C1 앵커 set에서 명시적으로 다뤄진 적이 없다. 이것이 future measurement 신뢰도에
+      영향을 주는지 별도 follow-up으로 기록 필요."
+    - "현재 baseline 상황은 PROJECT-RULES의 'pipeline_config.json 커밋 금지' 가드레일 외에
+      'DAD 인프라 자체도 아직 커밋되지 않았음'이라는 메타 상태를 노출한다. 이는 Codex/Claude
+      계약(AGENTS.md/CLAUDE.md) 자체가 git 검토의 대상이 되지 못하고 있다는 뜻이며,
+      provenance 관점에서 pipeline dirty와 같은 급의 hygiene 문제다."
+  fixes_applied:
+    - "변경 불필요, PASS — Turn 1은 strict plan-only. code 수정, git add/commit/reset/stash,
+      artifact 이동/삭제, A4 session 파일 수정 없음. New-DadSession.ps1 호출만 수행하여
+      본 세션 디렉토리와 초기 state.json을 생성했고, Turn 1 packet과 두 state.json 갱신은
+      본 턴의 출력물로 기록한다."
+
+my_work:
+  task_model:
+    goal: "A4 close-ack OBJECT의 근본 원인인 git-frozen/provenance gap을 별도 세션으로 분리하여 계약화."
+    non_goals:
+      - "A4 수치, raw.json, result MD 내용 재심"
+      - "A4 state rollback 또는 re-open"
+      - "본 세션 Turn 1에서 code/git 수정"
+  plan: |
+    Turn 1은 plan-only. New-DadSession.ps1로 새 세션 생성, live baseline 수집 (state/summary/
+    close-ack 재읽음 + git status/diff/log), C1-C5 초안 작성, G1-G5 ACK 판정식 사전등록,
+    execute slice 후보 A/B/C 등록, validator 2종 통과. 본 턴 결과물은 turn-01.yaml + root
+    state.json + session state.json 갱신. pipeline/*, transcribe.py, A4 session 파일,
+    experiments/results 숫자는 건드리지 않음. git add/commit/reset/stash 금지.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-01.yaml"
+    summary: |
+      새 DAD 세션 `2026-04-15-a4-closeout-hygiene` 개설. Turn 1 packet + 두 state.json 갱신
+      (contract proposed, current_turn=1, last_agent=claude-code, packets=[turn-01.yaml]).
+      C1-C5 초안 + G1-G5 ACK 판정식 사전등록 + execute slice 3옵션 기록.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude-code reads: PROJECT-RULES.md, CLAUDE.md, DIALOGUE-PROTOCOL.md,
+        Document/dialogue/state.json (A4 converged 기준), A4 session state.json,
+        A4 summary.md, A4 named summary, A4 close-ack.md.
+      - "git status --short"
+      - "git diff --stat -- pipeline transcribe.py"
+      - "git log --oneline --decorate -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md"
+      - "git log --oneline -5"
+      - "git branch --show-current"
+      - "git ls-files experiments/ Document/ tools/"
+      - "powershell -File tools/New-DadSession.ps1 -SessionId 2026-04-15-a4-closeout-hygiene -TaskSummary '...' -Scope medium -Mode hybrid -MaxTurns 5 -Root ."
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+      - "Document/dialogue/state.json"
+  verification: |
+    본 턴은 code/git/artifact를 수정하지 않았고, A4 session 파일도 수정하지 않았다.
+    New-DadSession.ps1이 state.json 두 개를 새로 쓴 것은 세션 개설 절차 자체의 일부다.
+    Turn 1 packet 작성과 state update만 수행. 양쪽 validator 통과를 턴 종료 gate로 사용한다.
+  open_risks:
+    - "Codex-side auth는 직전 A4 턴까지도 401 유지. 본 세션의 execute 후보(A/B/C)는 git 작업을
+      포함할 수 있는데, git은 auth와 무관하지만 사용자 승인이 필요한 destructive-adjacent
+      조작이므로, 어느 쪽 에이전트가 실행해도 사용자 명시 승인이 필수다."
+    - "branch 이름 `codex/phase-a1-token-logging`와 실제 HEAD가 모순(A1 이전 commit)이다.
+      향후 freeze commit이 이 브랜치에 직접 들어갈지, 새 브랜치로 분리할지는 별도 결정 필요.
+      본 세션에서는 결정하지 않고 open_risk로 남긴다."
+    - "pipeline/community_matcher.py, pipeline/subtitle_analyzer.py 두 신규 모듈이 A4 측정
+      경로에 포함되는지 여부는 C1 앵커 set에서 다뤄지지 않았다. 포함된다면 A4 snapshot
+      manifest에 두 파일도 들어가야 한다. 이 판단은 C5 옵션 B 계획 시 확인."
+    - "본 세션 자체가 Document/dialogue/... 경로에 새 파일을 만들지만, Document/ 자체가
+      untracked이므로 본 세션의 turn-01.yaml과 state.json도 git-unknown 상태다. 이는
+      meta-hygiene 문제이지만 본 세션 안에서 해결 대상이 아니다 (C5 옵션 C의 범위)."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 2 (codex, 현재 401 유지 예상이므로 peer-plan 모드).
+    요청:
+    (1) 본 packet의 C1 baseline (git 상태 목록, 14 modified + 11 untracked, 1043+/-233,
+        ls-files 0/0/0)을 live로 재확인하고 drift 있으면 amendment 제출.
+    (2) C2/C3/C4/C5의 제안 중 (A, B, C 옵션과 G1-G5 판정식)에 대해 amend/accept를 표명.
+    (3) 특히 다음 두 가지에 대해 의견:
+        - pipeline/community_matcher.py, pipeline/subtitle_analyzer.py 두 신규 모듈이
+          A4 측정 경로에 포함되는지. 포함된다면 G3의 sha256 manifest에 추가해야 하는지.
+        - 본 세션의 freeze commit이 현재 branch `codex/phase-a1-token-logging`에 직접 들어가야
+          하는지, `main`으로 fast-forward되기 전 중간 브랜치로 분리해야 하는지.
+    (4) codex auth 재probe (401 재확인 or 200 복구).
+    (5) Turn 2는 여전히 plan-only. code 수정, git 조작, A4 session 파일 수정 금지.
+  context: |
+    A4는 converged. 본 세션은 A4 재심이 아니라 closeout hygiene의 별도 세션이다. Turn 1은
+    C1-C5 초안 + G1-G5 판정식 + execute 3옵션까지 제안. Turn 2+에서 한두 옵션을 고르고
+    execute slice를 쪼갠다. 실제 git 작업은 여전히 사용자 승인이 필요한 사안.
+  questions:
+    - "C5 옵션 A/B/C 중 어떤 조합을 먼저 실행할지 사용자/codex 의견?"
+    - "freeze commit을 현 브랜치에 바로 쌓을지, 별도 정리 브랜치로 분리할지?"
+    - "pipeline/community_matcher.py, pipeline/subtitle_analyzer.py가 A4 측정 경로였는가?"
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""
