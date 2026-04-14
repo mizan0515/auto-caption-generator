@@ -14,13 +14,29 @@ DEFAULT_CONFIG = {
     "output_dir": "./output",
     "work_dir": "./work",
     "fmkorea_search_keywords": ["탬탬"],
-    "chunk_max_chars": 150000,
-    "chunk_overlap_sec": 45,
+    # 청크 분할 precedence (Phase A2):
+    #   DEFAULT_CONFIG: chunk_max_tokens=None 이므로 신규/기본 실행은 chunk_max_chars=8000 경로.
+    #   pipeline_config.json merge: user json 에 token 키가 없으면 이 None/8000 기본값을 상속한다.
+    #   both-set: 두 키가 동시에 설정되면 token 우선. precedence: chunk_max_tokens > chunk_max_chars.
+    #   main.py fallback: sparse cfg 를 넘겨도 chunk_max_chars=8000 / overlap=30 으로 동일 규칙 유지.
+    #   계량 단위는 raw_block 글자수 또는 raw_block token 수이며, cues_to_txt 길이가 아니다.
+    # chunk_size_experiment 결과: 청크당 ~8000자(약 10분) = 분당 0.6~0.7 타임라인 밀도
+    # 참고: 150000 은 사실상 "어떤 VOD든 1청크" → 요약이 10개 내외로 제한됨
+    "chunk_max_chars": 8000,
+    "chunk_max_tokens": None,
+    "chunk_tokenizer_encoding": "cl100k_base",
+    "chunk_overlap_sec": 30,
     "claude_timeout_sec": 300,
     "auto_cleanup": True,
     "fmkorea_max_pages": 3,
     "fmkorea_max_posts": 20,
     "fmkorea_enabled": True,
+    # 최초 실행 시 기존 VOD 처리 정책
+    #   null      : 첫 실행 때 대화형 질문 (TTY 없으면 skip_all로 폴백)
+    #   "skip_all": 기존 VOD 모두 스킵, 이후 새 VOD만 처리
+    #   "latest_n": 최신 N개만 처리, 나머지는 스킵
+    "bootstrap_mode": None,
+    "bootstrap_latest_n": 1,
     "cookies": {"NID_AUT": "", "NID_SES": ""},
 }
 
