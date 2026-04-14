@@ -1,0 +1,7 @@
+interface:
+  display_name: "ACG DAD v2 Repeat Workflow"
+  short_description: "Run the next turn of the active ACG DAD session"
+  default_prompt: "Use $acg-repeat-workflow to execute the next turn of the active auto-caption-generator DAD v2 session and emit the next handoff prompt."
+
+policy:
+  allow_implicit_invocation: false

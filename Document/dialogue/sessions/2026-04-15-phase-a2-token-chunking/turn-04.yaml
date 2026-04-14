@@ -1,0 +1,99 @@
+type: turn
+from: claude-code
+turn: 4
+session_id: "2026-04-15-phase-a2-token-chunking"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Pick the A2 tokenizer by comparing concrete candidates — tiktoken(cl100k_base), anthropic count_tokens API, and a char÷4 heuristic — across six axes: dependency surface, license, offline/airgapped behavior, version/schema stability, speed on 10 KB transcripts, and observed closeness to A1 Claude usage totals."
+      verification: "Execute turn must write a decision record naming the selected tokenizer, covering all three candidates, and filling all six axes explicitly."
+    - id: C2
+      description: "Add chunk_max_tokens to pipeline/config.py DEFAULT_CONFIG AND reconcile the legacy fallback at pipeline/main.py:188 (currently hardcoded 150000, inconsistent with DEFAULT_CONFIG chunk_max_chars=8000). Define precedence in one place for DEFAULT_CONFIG, pipeline_config.json merge, main.py fallback, and the both-keys-set case."
+      verification: "Execute diff must touch pipeline/config.py and pipeline/main.py, keep char-based keys intact, and prove three cases: legacy-only config -> char chunking, token-only config -> token chunking, both-set -> documented precedence."
+    - id: C3
+      description: "Introduce a token-based chunking path in pipeline/chunker.py without breaking char-based behavior. The token-counting unit must be per-cue raw_block, the same string the current splitter thresholds on at pipeline/chunker.py:102, not cues_to_txt output."
+      verification: "Execute code must keep split_by_chars() intact, add split_by_tokens() over raw_block, preserve overlap semantics, and document the unit decision in the chunker docstring."
+    - id: C4
+      description: "Record a same-source comparison table for work/12702452/*clip1800s.srt in experiments/results/2026-04-15_phase-a2_token-chunking.md, showing chunk count, raw_block-char sum, cues_to_txt char_count, tokenized raw_block, prompt chars, and prompt tokens."
+      verification: "Result doc must include all six columns for the same cached sample and an explicit note explaining the raw_block vs cues_to_txt unit gap."
+    - id: C5
+      description: "Measure tokenizer-predicted prompt tokens against live Claude usage for at least one chunk using A1 logging. The comparison baseline is input_tokens + cache_creation_input_tokens + cache_read_input_tokens, while each field is also reported separately."
+      verification: "Execute turn must either capture one real Claude-backed measurement with predicted-vs-observed sum + delta, or explicitly delegate the live run to claude-code because codex-side auth is still 401."
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "tiktoken cl100k_base under-counts Korean transcripts by ~80% vs Claude tokenizer on the single measured chunk. Phase A3 should confirm with additional genres/lengths before baking the 1.8x margin into config docs."
+      - "Claude CLI itself cache-reads ~20k tokens of its own system prompt per call. Cost estimates must use input+cache_creation, not the full usage sum, or they will over-estimate by ~2x."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "experiments/results/2026-04-15_phase-a2_token-chunking.md §2 lists tiktoken cl100k_base, anthropic SDK count_tokens HTTP, and char÷4 heuristic across all six axes (dependency, license, offline, version stability, speed, A1 usage closeness). Selected tiktoken cl100k_base with written rationale (offline + stable BPE + 1~2ms per 10KB). Speed column cites measured 30ms for 211 cue raw_block encoding."
+    C2:
+      status: PASS
+      evidence: "pipeline/config.py DEFAULT_CONFIG now has chunk_max_tokens=None, chunk_tokenizer_encoding=cl100k_base (lines 23-26 with precedence comment). pipeline/main.py:186-197 replaces the hardcoded 150000 fallback with cfg.get('chunk_max_chars', 8000) + max_tokens=cfg.get('chunk_max_tokens'), matching DEFAULT_CONFIG=8000. Three cases verified via live python probe: legacy-only → char split (baseline_150k/chunk_8k/chunk_5k), token-only → split_by_tokens (token_4000/token_2500 rows in §4.2), both-set → token wins (chunk_srt branch `if max_tokens is not None`)."
+    C3:
+      status: PASS
+      evidence: "pipeline/chunker.py adds split_by_tokens() (lines 156-201) that tokenizes cues[j].raw_block via tiktoken (NOT cues_to_txt). Overlap rewind mirrors split_by_chars() byte-for-byte (same start_i/next_i loop). Module docstring at top of file documents the raw_block vs cues_to_txt unit choice and cites Phase A2 C3/C4. split_by_chars() is untouched."
+    C4:
+      status: PASS
+      evidence: "experiments/results/2026-04-15_phase-a2_token-chunking.md §4.2 has the 6-column table (rb_chars, txt_chars, rb_tokens, prompt_chars, prompt_tokens plus chunk id) for baseline_150k, chunk_15k, chunk_8k, chunk_5k, token_4000, token_2500 on the same work/12702452/*clip1800s.srt sample. §4.3 explicitly explains the raw_block vs cues_to_txt ~1.59x gap. §4.4 decomposes prompt overhead into ~500-token fixed instruction + variable chat_section."
+    C5:
+      status: PASS
+      evidence: "experiments/results/2026-04-15_phase-a2_token-chunking.md §5 reports predicted 9,906 (tiktoken) vs observed sum 38,518 on chunk_8k chunk 1. All four usage fields reported separately: input_tokens=2, cache_creation_input_tokens=17,848, cache_read_input_tokens=20,668, output_tokens=2,673. Δ = +28,612 tokens (3.89x predicted). Interpretation: ~20,668 is Claude CLI's own system prompt cache (confirmed via A1 re-probe with 2-token user prompt), user-attributable = input+cache_creation ≈ 17,850, giving tiktoken ~80% under-count on Korean SRT. Exact usage log line quoted: `pipeline INFO Claude usage input_tokens=2 output_tokens=2673 cache_creation_input_tokens=17848 cache_read_input_tokens=20668 session_id=601e5442-... total_cost_usd=0.113231`."
+  issues_found: []
+  fixes_applied:
+    - "변경 불필요, PASS — all five checkpoints executed against live files with recorded evidence. No contract amendments required."
+
+my_work:
+  plan: "Execute A2 Turn 4 kickoff contract end-to-end: (Step 1) add chunk_max_tokens to config + reconcile main.py fallback; (Step 2) add split_by_tokens() in chunker using raw_block; (Step 3) write experiments/results/2026-04-15_phase-a2_token-chunking.md with six-column same-source table; (Step 4) run one real Claude call on claude-code side to close C5 (codex auth 401); (Step 5) verify three-case precedence (legacy / token / both) via REPL probe and run both validators."
+  changes:
+    files_modified:
+      - "pipeline/config.py"
+      - "pipeline/main.py"
+      - "pipeline/chunker.py"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/state.json"
+    files_created:
+      - "experiments/results/2026-04-15_phase-a2_token-chunking.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-04.yaml"
+    summary: "Executed the Phase A2 token-chunking contract: added chunk_max_tokens to DEFAULT_CONFIG with tiktoken cl100k_base encoding, reconciled the hardcoded 150000 fallback at pipeline/main.py:188 down to 8000 (matching DEFAULT_CONFIG), introduced split_by_tokens() in pipeline/chunker.py that tokenizes per-cue raw_block with tiktoken (NOT cues_to_txt) while preserving overlap rewind logic byte-for-byte, wrote experiments/results/2026-04-15_phase-a2_token-chunking.md with the full tokenizer decision record, six-column same-source comparison table, and predicted-vs-observed C5 live measurement (9,906 tiktoken vs 38,518 Claude usage sum; user-attributable ~17,850 → tiktoken under-counts Korean by ~80%), and confirmed no regression on the legacy char path."
+  self_iterations: 2
+  evidence:
+    commands:
+      - "pip install tiktoken  # 0.12.0"
+      - "python -c \"import json, pipeline.config as c; d=c.DEFAULT_CONFIG; print([k for k in d if 'chunk' in k])\"  # => ['chunk_max_chars','chunk_max_tokens','chunk_tokenizer_encoding','chunk_overlap_sec']"
+      - "python - <<'PY' ... # legacy-only config: chunks = chunk_srt(srt, max_chars=8000, overlap_sec=30) -> 2 chunks via split_by_chars ... PY"
+      - "python - <<'PY' ... # token-only config: chunks = chunk_srt(srt, max_chars=150000, overlap_sec=30, max_tokens=4000) -> 3 chunks via split_by_tokens ... PY"
+      - "python - <<'PY' ... # both-set: max_chars=8000 + max_tokens=2500 -> 5 chunks (token wins, matches token-only) ... PY"
+      - "python - <<'PY' ... # full experiment: chunk_srt over 6 configs, build prompts via _build_chunk_prompt, tokenize, write §4.2 table ... PY"
+      - "python - <<'PY' ... # C5 live call: call_claude(prompt, timeout=300) for chunk_8k chunk1, observe 'Claude usage ...' INFO line ... PY"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "pipeline/config.py"
+      - "pipeline/main.py"
+      - "pipeline/chunker.py"
+      - "experiments/results/2026-04-15_phase-a2_token-chunking.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a2-token-chunking/turn-04.yaml"
+  verification: "Live Claude call captured on chunk_8k chunk 1: `pipeline INFO Claude usage input_tokens=2 output_tokens=2673 cache_creation_input_tokens=17848 cache_read_input_tokens=20668 session_id=601e5442-... total_cost_usd=0.113231`. tiktoken prediction for the same prompt = 9,906 tokens (prompt_chars=10,491). Δ(sum−predicted) = +28,612 (3.89×). Three-case precedence confirmed via REPL: legacy-only → 2 chunks (split_by_chars), token-only → 3 chunks (split_by_tokens), both-set → 5 chunks (token path wins, identical to token-only at max_tokens=2500). Regression: legacy char path byte-identical chunk counts (1/1/2/3) vs experiments/results/summary.md baseline."
+  open_risks:
+    - "Single-chunk, single-genre measurement: 80% under-count ratio is from one 30-minute Korean comedy clip. Phase A3 needs cross-genre/length samples before the 1.8x operational margin gets baked into docs."
+    - "tiktoken 0.12.0 pin: BPE is frozen but internal API may shift on minor upgrades. Lazy loader raises a clear install-hint message; no runtime regression yet."
+    - "Pre-existing dirty tree: unrelated modified files from earlier phases still in worktree. Separate housekeeping commit recommended before feature branch merge to avoid diff confusion (carried over from Turns 1-3)."
+    - "Claude CLI system prompt cache (~20k tokens/call) will dominate cost on token-sized chunking if tuners use raw usage sum. Operational rule written in §5.1 and §6.2."
+  confidence: high
+
+handoff:
+  next_task: "Phase A2 converged. Suggest closing the A2 session as done. If user approves, kick off Phase A3 in a new DAD session (re-measure under-count ratio across genres + define chunk_max_tokens recommendation in README)."
+  context: "All five A2 checkpoints PASS with cited live evidence in experiments/results/2026-04-15_phase-a2_token-chunking.md. The token chunking path is opt-in (chunk_max_tokens=None by default), precedence is chunk_max_tokens > chunk_max_chars, unit is per-cue raw_block, and the C5 live measurement surfaced a concrete operational finding (tiktoken under-counts Korean by ~80%, Claude CLI contributes ~20k cached tokens per call). No contract violations, no code outside the three target files (config.py, main.py, chunker.py). Legacy char path is byte-for-byte preserved (chunk counts 1/1/2/3 on the baseline_150k/chunk_15k/chunk_8k/chunk_5k configs). Docstring at top of pipeline/chunker.py documents the raw_block vs cues_to_txt invariant so future reviewers don't re-open the question."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "All five checkpoints C1-C5 PASS with live evidence. C1: §2 of result doc has three-candidate six-axis decision record with tiktoken cl100k_base selected. C2: pipeline/config.py and pipeline/main.py reconciled, three precedence cases verified (legacy-only=char, token-only=token, both-set=token wins). C3: split_by_tokens() added over raw_block; split_by_chars() untouched; docstring documents the unit decision. C4: six-column table in §4.2 covers baseline_150k/15k/8k/5k and token_4000/2500; §4.3 explains the 1.59x raw_block vs cues_to_txt gap explicitly. C5: real Claude call captured, all four usage fields reported separately (input=2, cache_creation=17848, cache_read=20668, output=2673), sum=38518 vs predicted 9906, Δ=+28612 (3.89×), user-attributable user-prompt contribution ≈17850 giving tiktoken ~80% under-count on Korean SRT. Experiment doc cites exact file paths, exact log line, and reproduction script. Operational finding (1.8× margin rule) recorded in §6.1 decisions and §6.2 open risks."

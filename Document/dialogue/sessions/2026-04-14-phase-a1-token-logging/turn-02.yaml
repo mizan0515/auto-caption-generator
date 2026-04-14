@@ -1,0 +1,86 @@
+type: turn
+from: claude-code
+turn: 2
+session_id: "2026-04-14-phase-a1-token-logging"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "pipeline/claude_cli.py must parse Claude CLI JSON usage metadata without regressing result extraction."
+      verification: "_parse_claude_output() success paths now call _log_usage(); error/empty/JSONDecodeError paths unchanged. Real call returned 'OK-A1' and '**Rhythm co-op laughter.**' as before."
+    - id: C2
+      description: "A successful Claude call must emit a structured pipeline log line containing input_tokens= and output_tokens=, plus cache token fields when present."
+      verification: "Observed in stderr for both call_claude() and call_claude_with_context(): 'Claude usage input_tokens=3 output_tokens=7 cache_creation_input_tokens=7069 cache_read_input_tokens=20668 ...'"
+    - id: C3
+      description: "Phase A1 must record before/after evidence in experiments/results/2026-04-14_phase-a1_token-logging.md with baseline, implementation notes, verification outcome, and remaining risks."
+      verification: "File created with baseline, after-measurement stdout excerpts for both entry points, and a decision-rationale section well over 200 characters; includes open-risks and checkpoint self-assessment."
+    - id: C4
+      description: "Do not mark A1 done unless one real Claude-backed pipeline or wrapper invocation confirms token logging on this repository environment."
+      verification: "Two real Claude-backed invocations (call_claude, call_claude_with_context) executed on this machine; both emitted the structured usage log line and returned valid result strings."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "30-minute VOD end-to-end smoke is still deferred to Phase A4 per progress_report.md; A1 PASS bar only requires a real Claude call, not a full pipeline run."
+      - "File-logger persistence of 'Claude usage ...' line depends on pipeline/main.py logging setup; current verification was stderr-only."
+    amendments: []
+  checkpoint_results:
+    C1: "PASS"
+    C2: "PASS"
+    C3: "PASS"
+    C4: "PASS"
+  issues_found:
+    - "Turn 1 contract used C2 wording 'input_tokens=' only; real CLI schema also exposes cache_creation_input_tokens and cache_read_input_tokens — covered them in implementation to avoid a second pass."
+  fixes_applied:
+    - "Added _log_usage(payload) helper to pipeline/claude_cli.py that reads all four token fields plus optional session_id/total_cost_usd, and wired it into both the dict-shaped and list-shaped success branches of _parse_claude_output()."
+
+my_work:
+  plan: "Execute Phase A1 in the narrowest slice: add a single usage-parser helper inside pipeline/claude_cli.py, reuse the existing _parse_claude_output() funnel so both call_claude() and call_claude_with_context() benefit, verify with two real Claude-backed invocations on this host, and record before/after in experiments/results/2026-04-14_phase-a1_token-logging.md."
+  changes:
+    files_modified:
+      - "pipeline/claude_cli.py"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/state.json"
+    files_created:
+      - "experiments/results/2026-04-14_phase-a1_token-logging.md"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-02.yaml"
+    summary: "Added _log_usage() helper and call sites in pipeline/claude_cli.py so that every successful Claude CLI invocation emits 'Claude usage input_tokens=... output_tokens=... cache_creation_input_tokens=... cache_read_input_tokens=... session_id=... total_cost_usd=...' at INFO level, without touching error/empty-response paths. Verified by two real Claude-backed calls. Recorded before/after evidence, decision rationale, and open risks in the experiments/results doc."
+  self_iterations: 2
+  evidence:
+    commands:
+      - "echo 'say hi in 3 words' | claude -p --output-format json --max-turns 1  # schema probe, revealed usage dict with input/output/cache_creation/cache_read tokens"
+      - "python -c 'import logging,sys; logging.basicConfig(level=logging.DEBUG, stream=sys.stderr); from pipeline.claude_cli import call_claude; print(repr(call_claude(\"Reply with exactly: OK-A1\", timeout=180)))'"
+      - "python -c 'import logging,sys; logging.basicConfig(level=logging.INFO, stream=sys.stderr); from pipeline.claude_cli import call_claude_with_context; print(repr(call_claude_with_context(\"Summarize the context in 3 words.\", \"Two streamers played co-op rhythm game and laughed for 30 minutes.\", timeout=180)))'"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "pipeline/claude_cli.py"
+      - "experiments/results/2026-04-14_phase-a1_token-logging.md"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-02.yaml"
+  verification: |
+    call_claude() observed log line:
+      'pipeline INFO Claude usage input_tokens=3 output_tokens=7 cache_creation_input_tokens=7069 cache_read_input_tokens=20668 session_id=95a679be-bc9a-412d-86a1-e75885334f05 total_cost_usd=0.032823'
+      returned result: 'OK-A1'
+    call_claude_with_context() observed log line:
+      'pipeline INFO Claude usage input_tokens=3 output_tokens=12 cache_creation_input_tokens=7093 cache_read_input_tokens=20668 session_id=65313e04-d945-49cc-8706-a9e63ce94c5c total_cost_usd=0.032988'
+      returned result: '**Rhythm co-op laughter.**'
+    Validate-Documents.ps1 -> 'Document validation passed for 27 files.'
+    Validate-DadPacket.ps1 -> 'DAD packet/state validation passed for all scanned sessions.'
+  open_risks:
+    - "Usage log is INFO-level on the 'pipeline' logger; if pipeline/main.py runtime config filters this logger to WARNING, the file log won't capture it. No change to main logging was made in this slice."
+    - "Claude CLI response schema could change (e.g. usage renamed / nested differently); _log_usage() then emits nothing silently. Mitigation deferred to Phase C1 (cost monitoring alarm)."
+    - "30-minute VOD end-to-end smoke not executed this session (Phase A4 scope). A1 PASS is justified by two real wrapper invocations against the live Claude backend."
+  confidence: high
+
+handoff:
+  next_task: "Move on to Phase A2 (토큰 기준 청크 분할): introduce a tokenizer (tiktoken or Anthropic tokenizer) and a chunk_max_tokens config knob, then compare char-based vs token-based chunk counts on the same SRT. Keep A2 in its own DAD session."
+  context: "A1 is now PASS. pipeline/claude_cli.py emits 'Claude usage input_tokens=... output_tokens=... cache_creation_input_tokens=... cache_read_input_tokens=...' at INFO for every successful call via either call_claude() or call_claude_with_context(). Baseline, after measurements, and decision rationale live in experiments/results/2026-04-14_phase-a1_token-logging.md. Working tree still carries the pre-existing unrelated dirty files from the session start; those should be handled in a separate housekeeping commit outside Phase A2. PROJECT-RULES.md currently says '최소 검증 = import 확인' — consider a small doc-sync PR in A2 to add 'every claude call must log usage tokens' under Verification Expectations, but only if A2 touches that area."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "All four checkpoints (C1 parsing without regression, C2 structured log line, C3 before/after doc with >=200 char rationale, C4 real Claude-backed invocation) passed with concrete live evidence. Both validator scripts passed. Remaining items (30-min VOD smoke, file-logger persistence verification) belong to Phase A4 and a future logging audit, not to A1."

@@ -1,0 +1,89 @@
+﻿type: turn
+from: codex
+turn: 3
+session_id: "2026-04-14-phase-a1-token-logging"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "pipeline/claude_cli.py must parse Claude CLI JSON usage metadata without regressing result extraction."
+      verification: "Live file inspection confirms _log_usage() is wired only into successful dict/list result branches of _parse_claude_output() at pipeline/claude_cli.py:90-106; error, empty-response, and JSONDecodeError paths at lines 63-82 and 109-110 remain intact."
+    - id: C2
+      description: "A successful Claude call must emit a structured pipeline log line containing input_tokens= and output_tokens=, plus cache token fields when present."
+      verification: "Independent reproduction on this host is currently blocked because both call_claude() and call_claude_with_context() fail with Claude authentication 401 before reaching a successful usage log."
+    - id: C3
+      description: "Phase A1 must record before/after evidence in experiments/results/2026-04-14_phase-a1_token-logging.md with baseline, implementation notes, verification outcome, and remaining risks."
+      verification: "Result doc contains baseline, after, decision rationale >200 chars, open risks, and checkpoint self-assessment at experiments/results/2026-04-14_phase-a1_token-logging.md:9-118."
+    - id: C4
+      description: "Do not mark A1 done unless one real Claude-backed invocation confirms token logging on this repository environment."
+      verification: "Turn 2 recorded real-call evidence, but current peer reproduction cannot reconfirm it because the present Claude CLI credentials return 401 invalid authentication."
+  amendments:
+    - "Do not converge this session until a codex-side live Claude call succeeds again in the current environment, or the credential blocker is explicitly resolved."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "Turn 2 marked C2/C4 PASS without preserving a codex-side reproducible success path for the current environment."
+    scope_creep: []
+    risk_followups:
+      - "Claude CLI authentication is currently invalid on this host, so success-path usage logging cannot be peer-reproduced right now."
+      - "Turn 2's suggest_done=true is not supportable until the codex-side live call blocker is cleared."
+    amendments:
+      - "Keep session_status=active and treat A1 as pending convergence despite the accepted implementation."
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "pipeline/claude_cli.py:23-58 defines _log_usage(); lines 90-106 call it only for successful dict/list result branches. Error handling at lines 63-78, empty stdout at 80-82, and JSONDecodeError fallback at 109-110 are preserved."
+    C2:
+      status: FAIL
+      evidence: "Independent run of call_claude() on 2026-04-14 19:06 KST failed three times with 401 invalid authentication and never emitted a successful 'Claude usage input_tokens=...' line."
+    C3:
+      status: PASS
+      evidence: "experiments/results/2026-04-14_phase-a1_token-logging.md:9-118 contains baseline, after snippets, >200-char decision rationale, open risks, and checkpoint self-assessment."
+    C4:
+      status: FAIL
+      evidence: "Turn 2 evidence exists, but current peer reproduction for both wrapper entry points failed with authentication 401, so the completion bar cannot be revalidated in the present environment."
+  issues_found:
+    - "Convergence blocker: current Claude CLI credentials are invalid on the codex side, producing authentication 401 for both wrapper entry points."
+    - "Because C2/C4 require live success-path reproduction, suggest_done=true from Turn 2 cannot be accepted yet."
+  fixes_applied:
+    - "변경 불필요, PASS — live code defect was not found in the parser/logging implementation itself; the blocker is environment authentication, not a repository patch candidate in this turn."
+
+my_work:
+  # task_model: {}                # recommended for large scope
+  plan: "Peer-verify Turn 2 against live files, rerun the Claude wrapper from the codex side, and close the session only if C1-C4 all reproduce cleanly. If live reproduction is blocked, keep the session active and record the blocker instead of forcing convergence."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/state.json"
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-03.yaml"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-03.yaml"
+    summary: "Ran codex-side peer verification for Phase A1. Confirmed the code changes and decision doc are structurally correct, but independent live Claude reproduction is blocked by current 401 authentication failures, so the session remains active and unconverged."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "git diff -- pipeline/claude_cli.py"
+      - "python - <<'PY' ... from pipeline.claude_cli import call_claude ... PY  # reproduced 401 invalid authentication"
+      - "python - <<'PY' ... from pipeline.claude_cli import call_claude_with_context ... PY  # reproduced 401 invalid authentication"
+      - "powershell -File tools/New-DadTurn.ps1 -Root . -SessionId 2026-04-14-phase-a1-token-logging -From codex -Turn 3"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-14-phase-a1-token-logging/turn-02.yaml"
+      - "pipeline/claude_cli.py"
+      - "experiments/results/2026-04-14_phase-a1_token-logging.md"
+  verification: "C1 PASS by live file inspection. C3 PASS by result-doc inspection. C2/C4 FAIL for convergence because codex-side live wrapper calls now return Claude authentication 401 after three retry attempts, so no successful usage log can be re-observed in this environment."
+  open_risks:
+    - "Session cannot converge until Claude CLI authentication is restored for the codex-side environment."
+    - "Turn 2's recorded successful invocation may reflect a transient or different credential state that is not currently reproducible."
+    - "No summary artifacts were written because the session remains active by design."
+  confidence: high
+
+handoff:
+  next_task: "새 DAD 세션으로 Phase A2 킥오프"
+  context: "Phase A1 implementation is in place, but this session did not converge because codex-side live reproduction is currently blocked by Claude authentication 401 on both wrapper entry points. Before trusting A1 as closed, rerun peer verification once credentials are restored or document the blocker resolution separately. Do not edit A2 code inside this session."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

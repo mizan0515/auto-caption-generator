@@ -1,0 +1,157 @@
+type: turn
+from: codex
+turn: 4
+session_id: "2026-04-15-phase-a4-generalization-plan"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Re-anchor A2/A3 baseline from live files and document that no runtime config change has yet been made. Seven live anchors: pipeline/config.py:9-41 (chunk_max_tokens=None default), pipeline/main.py:186-197 (precedence), pipeline/chunker.py:156-201 (split_by_tokens per-cue raw_block), pipeline/chunker.py:204-257 (chunk_srt dispatcher), pipeline/claude_cli.py:23-58 (_log_usage four-field), pipeline/summarizer.py:59/:121 (_build_chunk_prompt signature + call), experiments/results/2026-04-15_phase-a3_token-margin-sampling.md §5-§6 (3.35x + Δ≈7.5k). Any execute turn must re-read each anchor in its opening step."
+    - id: C2
+      description: "Pre-register the 3×3 generalization matrix (length ∈ {30min,1h,3h}, genre ∈ {talk,game,reaction-or-music}, chat_density ∈ {low ≤20, medium 20-60, high >60 msgs/min}) as a planning scaffold. A3 covers only (30min, talk, high≈76.21). A cell is covered iff ≥3 chunks pass A3 C3 ±3% consistency. Global multiplicative promotion is allowed only when ≥5 distinct cells are covered, at least one covered cell exists in each length bucket, coverage spans at least 2 genres and 2 density tiers, and each covered cell's P95 user_ratio stays within ±15% of the observed global median P95 (median defined over covered cells' per-cell P95_user_ratio using A3's small-n convention: ratios_sorted[n//2] for odd n, (ratios_sorted[n//2-1]+ratios_sorted[n//2])/2 for even n). Otherwise publish per-cell recommendations and/or additive form only."
+    - id: C3
+      description: "Separate acquisition slice from measurement slice. Acquisition options per uncovered cell: (a) re-transcribe existing full-VOD work/12702452_*144p.mp4 for length extension (subject to actual mp4 duration), (b) pipeline.downloader + Chzzk cookies for new VODs, (c) mark blockers for genre cells that Chzzk cannot reach. Measurement turns then run the A3 C3 protocol unchanged (tiktoken cl100k_base on _build_chunk_prompt, cold/warm, ±3%, ceil(P95*1.05*100)/100)."
+    - id: C4
+      description: "Pre-register A4 result-doc schema: per-(cell,sample,chunk) row = [sample_id, length_min, genre, density_tier, chat_density_msgs_per_min, chunk_index, predicted, input, cache_creation, cache_read, user_attributable, cache_read_delta, consistency_pass, user_ratio, additive_overhead]; per-cell aggregates = [n_chunks, n_valid_chunks, median_user_ratio, P95_user_ratio, median_additive_overhead]. Any cell with n_valid_chunks < 3 is insufficient-data and is excluded from global promotion calculations. The global section publishes both multiplicative margin AND additive form (+~7.5k + CLI cache 20,668). Four possible decisions remain: global multiplicative, global additive, per-cell multiplicative, scope-blocked."
+    - id: C5
+      description: "Execution ownership under persistent codex-side 401: claude-code owns every live measurement turn, codex owns peer verification + raw-artifact recomputation. Every codex turn re-probes auth at start; reassign C5 on 200. If claude-code auth degrades too, downgrade session from execute to measurement-blocked rather than silently stalling."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "W1 reproduces A3's reported 76.21 msgs/min only under the A3-style denominator (count / observed max timestamp). The exact fixed-window density for [0,1800) is 76.1667 msgs/min, so parser is consistent and the difference is only denominator convention."
+      - "Length-only expansion on the local 5.71h VOD can cover 30min/1h/3h and also yields tier changes under fixed-window density (high -> medium -> low), but it still leaves genre coverage at one cell family. Downloader acquisition is still required for any global multiplicative recommendation."
+      - "Cookie presence is True, so downloader-based expansion is still viable in principle, but cookie validity remains unknown and must not be assumed green until execute time."
+      - "A4 skeleton now records template_hash per row and global output, which should guard the additive-overhead constant from silent prompt-template drift."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Turn 4 re-audit found the same live anchors as Turn 2/Turn 3 with no drift: pipeline/config.py:9-26 still has chunk_max_tokens=None, chunk_max_chars=8000, chunk_tokenizer_encoding='cl100k_base', chunk_overlap_sec=30; pipeline/main.py:187-192 still passes (srt_path, max_chars, overlap_sec, max_tokens, tokenizer_encoding); pipeline/chunker.py:161-171 and 186-198 still use per-cue raw_block token_count_cache plus symmetric rewind; pipeline/chunker.py:203-256 still dispatches by `if max_tokens is not None`; pipeline/claude_cli.py:23-58 still emits four usage fields with an empty guard; pipeline/summarizer.py:59-64 and 118-119 still define and call `_build_chunk_prompt(chunk, highlights, chats, vod_info)`; A3 result MD still contains 3.35 / 3.1541 / 3.1843 / ~7.5k."
+    C2:
+      status: PASS
+      evidence: "Windowed chat-density recomputation on work/12702452/12702452_chat.log produced W1 [0,1800): count=2285, fixed=76.1667 msgs/min (high), A3-style=76.2090 msgs/min; W2 [0,3600): count=2285, fixed=38.0833 (medium); W3 [0,10800): count=2285, fixed=12.6944 (low). This means the local length axis can cover at least three density tiers if density is defined over the exact paired window, but genre still remains single-axis (= talk), so C2's >=2 genres requirement still blocks global multiplicative promotion from local assets alone."
+    C3:
+      status: PASS
+      evidence: "The cookie boolean probe `python -c \"from pipeline.config import load_config, get_cookies; print(bool(get_cookies(load_config())))\"` returned True without exposing values. ffprobe had already established the full mp4 at 20552.705s (~5.71h). Turn 4 added ready-to-run literal commands for 1h/3h acquisition only, without running ffmpeg or transcribe."
+    C4:
+      status: PASS
+      evidence: "Turn 4 created experiments/a4_measure.py as a runnable skeleton. It keeps CELLS empty by contract, implements the accepted row schema plus per-cell/global aggregation, computes the four-way global decision, and records `template_hash` in both row payloads and the global section. Dry parse passed via ast.parse."
+    C5:
+      status: PASS
+      evidence: "Mandatory auth re-probe still returned rc=1 with authentication_error 401, so C5 stays unchanged: claude-code remains the execute owner for Turn 5, codex remains peer verification only."
+  issues_found:
+    - "The local path printer hit a cp949 console encode failure when echoing the resolved mp4 path directly from Python. This is not a repo-path bug; Turn 4 handled it by using the already-resolved literal Unicode path in the packet instead of relying on console echo."
+    - "The accepted contract says Turn 4/Turn 5 remain, but the user explicitly constrained Turn 4 back to plan-only. This is consistent with C5's persistent 401 and does not require contract rollback; it only narrows Turn 4 to acquisition-readiness."
+  fixes_applied:
+    - "변경 불필요, PASS — no pipeline file, no frozen A3 artifact, and no result document was modified. Added only the Turn 4 packet/state updates and the new execute skeleton experiments/a4_measure.py."
+
+my_work:
+  plan: |
+    Keep Turn 4 plan-only while filling all execution prerequisites for Turn 5: re-probe auth,
+    re-audit anchor drift, verify only the cookie boolean, compute W1/W2/W3 chat densities from
+    the saved chat log, materialize literal ffmpeg/transcribe commands for 1h and 3h slices,
+    and create a runnable but unfilled experiments/a4_measure.py skeleton with template-hash
+    recording and accepted C2/C4 aggregation logic.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-04.yaml"
+      - "experiments/a4_measure.py"
+    summary: |
+      Auth remained 401. All C1 anchors are unchanged from Turn 2/Turn 3. Cookie boolean is True,
+      so downloader expansion is possible in principle. Exact fixed-window densities are W1=76.1667
+      (high), W2=38.0833 (medium), W3=12.6944 (low), while W1 reproduces A3's 76.21 only under
+      the A3-style max-timestamp denominator. The execute skeleton experiments/a4_measure.py was
+      created and dry-parsed; it implements the accepted row/cell/global schema plus template_hash
+      capture, while keeping CELLS as placeholders for Turn 5.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p 'Reply with OK-A4-T4-PROBE' --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"duration_ms":579,"duration_api_ms":0,"num_turns":1,"result":"Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid authentication credentials\"},\"request_id\":\"req_011Ca3wU6KYjMVKcNqVx7U2h\"}","stop_reason":"stop_sequence","session_id":"ef161ac8-983b-428f-bea5-7ff1d02be3c8","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"fast_mode_state":"off","uuid":"13bbd04e-f46e-4958-87ca-749df879260b"}
+        stderr=
+      - |
+        python -c "from pipeline.config import load_config, get_cookies; print(bool(get_cookies(load_config())))"
+        rc=0
+        stdout=True
+        stderr=
+      - |
+        python density window audit on work/12702452/12702452_chat.log
+        rc=0
+        stdout=[
+          {"window_sec":1800,"count":2285,"fixed_msgs_per_min":76.1667,"a3_style_msgs_per_min":76.2090,"tier_fixed":"high","max_sec":1799},
+          {"window_sec":3600,"count":2285,"fixed_msgs_per_min":38.0833,"a3_style_msgs_per_min":76.2090,"tier_fixed":"medium","max_sec":1799},
+          {"window_sec":10800,"count":2285,"fixed_msgs_per_min":12.6944,"a3_style_msgs_per_min":76.2090,"tier_fixed":"low","max_sec":1799}
+        ]
+        stderr=
+      - |
+        python -c "import ast; ast.parse(open('experiments/a4_measure.py','r',encoding='utf-8').read()); print('ok')"
+        rc=0
+        stdout=ok
+        stderr=
+      - "Read pipeline/config.py:9-26"
+      - "Read pipeline/main.py:187-192"
+      - "Read pipeline/chunker.py:161-171, 186-198, 203-256"
+      - "Read pipeline/claude_cli.py:23-58"
+      - "Read pipeline/summarizer.py:59-64 and 118-119"
+      - "Read transcribe.py CLI entry: one positional FILE path in non-split mode"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-04.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+      - "experiments/a4_measure.py"
+      - "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p.mp4"
+      - "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_chat.log"
+  verification: |
+    No Claude measurement, no ffmpeg run, and no Whisper transcription was executed in this turn.
+    The cookie check exposed only a boolean. The density audit used the saved chat log format
+    directly. The execute skeleton was syntax-checked with ast.parse only. All pipeline anchors
+    still match the accepted contract.
+  open_risks:
+    - "Auth is still 401 on codex-side through A3 plus A4 Turn 4, so Turn 5 execute still needs claude-code ownership."
+    - "W1 exact fixed-window density is 76.1667 rather than 76.21; the A3 reported 76.21 comes from the observed-max denominator (1799s). Turn 5 should document which denominator convention A4 uses and keep it consistent."
+    - "Length-axis-only expansion can now cover at least two density tiers (and in practice three under fixed windows), but it still cannot satisfy the >=2 genres requirement. Downloader acquisition remains necessary for any global multiplicative decision."
+    - "Cookie boolean is True, but cookie validity is still untested. Genre/density acquisition can still fail on network/auth even though config is present."
+    - "The A4 skeleton keeps CELLS empty by design. Turn 5 must populate live paths/metadata before any execution."
+    - "The additive-overhead constant is only trustworthy while template_hash matches between A3/A4 and across cells; Turn 5 must preserve that field in the raw JSON."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 5 (claude-code execute) should keep the mandatory auth probe, then populate CELLS in
+    experiments/a4_measure.py with live values, decide whether W1 can be reused from A3 raw
+    (only if template_hash and denominator convention are explicitly accepted) or should be
+    re-measured, acquire 1h/3h slices via the ready-made ffmpeg/transcribe commands, and then run
+    A4 measurement only for the cells that are actually available. Do not edit pipeline/*.
+  context: |
+    Turn 4 stayed plan-only by instruction. The local acquisition commands are ready:
+    1h clip:
+      ffmpeg -ss 0 -t 3600 -i "C:\github\auto-caption-generator\work\12702452\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p.mp4" -c copy "C:\github\auto-caption-generator\work\12702452\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip3600s.mp4"
+      python -X utf8 transcribe.py "C:\github\auto-caption-generator\work\12702452\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip3600s.mp4"
+    3h clip:
+      ffmpeg -ss 0 -t 10800 -i "C:\github\auto-caption-generator\work\12702452\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p.mp4" -c copy "C:\github\auto-caption-generator\work\12702452\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip10800s.mp4"
+      python -X utf8 transcribe.py "C:\github\auto-caption-generator\work\12702452\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip10800s.mp4"
+    Density audit:
+    - W1 [0,1800): fixed 76.1667 high, A3-style 76.2090
+    - W2 [0,3600): fixed 38.0833 medium
+    - W3 [0,10800): fixed 12.6944 low
+    So local length expansion can diversify density tiers, but not genres. Best-case A4 cost is
+    roughly 20 Claude calls (~$1.7) if W1 is reused from A3 raw; worst-case is roughly 30 calls
+    (~$2.5-3.0) if W1 is re-measured. Whisper retranscription for 1h+3h combined is likely
+    ~20-90 minutes on a usable CUDA GPU, but can stretch to multiple hours without GPU.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

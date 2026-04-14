@@ -1,0 +1,116 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-15-phase-a3-token-margin-sampling"
+
+contract:
+  status: amended
+  checkpoints:
+    - id: C1
+      description: "A2 baseline must be re-anchored from live files before any new measurement: raw_block split unit in pipeline/chunker.py, token precedence wiring in pipeline/main.py, token config keys in pipeline/config.py, four-field usage logging in pipeline/claude_cli.py, and the provisional 1.8x rule from the A2 result doc §5."
+    - id: C2
+      description: "A3 sample plan must distinguish (a) samples that physically exist in the repo today from (b) samples that require acquisition. Execute cannot silently assume three concrete sample rows when the repo currently exposes only one raw SRT+chat pair."
+    - id: C3
+      description: "Per-chunk protocol must define predicted_prompt_tokens on the full `_build_chunk_prompt()` string and must record both cold and warm observations so cache_creation/cache_read effects are measured, not hand-waved."
+    - id: C4
+      description: "Decision rule must be pre-registered without hard-coding a narrow success band that could reject the true operating margin. recommended_margin should be computed from the observed distribution (e.g. median/P95 + safety factor), with insufficient-data as a valid outcome."
+    - id: C5
+      description: "claude-code remains the first live-measurement owner while codex-side `claude -p` authentication is still 401; codex stays in peer-review/log-reanalysis role until auth recovers."
+  amendments:
+    - id: A1
+      origin: codex-turn-02
+      affects:
+        - C2
+      rationale: "Turn 1 verification requires `§2` to list at least three concrete `<SRT_path, chat_log_path, length_min, genre, density_tier>` rows, but live inventory still shows only one raw SRT+chat pair under `work/12702452/`. `output/12402235_*` is md/html/metadata only and is not a measurable raw sample. Without an explicit acquisition gate or a narrowed first execute scope, C2 is not currently satisfiable."
+    - id: A2
+      origin: codex-turn-02
+      affects:
+        - C3
+      rationale: "The current warm-cache rule ('measure the second call after a cache-warming call') is under-specified for Claude CLI's 5-minute cache lifecycle. A second call can still carry large `cache_creation_input_tokens`, so the protocol must require recording both cold and warm runs per sample/chunk and specify which derived metric is authoritative for `user_ratio`."
+    - id: A3
+      origin: codex-turn-02
+      affects:
+        - C4
+      rationale: "The fixed success band `user_ratio in [1.6, 2.0] for >=75% of chunks` is too rigid. If all measured chunks land around 2.2x, the current rule would mark the experiment FAIL even though the correct operational output is probably 'recommend 2.2x'. The contract should pre-register a distribution-based rule such as median + P95 spread rather than encoding today's provisional 1.8x as an upper bound."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "C2 assumes a three-row concrete sample table before acquisition, but only one measurable raw sample exists locally."
+      - "C3 does not yet specify whether `user_ratio` uses the cold run, warm run, or an aggregate of both."
+      - "C4 hard-codes `[1.6,2.0]` as a success interval even though the experiment's job is to discover whether the true margin lies outside that band."
+    scope_creep: []
+    risk_followups:
+      - "A2 baseline anchors remain valid and should not be re-debated in A3 execute."
+      - "progress_report.md already maps A3 to '실험 재실행'; no doc sync is required in this plan-only turn."
+    amendments:
+      - id: A1
+        summary: "Add an explicit acquisition/scope gate before execute."
+      - id: A2
+        summary: "Change warm-cache control from 'second call only' to 'record cold + warm pair and define which value drives user_ratio'."
+      - id: A3
+        summary: "Replace hard upper-bound rule with distribution-based recommended_margin computation."
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Live code/doc anchors are present. `pipeline/chunker.py:156-172` tokenizes `c.raw_block`, `pipeline/main.py:191-197` passes `max_tokens=cfg.get('chunk_max_tokens')`, `pipeline/config.py:25-27` contains `chunk_max_tokens` and `chunk_tokenizer_encoding`, `pipeline/claude_cli.py:23-58` emits the four usage fields separately, and `experiments/results/2026-04-15_phase-a2_token-chunking.md:135-161` contains `predicted 9,906 / sum 38,518 / user-attributable ≈17,850 / 1.8x`."
+    C2:
+      status: FAIL
+      evidence: "Live inventory check contradicts the practical satisfiability of Turn 1's current verification text. `work/` contains only one raw pair (`work/12702452/*clip1800s.srt` + `12702452_chat.log`), while `output/12402235_*` has no raw SRT/chat pair. Therefore 'at least 3 concrete sample rows' is not executable without an acquisition phase or a scope cut."
+    C3:
+      status: FAIL
+      evidence: "The protocol correctly separates `cache_read` from `user_attributable`, and the A2 arithmetic is consistent: `17,850 / 9,906 = 1.8028`. But the warm-cache clause is incomplete. Claude cache behavior cannot be controlled by assuming the second call is clean; the contract needs cold/warm paired observations and an explicit rule for which measurement feeds `user_ratio`."
+    C4:
+      status: FAIL
+      evidence: "The rule is pre-registered, which is good, but it is overly rigid. A true observed margin above 2.0x would be misclassified as FAIL even if the data were clean and consistent. A3 should estimate the margin, not merely confirm the provisional band. The decision rule should therefore derive `recommended_margin` from the observed distribution and reserve FAIL for insufficient data or protocol breakage."
+    C5:
+      status: PASS
+      evidence: "Fresh codex-side probe still fails: `claude -p 'Reply with OK-A3-PROBE' --output-format json --max-turns 1` returned `authentication_error` 401 with zero usage fields on 2026-04-14 KST. The A2 codex-side blocker is still live, so claude-code remains the correct first measurement owner."
+  issues_found:
+    - "C2 overstates present sample availability: three concrete rows are not available from the current repo inventory."
+    - "C3's cache-control wording is too loose to isolate `cache_creation_input_tokens` reproducibly."
+    - "C4's success band would force the experiment to prove 1.8x rather than estimate the true operational margin."
+  fixes_applied:
+    - "변경 불필요 — plan-only Turn 2. 코드/실험문서/파이프라인 문서는 수정하지 않고 contract amendment만 packet/state에 기록."
+
+my_work:
+  plan: "Re-check the Turn 1 contract against live code, live A2 evidence, current repo inventory, and a fresh codex-side auth probe; accept stable anchors, amend anything that is under-specified or not executable, then write the Turn 2 packet/state without touching code or experiment docs."
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-02.yaml"
+    summary: "Plan-only peer review accepted the A2 baseline anchors and the agent assignment, but amended the contract in three places: sample acquisition must be gated before execute, warm-cache protocol must record cold and warm measurements explicitly, and the decision rule must estimate the real margin from the observed distribution instead of hard-failing anything above 2.0x."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "Read pipeline/chunker.py / pipeline/main.py / pipeline/config.py / pipeline/claude_cli.py for C1 anchors"
+      - "Read experiments/results/2026-04-15_phase-a2_token-chunking.md §5 for A2 arithmetic baseline"
+      - "Get-ChildItem -Path work -Recurse -File"
+      - "Get-ChildItem -Path output -Recurse -File"
+      - "claude -p 'Reply with OK-A3-PROBE' --output-format json --max-turns 1  # authentication_error 401"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-phase-a3-token-margin-sampling/turn-01.yaml"
+      - "pipeline/chunker.py"
+      - "pipeline/main.py"
+      - "pipeline/config.py"
+      - "pipeline/claude_cli.py"
+      - "experiments/results/2026-04-15_phase-a2_token-chunking.md"
+  verification: "C1 and C5 survive live-file recheck unchanged. C2 fails practical executability under the current repo inventory, and C3/C4 need sharper pre-registration before any execute turn should start. No repository code or result docs were modified."
+  open_risks:
+    - "Only one raw SRT+chat pair exists locally; unless acquisition happens, A3 cannot support the intended multi-sample generalization claim."
+    - "Even with claude-code execution, per-call cache behavior can drift within the 5-minute window, so cold/warm protocol discipline is mandatory."
+    - "codex-side Claude auth remains blocked by 401, so independent live replay is still unavailable from this side."
+  confidence: high
+
+handoff:
+  next_task: "claude-code must accept or rebut amendments A1-A3 and restate the A3 contract in plan-only mode. Execute begins only after the amended contract explicitly handles sample acquisition/scope, cold-vs-warm measurement semantics, and distribution-based recommended_margin logic."
+  context: "Do not enter execute yet. Preserve C1 baseline anchors and C5 agent assignment. Amend C2 so the contract either (a) introduces a pre-measurement acquisition slice for 1h/3h/non-talk samples or (b) narrows the first execute slice to the one local sample and marks generalization-blocked. Amend C3 so each measured row records cold and warm observations separately and defines which metric drives `user_ratio`. Amend C4 so `recommended_margin` is derived from the observed distribution (median/P95 or equivalent), with 'insufficient evidence' and 'generalization blocked by sample scarcity' as valid non-pass outcomes."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

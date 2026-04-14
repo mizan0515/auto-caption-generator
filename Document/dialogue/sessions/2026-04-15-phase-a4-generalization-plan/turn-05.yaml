@@ -1,0 +1,163 @@
+type: turn
+from: claude-code
+turn: 5
+session_id: "2026-04-15-phase-a4-generalization-plan"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Re-anchor A2/A3 baseline from live files and document that no runtime config change has yet been made. Seven live anchors: pipeline/config.py:9-41 (chunk_max_tokens=None default), pipeline/main.py:186-197 (precedence), pipeline/chunker.py:156-201 (split_by_tokens per-cue raw_block), pipeline/chunker.py:204-257 (chunk_srt dispatcher), pipeline/claude_cli.py:23-58 (_log_usage four-field), pipeline/summarizer.py:59/:121 (_build_chunk_prompt signature + call), experiments/results/2026-04-15_phase-a3_token-margin-sampling.md §5-§6 (3.35x + Δ≈7.5k). Any execute turn must re-read each anchor in its opening step."
+    - id: C2
+      description: "Pre-register the 3×3 generalization matrix (length ∈ {30min,1h,3h}, genre ∈ {talk,game,reaction-or-music}, chat_density ∈ {low ≤20, medium 20-60, high >60 msgs/min}) as a planning scaffold. A3 covers only (30min, talk, high≈76.21). A cell is covered iff ≥3 chunks pass A3 C3 ±3% consistency. Global multiplicative promotion is allowed only when ≥5 distinct cells are covered, at least one covered cell exists in each length bucket, coverage spans at least 2 genres and 2 density tiers, and each covered cell's P95 user_ratio stays within ±15% of the observed global median P95 (median defined over covered cells' per-cell P95_user_ratio using A3's small-n convention: ratios_sorted[n//2] for odd n, (ratios_sorted[n//2-1]+ratios_sorted[n//2])/2 for even n). Otherwise publish per-cell recommendations and/or additive form only."
+    - id: C3
+      description: "Separate acquisition slice from measurement slice. Acquisition options per uncovered cell: (a) re-transcribe existing full-VOD work/12702452_*144p.mp4 for length extension (subject to actual mp4 duration), (b) pipeline.downloader + Chzzk cookies for new VODs, (c) mark blockers for genre cells that Chzzk cannot reach. Measurement turns then run the A3 C3 protocol unchanged (tiktoken cl100k_base on _build_chunk_prompt, cold/warm, ±3%, ceil(P95*1.05*100)/100)."
+    - id: C4
+      description: "Pre-register A4 result-doc schema: per-(cell,sample,chunk) row = [sample_id, length_min, genre, density_tier, chat_density_msgs_per_min, chunk_index, predicted, input, cache_creation, cache_read, user_attributable, cache_read_delta, consistency_pass, user_ratio, additive_overhead]; per-cell aggregates = [n_chunks, n_valid_chunks, median_user_ratio, P95_user_ratio, median_additive_overhead]. Any cell with n_valid_chunks < 3 is insufficient-data and is excluded from global promotion calculations. The global section publishes both multiplicative margin AND additive form (+~7.5k + CLI cache 20,668). Four possible decisions remain: global multiplicative, global additive, per-cell multiplicative, scope-blocked."
+    - id: C5
+      description: "Execution ownership under persistent codex-side 401: claude-code owns every live measurement turn, codex owns peer verification + raw-artifact recomputation. Every codex turn re-probes auth at start; reassign C5 on 200. If claude-code auth degrades too, downgrade session from execute to measurement-blocked rather than silently stalling."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "W2 and W3 per-chunk tokens are numerically identical because both SRTs start at t=0 of the same full VOD; the first 4 chunks (at MAX_TOKENS=2500) fall inside identical Whisper+VAD output ranges. This means density-axis coverage is nominal=3 but effective=2 cells. Documented in result MD §6.2 and §8."
+      - "chat_log covers only [0,1799]s, so per-chunk chat filtering yields the same chats across all three cells for any chunk whose time window falls inside the first 30 min. Cell-level density labels differ (76.17/38.08/12.69) but chunk-level chat content does not, which further explains the W2==W3 equivalence."
+      - "W1 P95 (3.2008) exceeds the ±15% dispersion window around global median 2.6606 by ~5%. This is a legitimate dispersion failure driven by W1's more densely-chatted time window producing higher per-chunk user_attributable, not a measurement artifact."
+      - "template_hash=4d732b40fa470862 is stable across all 12 rows in A4. A3 raw has no such field; the equivalence claim rests on C1's verification that pipeline/summarizer.py was not edited between A3 and A4 turns. Any future edit to _build_chunk_prompt will flip the hash and invalidate the additive-overhead constant comparison."
+      - "cache_read_input_tokens=20,668 is constant across all 12 cold calls, reproducing A3's CLI system-prompt cache observation exactly. This makes the additive form Δ≈7.6k + 20,668 a reliable operator-facing number."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Turn 5 opening re-read all seven anchors. pipeline/config.py:9-26 still has chunk_max_tokens=None / chunk_max_chars=8000 / tokenizer cl100k_base / overlap 30. pipeline/main.py:186-197 still passes 5 args to chunk_srt. pipeline/chunker.py:156-201 still uses token_count_cache over per-cue raw_block. pipeline/chunker.py:204-257 still branches on `if max_tokens is not None`. pipeline/claude_cli.py:23-58 still emits four usage fields with an empty guard. pipeline/summarizer.py:59/:121 still defines `_build_chunk_prompt(chunk, highlights, chats, vod_info)` and calls it in `process_chunks()`. A3 result MD §5-§6 still reports 3.35 / 3.1541 / 3.1843 / ~7.5k. No anchor drifted between Turn 2/3/4 and Turn 5."
+    C2:
+      status: PASS
+      evidence: "Promotion rule applied verbatim. covered_cell_count=3 (<5 required), covered_genres=['talk'] (<2 required), covered_density_tiers has 3 nominal entries but §6.2 documents the effective-2 reduction. global_median_P95=2.6606, ±15% range=[2.2615,3.0597], dispersion_failures=['W1-30min-talk-high'] (P95=3.2008 > 3.0597). Both axis_coverage_ok and dispersion_ok are false. Decision falls to per_cell_multiplicative per the C2 fallback clause, with per-cell margins 3.37x / 2.80x / 2.80x published separately."
+    C3:
+      status: PASS
+      evidence: "Acquisition for W2/W3 used option (a): ffmpeg `-c copy` 0→3600s / 0→10800s cuts on work/12702452/*_144p.mp4 (rc=0, 76MB / 235MB outputs), followed by direct ffmpeg wav extraction + a helper (experiments/_a4_transcribe_wav.py) that bypasses transcribe.py's internal split_video()+extract_audio() because `-c copy` keyframe boundaries produced a 261-byte degenerate part002. pipeline/* was NOT modified. W1 reused the existing A3 30min SRT. Measurement then ran the A3 C3 protocol unchanged (tiktoken cl100k_base, cold/warm, ±3% consistency) with a MAX_CHUNKS_PER_CELL=4 cost-cap that still satisfies C4's n_valid_chunks ≥ 3 requirement."
+    C4:
+      status: PASS
+      evidence: "Schema matches accepted contract verbatim. 12 per-row entries include sample_id, length_min, genre, density_tier, chat_density_msgs_per_min, chunk_index, predicted, input, cache_creation, cache_read, user_attributable, cache_read_delta, consistency_pass, user_ratio, additive_overhead, plus A4-added template_hash / cold / warm / deviation / tolerance / retry. Per-cell aggregates include n_chunks, n_chunks_full_cell, n_chunks_cap, n_valid_chunks, median_user_ratio, P95_user_ratio, median_additive_overhead, insufficient_data, computed_chat_density_msgs_per_min. All three cells have n_valid_chunks=4 ≥ 3 so none is insufficient-data. Global section publishes multiplicative (per-cell margins) AND additive form (Δ≈7,514-7,604 + CLI cache 20,668). Decision=per_cell_multiplicative is one of the four pre-registered outcomes."
+    C5:
+      status: PASS
+      evidence: "Turn 5 opening mandatory auth probe returned 200 OK with result='OK-A4-T5-PROBE' (claude-code side). rc=0, duration_api_ms=1464, cache_read_input_tokens=20668 on the probe itself (same constant as A3/A4 measurement). claude-code retained execute ownership throughout Turn 5. codex side is expected to remain in peer-verification mode for Turn 6 unless its auth recovers."
+  issues_found:
+    - "transcribe.py's internal split_video() produced a degenerate 261-byte part002 mp4 from the `-c copy` 3600s clip, causing extract_audio() to fail. This is a latent transcribe.py bug but not in scope for A4; workaround documented in result MD §3 and the helper experiments/_a4_transcribe_wav.py."
+    - "The full-VOD + same-start-offset sampling strategy produces numerically identical W2/W3 chunks in the capped window. This is a measurement-design issue, not a code bug. Future A4 iterations must sample disjoint time ranges or distinct VODs if the density axis is to be meaningfully covered."
+    - "A3 raw JSON does not record template_hash. The Δ≈7.5k constancy claim between A3 and A4 rests on the read-only C1 verification that pipeline/summarizer.py did not change. If a peer-verification turn wants an audit-grade check, it can re-run the template_hash probe after checkout of the commit that produced A3 and confirm it equals 4d732b40fa470862."
+  fixes_applied:
+    - "변경 불필요 — pipeline/* 수정 없음. experiments/a4_measure.py 에만 MAX_CHUNKS_PER_CELL 상수와 JSON-based CELLS 로딩을 추가했고, experiments/_a4_transcribe_wav.py 보조 스크립트 생성 + ffmpeg 컷 2건 + Whisper 전사 2건으로 acquisition 을 완료했다. A3 결과 MD와 frozen 세션 자료에는 손대지 않았다."
+
+my_work:
+  plan: |
+    Execute turn. Auth probe (200 OK, claude-code retained as execute owner), C1 anchor re-read,
+    live path resolution via JSON file to bypass cp949 console encoding, ffmpeg -c copy 1h/3h cuts,
+    direct wav extraction (workaround for transcribe.py split bug), Whisper transcription via
+    helper script, CELLS populated from live paths, a4_measure.py run with MAX_CHUNKS_PER_CELL=4,
+    raw JSON written, result MD + packet + state updated, validators run.
+  changes:
+    files_modified:
+      - "experiments/a4_measure.py"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+    files_created:
+      - "experiments/_a4_transcribe_wav.py"
+      - "experiments/_a4_paths.json"
+      - "experiments/_a4_cells.json"
+      - "experiments/results/2026-04-15_phase-a4_raw.json"
+      - "experiments/results/2026-04-15_phase-a4_generalization.md"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-05.yaml"
+      - "work/12702452/..._144p_clip3600s.mp4 (76.3 MB) + .wav (115 MB) + .srt (47 KB)"
+      - "work/12702452/..._144p_clip10800s.mp4 (235 MB) + .wav (345 MB) + .srt (131 KB)"
+    summary: |
+      3 length-axis cells measured (W1 30min/high, W2 1h/medium, W3 3h/low), all 12 chunks pass
+      consistency check. Decision = per_cell_multiplicative (C2 axis-coverage fails: 1 genre,
+      3 length buckets, 3 nominal density tiers but only 2 effective cells due to W2≡W3 content
+      overlap; dispersion also fails with W1 P95=3.2008 outside ±15% window around median 2.6606).
+      Per-cell margins: W1=3.37, W2=2.80, W3=2.80. Additive overhead Δ∈[7,311, 7,817], median
+      7,620; reproduces A3's 7.5k. CLI cache constant 20,668 reproduced exactly on all 12 cold
+      calls. Runtime pipeline/config.py:26 remains chunk_max_tokens=None.
+  self_iterations: 2
+  evidence:
+    commands:
+      - |
+        claude -p 'Reply with OK-A4-T5-PROBE' --output-format json --max-turns 1
+        rc=0
+        result=OK-A4-T5-PROBE
+        duration_ms=2018 duration_api_ms=1464
+        cache_read_input_tokens=20668 cache_creation_input_tokens=7082
+      - "Read pipeline/config.py:9-26, pipeline/main.py:186-197, pipeline/chunker.py:150-257, pipeline/claude_cli.py:23-58, pipeline/summarizer.py:59-129"
+      - |
+        python -X utf8 -c "<resolve live mp4/srt/chat paths to experiments/_a4_paths.json>"
+        rc=0 wrote experiments/_a4_paths.json with 3 entries
+      - |
+        ffmpeg -y -loglevel error -ss 0 -t 3600 -i "<full_mp4>" -c copy "<clip3600s>"
+        ffmpeg -y -loglevel error -ss 0 -t 10800 -i "<full_mp4>" -c copy "<clip10800s>"
+        both rc=0; clip3600s=76316068 bytes, clip10800s=235062197 bytes
+      - |
+        ffmpeg -y -loglevel error -i "<clip10800s.mp4>" -vn -acodec pcm_s16le -ar 16000 -ac 1 "<clip10800s.wav>"
+        rc=0, 7.7s; 345600078 bytes
+      - |
+        python -X utf8 experiments/_a4_transcribe_wav.py <wav_1h> <srt_1h> <wav_3h> <srt_3h>
+        rc=0 total_elapsed=1334.3s
+        [a4-wav] duration=3600s segments=620 -> 334 entries, 330.7s
+        [a4-wav] duration=10800s segments=1998 -> 986 entries, 964.4s
+      - |
+        python -X utf8 experiments/a4_measure.py
+        rc=0, wrote experiments/results/2026-04-15_phase-a4_raw.json
+        12 rows all consistency_pass=True, 3 cells all n_valid_chunks=4, decision=per_cell_multiplicative
+        total_cost_estimate=$2.1566 over 24 Claude calls
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "experiments/results/2026-04-15_phase-a4_raw.json"
+      - "experiments/results/2026-04-15_phase-a4_generalization.md"
+      - "experiments/a4_measure.py"
+      - "experiments/_a4_transcribe_wav.py"
+      - "experiments/_a4_paths.json"
+      - "experiments/_a4_cells.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-05.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+  verification: |
+    All 12 measurement rows pass consistency. Decision path matches C2/C4 sub-clauses exactly
+    (axis_coverage_ok=False because genres=1 < 2 and covered=3 < 5; dispersion_ok=False because
+    W1 P95=3.2008 > 3.0597; fallback to per_cell_multiplicative). Template_hash stable at
+    4d732b40fa470862 across all 12 rows. CLI system-prompt cache constant 20,668 reproduced.
+    pipeline/config.py:26 chunk_max_tokens=None is unchanged. No pipeline file edited.
+  open_risks:
+    - "Genre-axis coverage requires pipeline.downloader + Chzzk cookies. Cookie presence is True but validity untested; acquisition for (game, *) and (reaction-or-music, *) remains blocked until a separate downloader probe turn."
+    - "W2≡W3 content overlap inflates nominal cell count. Any future A4 iteration extending length or density axes MUST sample disjoint start offsets or distinct VODs to avoid double-counting."
+    - "transcribe.py's split_video()+extract_audio() path fails on `-c copy` keyframe-cut clips (degenerate 261-byte part002 mp4). Latent bug not addressed in this turn; documented in issues_found and in result MD §3. A later fix turn can either (a) switch transcribe.py to a safer cut (e.g., `-avoid_negative_ts make_zero`) or (b) integrate the _a4_transcribe_wav.py bypass into the main path."
+    - "progress_report.md A3/A4 phase labels still drift from the user's current A3/A4 scope split. Not fixed in this execute turn; a separate doc-sync turn is planned."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 6 (codex, peer verification only — no new measurement): re-probe auth at start;
+    on 401, remain in peer mode. Re-audit C1 anchors from live files (drift check). Read
+    experiments/results/2026-04-15_phase-a4_raw.json and recompute per-row user_ratio,
+    user_attributable=input+cache_creation, additive_overhead=user_attributable-predicted,
+    deviation=|cache_read_delta-user_attributable|, and consistency_pass flags. Recompute per-cell
+    median/P95 with A3's small-n convention, and the global decision per C2 (axis_coverage,
+    dispersion_ok). Independently verify the W2≡W3 content-overlap claim by diffing the first
+    4 chunks' predicted/user_attributable numbers. Optionally recompute template_hash by running
+    the probe `_build_chunk_prompt(dummy_chunk, [], [], dummy_vod)` and compare to 4d732b40fa470862.
+    Decide whether this session converges (suggest_done=true) or needs a Turn 7 (e.g., if codex
+    finds a numeric discrepancy).
+  context: |
+    Turn 5 produced raw.json (12 rows, 3 cells), result MD, and packet/state updates. Decision is
+    per_cell_multiplicative. Per-cell margins: W1=3.37 (30min/talk/high, reproduces A3's 3.35
+    within ±0.02), W2=2.80 (1h/talk/medium), W3=2.80 (3h/talk/low, identical to W2 due to
+    same-start-offset content overlap). Additive overhead Δ∈[7311,7817] median 7620 reproduces
+    A3's 7.5k. CLI cache constant 20,668 holds across 12 cold calls. pipeline/config.py:26
+    chunk_max_tokens=None is explicitly retained (no runtime promotion).
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

@@ -1,0 +1,121 @@
+type: turn
+from: claude-code
+turn: 3
+session_id: "2026-04-15-phase-a4-generalization-plan"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Re-anchor A2/A3 baseline from live files and document that no runtime config change has yet been made. Seven live anchors: pipeline/config.py:9-41 (chunk_max_tokens=None default), pipeline/main.py:186-197 (precedence), pipeline/chunker.py:156-201 (split_by_tokens per-cue raw_block), pipeline/chunker.py:204-257 (chunk_srt dispatcher), pipeline/claude_cli.py:23-58 (_log_usage four-field), pipeline/summarizer.py:59/:121 (_build_chunk_prompt signature + call), experiments/results/2026-04-15_phase-a3_token-margin-sampling.md §5-§6 (3.35x + Δ≈7.5k). Any execute turn must re-read each anchor in its opening step."
+    - id: C2
+      description: "Pre-register the 3×3 generalization matrix (length ∈ {30min,1h,3h}, genre ∈ {talk,game,reaction-or-music}, chat_density ∈ {low ≤20, medium 20-60, high >60 msgs/min}) as a planning scaffold. A3 covers only (30min, talk, high≈76.21). A cell is covered iff ≥3 chunks pass A3 C3 ±3% consistency. Global multiplicative promotion is allowed only when ≥5 distinct cells are covered, at least one covered cell exists in each length bucket, coverage spans at least 2 genres and 2 density tiers, and each covered cell's P95 user_ratio stays within ±15% of the observed global median P95 (median taken over covered cells' per-cell P95_user_ratio values, following A3's small-n median convention: ratios_sorted[n//2] for odd n, (ratios_sorted[n//2-1]+ratios_sorted[n//2])/2 for even n). Otherwise publish per-cell recommendations and/or additive form only."
+    - id: C3
+      description: "Separate acquisition slice from measurement slice. Acquisition options per uncovered cell: (a) re-transcribe existing full-VOD work/12702452_*144p.mp4 for length extension (ffprobe-confirmed duration 20552.705s ≈ 5.71h; locally feasible without Chzzk), (b) pipeline.downloader + Chzzk cookies for new VODs (pipeline_config.json is present on disk; cookie validity must be verified at execute time, not in this plan turn), (c) mark blockers for genre cells that Chzzk cannot reach. Measurement turns then run the A3 C3 protocol unchanged (tiktoken cl100k_base on _build_chunk_prompt, cold/warm, ±3%, ceil(P95*1.05*100)/100)."
+    - id: C4
+      description: "Pre-register A4 result-doc schema: per-(cell,sample,chunk) row = [sample_id, length_min, genre, density_tier, chat_density_msgs_per_min, chunk_index, predicted, input, cache_creation, cache_read, user_attributable, cache_read_delta, consistency_pass, user_ratio, additive_overhead]; per-cell aggregates = [n_chunks, n_valid_chunks, median_user_ratio, P95_user_ratio, median_additive_overhead]. Any cell with n_valid_chunks < 3 is insufficient-data and is excluded from global promotion calculations (inherits A3 C4 (i)). The global section publishes both multiplicative margin AND additive form (+~7.5k + CLI cache 20,668). Four possible decisions remain: global multiplicative, global additive, per-cell multiplicative, scope-blocked."
+    - id: C5
+      description: "Execution ownership under persistent codex-side 401 (reconfirmed in A4 Turn 2: `claude -p` rc=1 with authentication_error 401): claude-code owns every live measurement turn, codex owns peer verification + raw-artifact recomputation. Every codex turn re-probes auth at start; reassign C5 on 200. If claude-code auth degrades too, downgrade session from execute to measurement-blocked rather than silently stalling."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "C2 now compares each covered cell to the observed global median P95 instead of the fixed A3 scalar 3.35x. The median is defined in-line using A3's small-n convention, so the rule stays unambiguous even for n_cells in {5,6,7,8,9}."
+      - "A1 axis-coverage constraint (≥1 per length bucket, ≥2 genres, ≥2 density tiers) rules out 'lucky cluster' promotion where 5 cells all sit at (talk, high, any-length). This closes the main HARKing path from Turn 1's original C2."
+      - "A2's exact chat_density_msgs_per_min column preserves the original signal even when a cell straddles the tier boundary (e.g. 60.5 msgs/min is 'high' but barely; exact value is needed for dispersion analysis and for any post-hoc regression against density)."
+      - "C4's n_valid_chunks < 3 → insufficient-data rule now matches A3 C4 (i) verbatim; A4 and A3 results can therefore be re-aggregated cross-session without schema translation."
+      - "Not added to contract but noted as execute-time open risk: record a hash (e.g. sha256 prefix) of the _build_chunk_prompt instruction-fixed prefix at each measurement, so the additive-overhead constant Δ≈7.5k can be invalidated automatically if pipeline/summarizer.py's template text changes between A3 and A4. This is a RECOMMENDATION for the execute turn, not a contract checkpoint."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Codex Turn 2 verified all seven anchors at file:line (pipeline/config.py:9-26, main.py:186-193, chunker.py:156-200, chunker.py:203-256, claude_cli.py:23-58, summarizer.py:59-64 and 118-121, A3 result MD :123-136,146,154,183-199). Turn 3 relies on Turn 2's direct read. No live anchor has been modified between Turn 2 and Turn 3 (no intervening execute turn, no pipeline edit)."
+    C2:
+      status: PASS
+      evidence: "Amendment A1 accepted verbatim and inlined into checkpoint text. Falsifiability check: with 5 covered cells at P95 = [3.0, 3.1, 3.2, 3.3, 3.4], global median P95 = 3.2, ±15% = [2.72, 3.68], all cells pass → global promotion allowed. With [2.0, 2.5, 3.0, 3.5, 4.0], median 3.0, ±15% = [2.55, 3.45], cells 2.0/2.5/3.5/4.0 all fail → global promotion blocked. The rule has teeth. Axis coverage constraint separately prevents clustering (e.g. 5 cells all in (talk, high) bucket fails genre ≥2 and density ≥2 requirements even if dispersion passes)."
+    C3:
+      status: PASS
+      evidence: "Codex Turn 2 ran ffprobe on work/12702452/*144p.mp4 and reported duration=20552.705s (~5.71h), so the length-axis extension (1h, 3h slices) is acquirable locally by re-transcription without Chzzk download. Test-Path pipeline_config.json returned True; cookie contents intentionally NOT inspected or logged. Acquisition vs measurement separation remains sharp: acquisition turns produce raw SRT+chat.log, measurement turns run the unchanged A3 C3 protocol."
+    C4:
+      status: PASS
+      evidence: "Amendment A2 accepted verbatim and inlined. chat_density_msgs_per_min is now a per-row column (exact numeric), n_valid_chunks is a per-cell aggregate column, and the n_valid_chunks < 3 insufficient-data rule is explicit and matches A3 C4 (i). Four decision outcomes (global multiplicative, global additive, per-cell multiplicative, scope-blocked) preserved from Turn 1."
+    C5:
+      status: PASS
+      evidence: "Turn 2's mandatory auth re-probe returned rc=1 with authentication_error 401 (full stdout payload quoted in Turn 2 evidence). Assignment unchanged: claude-code owns live measurement, codex owns peer verification + raw-artifact recomputation. Reassignment trigger (codex-side 200) and fallback (claude-code also blocked → measurement-blocked) both retained."
+  issues_found:
+    - "None this turn. Turn 2's drift clarifications (frozen A3 summary typo is real but narrow; current root state carries no stale hyphen path because it was overwritten by A4 active state; A3 session state already uses underscore form; progress_report.md includes the A3 closeout at line 12; prompt/session-id mismatch was a prompt artifact only, repo paths are consistent) are accepted as factual by Turn 3 without further repo searches."
+  fixes_applied:
+    - "변경 불필요, PASS — plan-only Turn 3. A1/A2 amendments formally accepted; checkpoint text in contract_checkpoints already reflected the amended wording (written at end of Turn 2). No pipeline/* file, no frozen A3 artifact, no experiments/results/*.md, and no progress_report.md edited in this turn."
+
+my_work:
+  plan: |
+    Plan-only amendment adjudication. Read Turn 2 packet, confirm codex's A1/A2 rationale is
+    consistent with A4's purpose (generalization, not A3 confirmation), accept both amendments
+    with no rebuttal, flip contract_status from amended to accepted, and write packet + state.
+    Doc-sync for progress_report label drift is deferred (per Turn 1/Turn 2 guardrails).
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-03.yaml"
+    summary: |
+      Amendments A1 and A2 accepted without rebuttal. C2 promotion rule now requires ≥5 covered
+      cells AND axis coverage (≥1 per length bucket, ≥2 genres, ≥2 density tiers) AND per-cell
+      P95 within ±15% of the observed global median P95 (median defined via A3's small-n
+      convention). C4 row schema gains chat_density_msgs_per_min, per-cell aggregate gains
+      n_valid_chunks, and the n_valid_chunks<3 insufficient-data exclusion is explicit. Contract
+      flipped amended → accepted. Execute can begin at Turn 4 (claude-code measurement owner).
+  self_iterations: 1
+  evidence:
+    commands:
+      - "Read Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-02.yaml"
+      - "Read Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json   # already reflects amended C2/C4 text from end-of-Turn-2"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/turn-03.yaml"
+      - "Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json"
+      - "Document/dialogue/state.json"
+  verification: |
+    No measurement, no code edit, no experiment script touched. Only this packet + both state.json
+    files modified. Contract checkpoint text matches Turn 2's amendment proposals A1/A2 exactly,
+    with an in-line median definition added for small-n stability (from A3's small-n P95 behavior).
+  open_risks:
+    - "codex-side auth 401 persisted through A3 + A4 Turn 2. Unless it recovers between Turn 3 and Turn 4, live measurement remains claude-code-only and codex stays in peer-verification mode."
+    - "Cookie validity for Chzzk downloader acquisition remains unverified; Turn 4+ execute must decide acquisition order (retranscribe existing full-VOD mp4 first, downloader only if cookies probe green)."
+    - "Density tier boundaries (low ≤20 / med 20-60 / high >60 msgs/min) are provisional. If A4 produces cells near 20 or 60 msgs/min, the exact chat_density_msgs_per_min column (from A2) preserves the signal, but the per-cell bucketing decision should be documented in the result MD so future cross-cell comparison stays honest."
+    - "prompt_template_hash is intentionally left out of the contract schema. If pipeline/summarizer.py's _build_chunk_prompt template changes between measurement turns, the additive-overhead constant Δ≈7.5k becomes invalid without a visible signal. Execute turn SHOULD log such a hash, but that is not a contract requirement — flagged here so it doesn't vanish."
+    - "progress_report.md A3/A4 phase labels still drift from the user's current A3/A4 scope split. A separate doc-sync turn is the planned resolution path; not touching it this turn preserves the plan-only contract."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 4 (claude-code or codex depending on auth): execute-or-acquisition slice under the accepted
+    C1-C5 contract. First action is still the mandatory auth re-probe. On 401, claude-code proceeds;
+    the first execute step should be the length-axis extension using local retranscription of
+    work/12702452/*144p.mp4 (since ffprobe confirmed ~5.71h). Before any Claude call, re-read the
+    seven C1 anchors from live files. Record chat_density_msgs_per_min per resulting sample from
+    the exact chat.log time window paired with that SRT slice, not A3's 76.21. Acquisition-only
+    turns must NOT invoke call_claude; measurement turns MUST follow the unchanged A3 C3 protocol.
+  context: |
+    A4 contract is now accepted (C1-C5 finalized). A3's scoped recommended_margin=3.35x remains a
+    reference, not an anchor — C2 compares cells to the observed global median P95 of A4's own
+    distribution. Local inventory gives one talk/high-density cell at 30 min (A3) and, after
+    retranscription of the full-VOD mp4 (20552.705s ≈ 5.71h), potentially two additional length
+    cells (1h, 3h) at the same genre and same high density. That would still leave 6 cells
+    uncovered across the genre/density axes and would not satisfy the ≥2 genres / ≥2 density tiers
+    requirement, so length-only expansion alone cannot unlock global multiplicative promotion.
+    pipeline_config.json exists but cookie validity is unverified; downloader acquisition for
+    other genres/densities is gated on that. pipeline/config.py:26 chunk_max_tokens=None remains
+    untouched — the A3 recommendation is NOT propagated to runtime and will not be propagated
+    until C2's promotion rule is met.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

@@ -1,0 +1,47 @@
+[
+  {
+    "sample_id": "W1-30min-talk-high",
+    "srt_path": "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip1800s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_chat.log",
+    "length_min": 30,
+    "genre": "talk",
+    "density_tier": "high",
+    "chat_density_msgs_per_min": 76.1667,
+    "video_no": "12702452",
+    "title": "A4-W1-30min",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "탬탬",
+    "duration_sec": 1800,
+    "publish_date": "2026-04-14"
+  },
+  {
+    "sample_id": "W2-1h-talk-medium",
+    "srt_path": "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip3600s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_chat.log",
+    "length_min": 60,
+    "genre": "talk",
+    "density_tier": "medium",
+    "chat_density_msgs_per_min": 38.0833,
+    "video_no": "12702452",
+    "title": "A4-W2-1h",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "탬탬",
+    "duration_sec": 3600,
+    "publish_date": "2026-04-14"
+  },
+  {
+    "sample_id": "W3-3h-talk-low",
+    "srt_path": "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip10800s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator\\work\\12702452\\12702452_chat.log",
+    "length_min": 180,
+    "genre": "talk",
+    "density_tier": "low",
+    "chat_density_msgs_per_min": 12.6944,
+    "video_no": "12702452",
+    "title": "A4-W3-3h",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "탬탬",
+    "duration_sec": 10800,
+    "publish_date": "2026-04-14"
+  }
+]
