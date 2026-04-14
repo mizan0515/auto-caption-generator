@@ -21,17 +21,27 @@ HEADERS = {
 FETCH_DELAY = 1.0  # 페이지별 대기 시간(초)
 
 
-def fetch_all_chats(vod_id: str, fetch_delay: float = FETCH_DELAY) -> list[dict]:
+def fetch_all_chats(
+    vod_id: str,
+    fetch_delay: float = FETCH_DELAY,
+    max_duration_sec: int = 0,
+) -> list[dict]:
     """
     Chzzk API에서 VOD 채팅 전체를 수집.
     각 항목: {'ms': int, 'nick': str, 'msg': str, 'uid': str}
     ms는 영상 시작 기준 상대 시간(밀리초).
+
+    Args:
+        max_duration_sec: >0 이면 이 시간(초) 까지의 채팅만 수집. 이후 페이지는 스킵.
     """
     chats = []
     next_time = "0"
     page = 0
 
-    logger.info(f"채팅 수집 시작: VOD {vod_id}")
+    if max_duration_sec > 0:
+        logger.info(f"채팅 수집 시작: VOD {vod_id} (제한 시간: {max_duration_sec}초)")
+    else:
+        logger.info(f"채팅 수집 시작: VOD {vod_id}")
 
     while True:
         url = (
@@ -92,6 +102,17 @@ def fetch_all_chats(vod_id: str, fetch_delay: float = FETCH_DELAY) -> list[dict]
             from .utils import sec_to_hms
             logger.info(f"  채팅 수집 중: 페이지 {page}, 누적 {len(chats):,}개, 위치 {sec_to_hms(total_sec)}")
 
+        # 시간 제한 체크 (테스트 모드)
+        if max_duration_sec > 0 and chats:
+            offset_ms = chats[0]["ms"]
+            latest_sec = (chats[-1]["ms"] - offset_ms) / 1000
+            if latest_sec >= max_duration_sec:
+                logger.info(
+                    f"채팅 수집 완료 (시간 제한 도달: {latest_sec:.0f}s ≥ {max_duration_sec}s): "
+                    f"총 {len(chats):,}개"
+                )
+                break
+
         if next_time is None:
             logger.info(f"채팅 수집 완료: 총 {len(chats):,}개")
             break
@@ -103,6 +124,14 @@ def fetch_all_chats(vod_id: str, fetch_delay: float = FETCH_DELAY) -> list[dict]
         offset_ms = chats[0]["ms"]
         for chat in chats:
             chat["ms"] = max(0, chat["ms"] - offset_ms)
+
+    # 시간 제한 필터링 (한 페이지 안에 임계치 넘는 메시지가 섞여있을 수 있음)
+    if max_duration_sec > 0 and chats:
+        limit_ms = max_duration_sec * 1000
+        before = len(chats)
+        chats = [c for c in chats if c["ms"] <= limit_ms]
+        if len(chats) < before:
+            logger.info(f"  채팅 시간 필터: {before}개 → {len(chats)}개 (≤ {max_duration_sec}s)")
 
     return chats
 

@@ -6,6 +6,7 @@ Chzzk VOD 자동 모니터링 & 요약 파이프라인 — 메인 오케스트�
   pythonw -m pipeline.main                  # 데몬 모드 (백그라운드)
   python -m pipeline.main --once            # 1회 실행 후 종료
   python -m pipeline.main --process <VOD번호>  # 특정 VOD 수동 처리
+  python -m pipeline.main --process <VOD번호> --limit-duration 1800  # 앞 30분만 테스트
   python -m pipeline.main --setup-cookies   # 쿠키 대화형 설정
 """
 
@@ -36,7 +37,7 @@ from .chunker import chunk_srt
 from .scraper import scrape_fmkorea
 from .summarizer import process_chunks, merge_results, generate_reports
 from .models import VODInfo, PipelineResult
-from .utils import setup_logging, sec_to_hms, format_duration
+from .utils import setup_logging, sec_to_hms, format_duration, clip_video
 
 
 def _cleanup_whisper_temp(video_path: str, work_dir: str, logger):
@@ -74,8 +75,18 @@ def _cleanup_work_dir(work_dir: str, logger):
                 pass
 
 
-def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> PipelineResult:
-    """단일 VOD 전체 파이프라인 처리"""
+def process_vod(
+    vod: VODInfo,
+    cfg: dict,
+    state: PipelineState,
+    logger,
+    limit_duration_sec: int = 0,
+) -> PipelineResult:
+    """단일 VOD 전체 파이프라인 처리.
+
+    Args:
+        limit_duration_sec: >0 이면 다운로드 후 앞부분만 잘라서 파이프라인 진행 (테스트용)
+    """
     result = PipelineResult(video_no=vod.video_no, vod_info=vod)
     cookies = get_cookies(cfg)
     work_dir = os.path.join(cfg["work_dir"], vod.video_no)
@@ -96,7 +107,10 @@ def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> Pipeli
             download_future = pool.submit(
                 download_vod_144p, vod.video_no, cookies, work_dir
             )
-            chat_future = pool.submit(fetch_all_chats, vod.video_no)
+            chat_future = pool.submit(
+                fetch_all_chats, vod.video_no,
+                max_duration_sec=limit_duration_sec,
+            )
             # fmkorea 스크레이핑 (설정으로 비활성화 가능)
             community_future = None
             if cfg.get("fmkorea_enabled", True):
@@ -112,6 +126,15 @@ def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> Pipeli
             video_path = download_future.result()
             result.video_path = video_path
             logger.info(f"✓ 다운로드 완료: {video_path}")
+
+            # 테스트 모드: 앞부분만 잘라서 이후 단계 진행
+            if limit_duration_sec > 0:
+                base, ext = os.path.splitext(video_path)
+                clipped_path = f"{base}_clip{limit_duration_sec}s{ext}"
+                clip_video(video_path, clipped_path, limit_duration_sec)
+                video_path = clipped_path
+                result.video_path = video_path
+                logger.info(f"✓ 테스트 모드: 앞 {limit_duration_sec}초만 사용 → {video_path}")
 
             chats = chat_future.result()
             logger.info(f"✓ 채팅 수집 완료: {len(chats):,}개")
@@ -160,10 +183,17 @@ def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> Pipeli
         result.stage = "chunking"
         state.update(vod.video_no, status="chunking")
 
+        # Phase A2 precedence (pipeline/config.py DEFAULT_CONFIG 와 docstring 참조):
+        #   chunk_max_tokens (not None) > chunk_max_chars.
+        #   여기서는 chunk_srt() 에 두 값을 모두 전달하고 분기 결정은 chunker 가 맡는다.
+        #   main.py 의 fallback 값은 DEFAULT_CONFIG 와 일치시킨다 (chunk_max_chars=8000, overlap=30).
+        #   기존 하드코드 150000 은 Phase A2 에서 제거됨.
         chunks = chunk_srt(
             srt_path,
-            max_chars=cfg.get("chunk_max_chars", 150000),
-            overlap_sec=cfg.get("chunk_overlap_sec", 45),
+            max_chars=cfg.get("chunk_max_chars", 8000),
+            overlap_sec=cfg.get("chunk_overlap_sec", 30),
+            max_tokens=cfg.get("chunk_max_tokens"),
+            tokenizer_encoding=cfg.get("chunk_tokenizer_encoding", "cl100k_base"),
         )
         logger.info(f"✓ 청크 분할 완료: {len(chunks)}개")
 
@@ -190,7 +220,10 @@ def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> Pipeli
         chunk_results = process_chunks(chunks, highlights, chats, vod, claude_timeout)
         logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
 
-        summary = merge_results(chunk_results, vod, community_posts, highlights, claude_timeout)
+        summary = merge_results(
+            chunk_results, vod, community_posts, highlights, claude_timeout,
+            srt_path=srt_path,
+        )
         logger.info(f"✓ 통합 요약 생성 완료")
 
         # ── 6단계: 리포트 저장 ──
@@ -198,7 +231,8 @@ def process_vod(vod: VODInfo, cfg: dict, state: PipelineState, logger) -> Pipeli
         state.update(vod.video_no, status="saving")
 
         md_path, html_path, meta_path = generate_reports(
-            summary, vod, highlights, chats, output_dir
+            summary, vod, highlights, chats, output_dir,
+            community_posts=community_posts,
         )
         result.summary_md_path = md_path
         result.summary_html_path = html_path
@@ -275,7 +309,7 @@ def run_daemon(cfg: dict):
             break
 
         try:
-            new_vods = check_new_vods(channel_id, cookies, state)
+            new_vods = check_new_vods(channel_id, cookies, state, cfg=cfg)
 
             for vod in new_vods:
                 if state.should_stop():
@@ -327,7 +361,7 @@ def run_once(cfg: dict):
     if not validate_cookies(cfg):
         return
 
-    new_vods = check_new_vods(cfg["target_channel_id"], cookies, state)
+    new_vods = check_new_vods(cfg["target_channel_id"], cookies, state, cfg=cfg)
     if not new_vods:
         logger.info("처리할 새 VOD가 없습니다.")
         return
@@ -336,7 +370,7 @@ def run_once(cfg: dict):
         process_vod(vod, cfg, state, logger)
 
 
-def run_single(video_no: str, cfg: dict):
+def run_single(video_no: str, cfg: dict, limit_duration_sec: int = 0):
     """특정 VOD 수동 처리"""
     log_dir = os.path.join(cfg["output_dir"], "logs")
     logger = setup_logging(log_dir)
@@ -363,7 +397,7 @@ def run_single(video_no: str, cfg: dict):
         category=metadata.get("category", ""),
     )
 
-    process_vod(vod, cfg, state, logger)
+    process_vod(vod, cfg, state, logger, limit_duration_sec=limit_duration_sec)
 
 
 def main():
@@ -372,6 +406,12 @@ def main():
     parser.add_argument("--process", type=str, help="특정 VOD 번호를 수동 처리")
     parser.add_argument("--setup-cookies", action="store_true", help="쿠키 대화형 설정")
     parser.add_argument("--config", type=str, help="설정 파일 경로 (기본: pipeline_config.json)")
+    parser.add_argument(
+        "--limit-duration",
+        type=int,
+        default=0,
+        help="(테스트용) 영상 앞부분 N초만 잘라서 처리. --process 와 함께 사용 (예: --limit-duration 1800 = 30분)",
+    )
     args = parser.parse_args()
 
     if args.setup_cookies:
@@ -381,7 +421,7 @@ def main():
     cfg = load_config()
 
     if args.process:
-        run_single(args.process, cfg)
+        run_single(args.process, cfg, limit_duration_sec=args.limit_duration)
     elif args.once:
         run_once(cfg)
     else:

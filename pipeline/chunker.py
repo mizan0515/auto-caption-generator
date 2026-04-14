@@ -1,4 +1,13 @@
-"""SRT → LLM 청크 분할 (srt-chunk.py 로직 재사용)"""
+"""SRT → LLM 청크 분할 (srt-chunk.py 로직 재사용)
+
+분할 단위 (Phase A2):
+    split_by_chars() 와 split_by_tokens() 모두 per-cue `Cue.raw_block` 를
+    계량 단위로 사용한다. raw_block 은 인덱스 라인 + "HH:MM:SS,ms --> ..." 타임스탬프
+    라인 + 텍스트 라인들 + 빈 줄을 포함하는 **원본 SRT 블록** 이다.
+    cues_to_txt() 의 출력("[HH:MM:SS] text")은 보고용 요약이며 분할 단위가 아니다.
+    두 단위는 대략 ~2x 차이가 나므로 (raw_block > cues_to_txt) 동일 임계값을 공유하지 않는다.
+    이 불변식은 Phase A2 C3/C4 의 전제이므로 변경 시 experiments/results 와 동기화한다.
+"""
 
 import json
 import logging
@@ -7,7 +16,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # 프로젝트 루트를 sys.path에 추가
 _project_root = str(Path(__file__).resolve().parent.parent)
@@ -124,23 +133,107 @@ def split_by_chars(cues: List[Cue], max_chars: int, overlap_sec: int) -> List[Li
     return chunks
 
 
+_TOKEN_ENCODERS: dict = {}
+
+
+def _get_token_encoder(encoding_name: str):
+    """tiktoken 인코더를 lazy 로드. 동일 인코딩은 프로세스 단위로 캐시."""
+    cached = _TOKEN_ENCODERS.get(encoding_name)
+    if cached is not None:
+        return cached
+    try:
+        import tiktoken
+    except ImportError as e:
+        raise RuntimeError(
+            "chunk_max_tokens 를 사용하려면 tiktoken 이 필요합니다. "
+            "`pip install tiktoken` 후 재시도하세요."
+        ) from e
+    encoder = tiktoken.get_encoding(encoding_name)
+    _TOKEN_ENCODERS[encoding_name] = encoder
+    return encoder
+
+
+def split_by_tokens(
+    cues: List[Cue],
+    max_tokens: int,
+    overlap_sec: int,
+    encoding_name: str = "cl100k_base",
+) -> List[List[Cue]]:
+    """token 기반 분할. split_by_chars() 와 동일한 overlap rewind 규칙.
+
+    계량 단위는 per-cue raw_block 의 tiktoken 토큰 수이다 (docstring 참조).
+    """
+    encoder = _get_token_encoder(encoding_name)
+    overlap_ms = overlap_sec * 1000
+    chunks: List[List[Cue]] = []
+    i, n = 0, len(cues)
+
+    # 동일 cue 에 대한 토큰 수를 여러 번 계산하지 않도록 캐시.
+    token_count_cache: List[int] = [len(encoder.encode(c.raw_block)) for c in cues]
+
+    while i < n:
+        start_i = i
+        token_count = 0
+        j = i
+        while j < n:
+            blk_tokens = token_count_cache[j]
+            if j > i and token_count + blk_tokens > max_tokens:
+                break
+            token_count += blk_tokens
+            j += 1
+
+        chunks.append(cues[i:j])
+
+        if j < n and overlap_ms > 0:
+            next_start_ms = cues[j].start_ms
+            rewind_ms = max(0, next_start_ms - overlap_ms)
+            k = j
+            while k > start_i and cues[k - 1].start_ms >= rewind_ms:
+                k -= 1
+            next_i = k
+        else:
+            next_i = j
+
+        if next_i <= i:
+            next_i = i + 1
+        i = next_i
+
+    return chunks
+
+
 def chunk_srt(
     srt_path: str,
     max_chars: int = 150000,
     overlap_sec: int = 45,
+    max_tokens: Optional[int] = None,
+    tokenizer_encoding: str = "cl100k_base",
 ) -> list[dict]:
     """
     SRT 파일을 청크로 분할.
     반환: [{"index": 1, "start_ms": ..., "end_ms": ..., "text": "..."}, ...]
+
+    precedence (Phase A2):
+        max_tokens 가 None 이 아니면 split_by_tokens() 사용 (토큰 기준).
+        None 이면 max_chars 로 split_by_chars() 사용 (글자 기준, 레거시).
+    두 경로 모두 per-cue raw_block 을 계량 단위로 삼는다.
     """
-    logger.info(f"SRT 청크 분할: {srt_path} (max_chars={max_chars}, overlap={overlap_sec}s)")
+    if max_tokens is not None:
+        logger.info(
+            f"SRT 청크 분할: {srt_path} "
+            f"(max_tokens={max_tokens}, encoding={tokenizer_encoding}, overlap={overlap_sec}s)"
+        )
+    else:
+        logger.info(f"SRT 청크 분할: {srt_path} (max_chars={max_chars}, overlap={overlap_sec}s)")
 
     cues = parse_srt(srt_path)
     if not cues:
         logger.warning("SRT에 자막이 없습니다.")
         return []
 
-    chunks = split_by_chars(cues, max_chars, overlap_sec)
+    if max_tokens is not None:
+        chunks = split_by_tokens(cues, max_tokens, overlap_sec, tokenizer_encoding)
+    else:
+        chunks = split_by_chars(cues, max_chars, overlap_sec)
     result = []
 
     for idx, chunk_cues in enumerate(chunks, 1):
