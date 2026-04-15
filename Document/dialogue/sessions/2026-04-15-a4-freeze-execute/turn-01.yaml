@@ -1,0 +1,130 @@
+type: turn
+from: codex
+turn: 1
+session_id: "2026-04-15-a4-freeze-execute"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Live Gate 0 baseline must match the freeze-plan before snapshot exactly before any mutation: 16 modified + 8 untracked status entries (24 total), branch codex/local-dirty-preserved, HEAD c6b0adc, and no pre-existing codex/a4-closeout-freeze branch."
+    - id: C2
+      description: "Cut a dedicated local branch codex/a4-closeout-freeze from the canonical artifact-freeze SHA c6b0adc, not from main."
+    - id: C3
+      description: "Land exactly two local commits: commit 1 stages only the 5 anchors; commit 2 stages only root Document/dialogue/state.json plus the 10 closeout-hygiene session files. The older freeze-plan text said 9 files for commit 2, but live scope is 11 files because Turn 5 added summary.md and the named summary."
+    - id: C4
+      description: "Use commit 1 SHA as the A4 G3 freeze-commit provenance path and verify G5 against the corrected allowlist: 24-entry before snapshot to 17-entry after snapshot, exactly 7 entries removed and 0 entries added."
+    - id: C5
+      description: "Gate 0 is local-commit-only. No push, no PR, no main merge, no sha256 manifest. Gate 1 ACK re-adjudication is a separate session boundary."
+  amendments: []
+
+peer_review:
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Fresh probes at Turn 1 start matched the execute-ready plan: auth probe returned 401, current branch was `codex/local-dirty-preserved`, HEAD log started at `c6b0adc` over `b62ada1`, `git status --short` counted 16 modified + 8 untracked entries (24 total), and no existing `codex/a4-closeout-freeze` branch was present."
+    C2:
+      status: PASS
+      evidence: "Created `codex/a4-closeout-freeze` directly from `c6b0adc`, preserving the freeze-plan rationale for not starting from main."
+    C3:
+      status: PASS
+      evidence: "Commit 1 SHA `0a8bc651e1b14617cc53f985f4658b1cf8799179` contains exactly 5 files: pipeline/config.py, pipeline/main.py, pipeline/chunker.py, pipeline/claude_cli.py, pipeline/summarizer.py. Commit 2 SHA `c04bfcefce8e65b04fa78b662788ba1da9d6afc1` contains exactly 11 files: root dialogue state plus the 10 closeout-hygiene session files. The +2 delta over freeze-plan's old 9-file note comes from `summary.md` and the named summary added in Turn 5; this is recorded explicitly to avoid false scope-creep alarms."
+    C4:
+      status: PASS
+      evidence: "Commit 1 provides the new local freeze SHA for A4 G3. After commit 2 and before creating this new session directory, `git status --short` matched the expected after snapshot exactly: 10 modified + 7 untracked entries (17 total). Exactly 7 entries were removed: 5 anchors, root Document/dialogue/state.json, and the collapsed `Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/` entry. No extra entries were added."
+    C5:
+      status: PASS
+      evidence: "No push, PR, merge, rebase, force-push, branch deletion, or manifest commit was performed. Gate 1 ACK re-adjudication remains explicitly deferred to a separate follow-up session."
+  issues_found:
+    - "Auth was still 401 at Turn 1 start, but Gate 0 is git/doc-only so execution remained valid."
+    - "The new freeze-execute session files are intentionally created after the G5 check; they appear as fresh working-tree noise on codex/a4-closeout-freeze and are not part of the Gate 0 allowlist math."
+  fixes_applied:
+    - "변경 불필요, PASS — Gate 0 local commits succeeded on the first attempt and no reset/retry path was required."
+
+my_work:
+  task_model:
+    goal: "Execute Gate 0 of the A4 freeze plan: cut the dedicated freeze branch from c6b0adc, land commit 1 and commit 2 locally, verify G5, then open the new freeze-execute DAD session without pushing anything."
+    non_goals:
+      - "Any push or PR creation"
+      - "Any merge into main"
+      - "Any sha256 manifest commit"
+      - "Any edit under the frozen A4 generalization session"
+      - "Any edit to experiments/results/2026-04-15_phase-a4_raw.json or ..._generalization.md"
+      - "Any modification to non-anchor pipeline files or G-UNRELATED-DIRTY entries"
+  plan: |
+    1) Probe the Gate 0 baseline exactly as frozen in the hygiene plan.
+    2) Cut codex/a4-closeout-freeze from c6b0adc.
+    3) Commit the 5 measurement anchors as commit 1 and verify HEAD shows exactly 5 files.
+    4) Commit root dialogue state plus the 10 closeout-hygiene session files as commit 2 and
+       verify HEAD shows exactly 11 files, recording the live +2 delta over the older 9-file note.
+    5) Verify G5 on the worktree before creating the new freeze-execute session files.
+    6) Create this new session directory, update root/session state, write turn-01, and validate.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-freeze-execute/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-freeze-execute/turn-01.yaml"
+    summary: |
+      Gate 0 succeeded locally. A dedicated branch `codex/a4-closeout-freeze` was cut from
+      `c6b0adc`, commit 1 froze the 5 A4 measurement anchors, commit 2 froze the converged
+      closeout-hygiene session and companion root dialogue state, and G5 matched the expected
+      24 -> 17 status-entry reduction exactly. No push, PR, merge, or manifest commit was made.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401 ... request_id=req_011Ca4NCPeonU6orSuvhbJPD", "...":"..."}
+        stderr=
+      - "git branch --show-current -> codex/local-dirty-preserved"
+      - "git log --oneline -5 -> c6b0adc / b62ada1 / f4eae41 / 1adfb25 / 6051e8c"
+      - "git status --short -> 16 modified + 8 untracked entries (24 total)"
+      - "git switch -c codex/a4-closeout-freeze c6b0adc"
+      - "git add -- pipeline/config.py pipeline/main.py pipeline/chunker.py pipeline/claude_cli.py pipeline/summarizer.py"
+      - "git commit (commit 1) -> 0a8bc651e1b14617cc53f985f4658b1cf8799179"
+      - "git show --stat --oneline HEAD -> exactly 5 files"
+      - "git add -- Document/dialogue/state.json + 10 closeout-hygiene session files"
+      - "git commit (commit 2) -> c04bfcefce8e65b04fa78b662788ba1da9d6afc1"
+      - "git show --stat --oneline HEAD -> exactly 11 files"
+      - "git status --short after commit 2 -> 10 modified + 7 untracked entries (17 total)"
+      - "G5 delta verified: 7 entries removed, 0 added"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-freeze-execute/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-freeze-execute/turn-01.yaml"
+      - "Document/dialogue/state.json"
+  verification: |
+    Gate 0 stayed within the allowed local-commit scope. The branch base is c6b0adc, commit 1
+    is the new A4 G3 freeze SHA, commit 2 carries the hygiene-session provenance package, and
+    no forbidden mutation path (push/PR/merge/manifest/main) was used. The new freeze-execute
+    session files were created only after the G5 check, so they do not invalidate the recorded
+    24-entry before snapshot or the 17-entry after snapshot.
+  open_risks:
+    - "Commit 1's subject line includes a leading BOM character due to the Windows PowerShell UTF-8 file write path used for the commit message. The SHA is valid and the file allowlist is correct, but a later publish/review session may want to note the cosmetic subject encoding."
+    - "The new active root dialogue state and freeze-execute session directory are now intentionally dirty on codex/a4-closeout-freeze because Gate 0 commits were completed before the new session files were created."
+    - "Gate 1 must audit the two new local commit SHAs before any push or PR. Publish remains blocked."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 2 should peer-verify Gate 0 only. Re-check the baseline commands, confirm commit 1 SHA
+    `0a8bc651e1b14617cc53f985f4658b1cf8799179` contains exactly the 5 anchors, confirm commit 2 SHA
+    `c04bfcefce8e65b04fa78b662788ba1da9d6afc1` contains exactly the 11 planned files, and confirm
+    the pre-session G5 worktree matched the 17-entry expected after snapshot with exactly 7 removed
+    entries and 0 additions. If Gate 0 passes, close this freeze-execute session and explicitly
+    hand off to a NEW Gate 1 close-ack ACK re-adjudication session. Do not continue Gate 1 inside
+    this session. Gate 2 publish (push/PR/merge) remains blocked until Gate 1 issues ACK.
+  context: |
+    This session performed only Gate 0 local commits. Branch: codex/a4-closeout-freeze from c6b0adc.
+    Commit 1 is the G3 freeze-commit path for the 5 anchors. Commit 2 packages the converged
+    closeout-hygiene planning session plus root dialogue state. The freeze-plan's old 9-file note
+    is superseded by the live 11-file commit 2 expectation because Turn 5 added summary.md and the
+    named summary. No push, PR, merge, or manifest commit was performed. Any Gate 1 ACK review must
+    happen in a separate follow-up session boundary, not as a continuation of Gate 0.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

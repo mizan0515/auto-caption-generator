@@ -1,0 +1,217 @@
+type: turn
+from: codex
+turn: 1
+session_id: "2026-04-15-a4-publish"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Publish session boots cleanly from the converged Gate 1 ACK handoff: auth probe recorded, new publish session opened, and root/session state mirrored without rewriting commit 1 or commit 2."
+    - id: C2
+      description: "Pre-push provenance invariants hold: branch=head codex/a4-closeout-freeze, log order c04bfce/0a8bc65/c6b0adc, A4 result artifacts are byte-identical to c6b0adc, commit 1 changes exactly 5 anchor files, commit 2 changes exactly 11 hygiene files, and commit 1 subject BOM is reconfirmed."
+    - id: C3
+      description: "Branch is pushed and PR is created with the required provenance body items while preserving the cited commit graph. No squash, rebase, force-push, amend, or commit 1/2 rewrite is used."
+    - id: C4
+      description: "PR is merged with gh pr merge --merge. If GitHub cannot create the merge commit cleanly, resolve mergeability without rebase or squash, then verify origin/main contains commit 1 and commit 2."
+    - id: C5
+      description: "Turn packet, BOM summaries, converged state, and both validators finish PASS; Gate 3 post-merge cleanup is explicitly deferred."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Gate 1 ACK had already converged in the previous session, so Gate 2 publish was
+    an execution-only slice. The only material runtime surprise was that PR #6 could
+    not be merged cleanly against the newer origin/main tip, which required a branch-
+    local merge-commit path that preserved commit 1 and commit 2 as ancestors.
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Start-of-turn auth probe returned 401:
+          claude -p "ping" --output-format json --max-turns 1
+        Interactive reauth attempt timed out:
+          claude setup-token
+        GitHub auth remained valid via gh auth status, so publish execution proceeded.
+        New publish-session state.json was created and the root Document/dialogue/state.json
+        mirror was switched to session_id=2026-04-15-a4-publish, session_status=active,
+        then later closed as converged after publish completion.
+    C2:
+      status: PASS
+      evidence: |
+        Read-only safety checks all matched the handoff contract:
+          git branch --show-current -> codex/a4-closeout-freeze
+          git log --oneline -3 -> c04bfce / 0a8bc65 / c6b0adc
+          git diff --name-only c6b0adc -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md -> empty
+          git diff-tree --no-commit-id --name-only -r 0a8bc65 -> exactly 5 files:
+            pipeline/chunker.py, pipeline/claude_cli.py, pipeline/config.py,
+            pipeline/main.py, pipeline/summarizer.py
+          git diff-tree --no-commit-id --name-only -r c04bfce -> exactly 11 files:
+            Document/dialogue/state.json plus 10 closeout-hygiene session files
+          bash -lc "git log --format=%s -n 1 0a8bc65 | od -c | head -1"
+            -> leading bytes 357 273 277 before "Freeze"
+    C3:
+      status: PASS
+      evidence: |
+        The freeze branch was pushed first at the expected head:
+          git push -u origin codex/a4-closeout-freeze
+          git ls-remote origin codex/a4-closeout-freeze
+            -> c04bfcefce8e65b04fa78b662788ba1da9d6afc1 refs/heads/codex/a4-closeout-freeze
+        PR #6 was then opened with the required provenance body:
+          gh pr create --base main --head codex/a4-closeout-freeze
+            -> https://github.com/mizan0515/auto-caption-generator/pull/6
+        The body cites commit 1 SHA as the A4 G3 provenance path, explains the commit 1
+        BOM as cosmetic-only and amend-forbidden, links the hygiene provenance-boundary
+        and freeze-plan artifacts, references the Gate 1 ACK summary path for relay
+        continuity, and states that squash/rebase are forbidden because they would
+        destroy the cited commit 1 SHA.
+    C4:
+      status: PASS
+      evidence: |
+        Direct merge initially failed:
+          gh pr merge 6 --merge --match-head-commit c04bfcefce8e65b04fa78b662788ba1da9d6afc1
+            -> not mergeable; merge commit could not be created cleanly
+        To preserve commit 1/2 without touching the dirty local worktree, a clean clone
+        of the remote branch was created and origin/main was merged there. Conflict set:
+          .prompts/12-progress-report-개선-실행.md
+          Document/dialogue/state.json
+          PROJECT-RULES.md
+          tools/Validate-Documents.ps1
+        Resolution policy:
+          - keep freeze-branch versions for Document/dialogue/state.json and PROJECT-RULES.md
+          - keep origin/main versions for .prompts/12-progress-report-개선-실행.md and tools/Validate-Documents.ps1
+        Mergeability fix result:
+          git commit -m "Merge origin/main into codex/a4-closeout-freeze for publish"
+            -> 506411bebc2f08eadc650d65dae4d9518733e450
+          git push origin HEAD:codex/a4-closeout-freeze
+            -> remote branch advanced to 506411bebc2f08eadc650d65dae4d9518733e450
+          gh pr merge 6 --merge --match-head-commit 506411bebc2f08eadc650d65dae4d9518733e450
+            -> merged
+          gh pr view 6 --json state,mergedAt,mergeCommit
+            -> state=MERGED, mergeCommit=28ce302a3041ef197607384a23c884abd47e9197
+        Post-merge verification:
+          git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1
+          git branch -a --contains 0a8bc65 -> includes remotes/origin/main
+          git branch -a --contains c04bfce -> includes remotes/origin/main
+          git merge-base --is-ancestor 0a8bc65 origin/main -> YES
+          git merge-base --is-ancestor c04bfce origin/main -> YES
+    C5:
+      status: PASS
+      evidence: |
+        The publish session packet, summary.md, named summary, session state mirror, and
+        root state mirror were written locally. Both close-gate validators pass:
+          powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs
+          powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions
+        Gate 3 cleanup remains explicitly out of scope for this turn.
+  issues_found:
+    - "claude CLI auth stayed in a 401/interactive-timeout state for this turn. This did not block GitHub publish but remains a cross-session environment issue."
+    - "PR #6 was not mergeable against the live origin/main tip at first attempt because origin/main had advanced beyond the freeze branch base."
+    - "The Gate 1 ACK session summary artifact still exists only as a local session file, so the PR body could only reference its repository-relative path for relay continuity rather than a commit-pinned remote blob."
+  fixes_applied:
+    - "Opened the new publish session and mirrored root state before mutating any remote git state."
+    - "Resolved the PR mergeability issue in a disposable clean clone by merging origin/main into the freeze branch, producing merge commit 506411b without squash/rebase/amend/force-push."
+    - "Merged PR #6 with gh pr merge --merge after the head was updated to 506411b, preserving commit 1 and commit 2 as ancestors of origin/main."
+
+my_work:
+  task_model:
+    goal: "Gate 2 publish: push + PR + merge for codex/a4-closeout-freeze preserving commit 1 SHA for A4 G3 citation"
+    non_goals:
+      - "--squash"
+      - "--rebase"
+      - "force push"
+      - "commit amend"
+      - "Gate 3 cleanup"
+  plan: |
+    1) Re-probe claude auth and confirm branch/history safety invariants.
+    2) Open the new publish session and root mirror.
+    3) Run the full read-only provenance checklist before any push.
+    4) Push the freeze branch, create the PR with provenance links, and merge with --merge.
+    5) If mergeability fails, repair it on-branch without rebase/squash and retry.
+    6) Record the turn packet and session summaries, converge state, and run both validators.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/2026-04-15-2026-04-15-a4-publish-summary.md"
+    summary: |
+      Completed Gate 2 publish for the frozen A4 closeout branch. Pre-push provenance
+      checks passed, the freeze branch was pushed, PR #6 was opened, mergeability was
+      repaired by a branch-local merge commit 506411b in a clean clone, and the PR was
+      merged as merge commit 28ce302 with commit 1 and commit 2 preserved in origin/main.
+      The new publish session was then closed locally with packet, summaries, mirrored
+      converged state, and validator passes.
+  self_iterations: 2
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=1-like result payload with is_error=true
+        result=Failed to authenticate. API Error: 401 Invalid authentication credentials
+      - |
+        claude setup-token
+        timed out after 34s waiting for interactive re-auth
+      - |
+        gh auth status
+        github.com account mizan0515 active, repo/workflow scopes present
+      - "git branch --show-current -> codex/a4-closeout-freeze"
+      - "git log --oneline -3 -> c04bfce / 0a8bc65 / c6b0adc"
+      - "git diff --name-only c6b0adc -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md -> empty"
+      - "git diff-tree --no-commit-id --name-only -r 0a8bc65 -> 5 expected anchor files"
+      - "git diff-tree --no-commit-id --name-only -r c04bfce -> 11 expected hygiene files"
+      - "bash -lc \"git log --format=%s -n 1 0a8bc65 | od -c | head -1\" -> leading bytes 357 273 277 before Freeze"
+      - "git push -u origin codex/a4-closeout-freeze -> origin branch created"
+      - "git ls-remote origin codex/a4-closeout-freeze -> c04bfcefce8e65b04fa78b662788ba1da9d6afc1"
+      - "gh pr create --base main --head codex/a4-closeout-freeze --title \"A4 closeout freeze: 5 measurement anchors + hygiene\" -> PR #6 https://github.com/mizan0515/auto-caption-generator/pull/6"
+      - "gh pr merge 6 --merge --match-head-commit c04bfcefce8e65b04fa78b662788ba1da9d6afc1 -> not mergeable"
+      - "git clone --branch codex/a4-closeout-freeze https://github.com/mizan0515/auto-caption-generator.git <temp-clone>"
+      - "git merge --no-commit --no-ff origin/main (in temp clone) -> 4 add/add conflicts"
+      - "git commit -m \"Merge origin/main into codex/a4-closeout-freeze for publish\" (in temp clone) -> 506411bebc2f08eadc650d65dae4d9518733e450"
+      - "git push origin HEAD:codex/a4-closeout-freeze (in temp clone) -> remote head advanced to 506411bebc2f08eadc650d65dae4d9518733e450"
+      - "gh pr view 6 --json headRefOid -> 506411bebc2f08eadc650d65dae4d9518733e450"
+      - "gh pr merge 6 --merge --match-head-commit 506411bebc2f08eadc650d65dae4d9518733e450 -> merged"
+      - "gh pr view 6 --json state,mergedAt,mergeCommit -> MERGED, 2026-04-15T08:19:25Z, merge commit 28ce302a3041ef197607384a23c884abd47e9197"
+      - "git fetch origin -> origin/main updated to 28ce302"
+      - "git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1"
+      - "git branch -a --contains 0a8bc65 -> includes remotes/origin/main"
+      - "git branch -a --contains c04bfce -> includes remotes/origin/main"
+      - "git merge-base --is-ancestor 0a8bc65 origin/main -> YES"
+      - "git merge-base --is-ancestor c04bfce origin/main -> YES"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+    artifacts:
+      - "PR #6: https://github.com/mizan0515/auto-caption-generator/pull/6"
+      - "Remote branch head after mergeability fix: 506411bebc2f08eadc650d65dae4d9518733e450"
+      - "origin/main merge commit: 28ce302a3041ef197607384a23c884abd47e9197"
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-publish/2026-04-15-2026-04-15-a4-publish-summary.md"
+  verification: |
+    Publish completed without any forbidden git rewrite. Commit 1 and commit 2 remain
+    explicit ancestors of origin/main after merge commit 28ce302. No squash, rebase,
+    force-push, commit amend, branch deletion, Gate 3 cleanup, pipeline/* edit,
+    transcribe.py edit, or experiments/results/* edit was performed in this turn.
+    Local closeout artifacts for the new publish session validate cleanly.
+  open_risks:
+    - "Gate 3 remains outstanding: remote freeze-branch deletion, codex/local-dirty-preserved rebase, and G-UNRELATED-DIRTY triage were intentionally deferred to a separate session."
+    - "claude CLI auth still oscillates; this turn's reauth attempt timed out and should be retried only when another session actually needs claude execution."
+    - "The PR body's Gate 1 ACK summary reference is path-only because that summary artifact is still local-only, not commit-pinned on the freeze branch."
+  confidence: high
+
+handoff:
+  next_task: |
+    Open session 2026-04-15-a4-postmerge-cleanup for Gate 3 only. Scope:
+      1) decide whether and when to delete the remote freeze branch
+      2) rebase or otherwise reconcile codex/local-dirty-preserved onto the new origin/main tip
+      3) triage the preserved G-UNRELATED-DIRTY worktree set without disturbing the A4 publish provenance
+  context: |
+    Gate 2 publish is complete. PR #6 merged as 28ce302 after a branch-local mergeability
+    fix 506411b. origin/main now contains both commit 1 (0a8bc65) and commit 2 (c04bfce).
+    The local publish-session packet and summaries are written and validators pass. Do not
+    reopen Gate 2 unless merge provenance itself is challenged.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Gate 2 publish completed: PR #6 merged with --merge and local DAD closure artifacts validated"

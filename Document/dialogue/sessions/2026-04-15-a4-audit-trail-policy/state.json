@@ -1,0 +1,43 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-15-a4-audit-trail-policy",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Policy-only session converged and peer-verified stable. Durable policy.md chose option (a) commit-to-main for the five Gate 2 / Gate 3 A4 DAD session directories plus this policy session, grounded in repository precedent (commit 2 c04bfce already committed five earlier DAD session directories) and PROJECT-RULES.md / DIALOGUE-PROTOCOL.md authority ranking. Codex Turn 2 re-verified Gate 2 provenance, both worktrees, and dirty-set preservation, and corrected two documentary count errors from Turn 1 (11 session directories total, 24 status lines total). Execution remains deferred to 2026-04-15-a4-audit-trail-execute with an explicit staging allowlist, forbidden-list, and risk controls. No git mutation was performed in either turn. Validators PASS after Turn 2.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "task_summary": "Policy-only session deciding how to treat the five local-only DAD session directories for Gate 2/3 (closeack-ack, freeze-execute, publish, postmerge-cleanup, local-cleanup) plus this policy session. The repository already tracks five earlier DAD session directories on origin/main via commit 2 c04bfce, so the question was whether to continue that precedent and, if so, how to execute it without mixing audit trail with the in-flight feature work on codex/g-unrelated-dirty-salvage. Decision: option (a) commit-to-main via a dedicated execute session run from the clean sister worktree C:/github/auto-caption-generator-main with an explicit six-path staging allowlist. Codex Turn 2 peer verification confirmed the policy and corrected Turn 1 baseline counts to 11 session directories total and 24 git-status lines total.",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Auth probe, new session bootstrap, root/session state mirror, and read-only live baseline (both worktrees and the committed-session inventory) captured without mutation.",
+    "C2": "Gate 2 provenance still intact: commit 1 0a8bc65 and commit 2 c04bfce ancestors of origin/main tip 28ce302; remote freeze absent.",
+    "C3": "Policy analysis written as a durable artifact explicitly weighing commit-to-main vs. separate-docs-branch vs. local-only, grounded in the existing repository precedent.",
+    "C4": "Execution decision recorded as plan-only unless clean separation from the G-UNRELATED-DIRTY feature work is rigorously proven; if execute, a strict allowlist of paths to stage must be defined.",
+    "C5": "Validators PASS; turn-01.yaml, policy doc, summary.md, and named summary written; session closed converged if the policy is unambiguous, otherwise held active with an explicit followup seed."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-02.yaml"
+  ],
+  "decisions": [
+    "Adopt option (a) commit-to-main for the five Gate 2 / Gate 3 A4 DAD session directories (closeack-ack, freeze-execute, publish, postmerge-cleanup, local-cleanup) plus this policy session, matching the precedent of commit 2 c04bfce.",
+    "Defer actual staging and commit to a dedicated execute session 2026-04-15-a4-audit-trail-execute. This session is policy-only and performs no git mutation.",
+    "Require the execute session to run from the clean sister worktree C:/github/auto-caption-generator-main, never from the live worktree C:/github/auto-caption-generator that holds codex/g-unrelated-dirty-salvage with the dirty feature set.",
+    "Require the execute session to stage by explicit six-path list (git add with the six allowlisted session directory paths); forbid git add -A and git add .",
+    "Forbid the execute session from staging root Document/dialogue/state.json, .gitignore, README.md, prompts/*, pipeline/*, and experiments/*.",
+    "Require the execute session to use merge strategy only for the PR; forbid squash, rebase, force push, and amend. Mergeability repair must follow the Gate 2 publish pattern (branch-local merge commit in a disposable clean clone)."
+    ,
+    "Codex Turn 2 confirmed the policy is stable and corrected documentary baseline counts: Document/dialogue/sessions currently contains 11 directories total, and git status --short currently emits 24 lines total because this policy session is also untracked."
+  ],
+  "meta_improvements": [
+    "When the repository already holds committed precedent for a class of artifact (here, DAD session directories tracked via commit 2 c04bfce), that precedent should be the default and any deviation (separate branch / local-only) requires explicit justification rather than the other way around.",
+    "Policy-only sessions should produce a durable artifact (policy.md) in addition to the turn packet, so future sessions can cite the decision by stable path instead of by packet line number.",
+    "When a worktree is dirty with unrelated feature work, the execute session for an orthogonal documentary commit should be run from a clean sister worktree by construction; this makes 'no mixing' a structural property rather than a discipline property.",
+    "Execute sessions that stage documentary artifacts must use an explicit path allowlist rather than git add -A; the allowlist should be co-located with the policy that authorized the commit.",
+    "Peer-verification turns should recompute live inventory and status counts from the repository instead of trusting relay summaries, because creating the current session directory changes both totals immediately."
+  ]
+}

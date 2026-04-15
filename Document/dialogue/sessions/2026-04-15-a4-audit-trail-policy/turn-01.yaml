@@ -1,0 +1,229 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-15-a4-audit-trail-policy"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth probe, new session bootstrap, root/session state mirror, and read-only live baseline (both worktrees and the committed-session inventory) captured without mutation."
+    - id: C2
+      description: "Gate 2 provenance still intact: commit 1 0a8bc65 and commit 2 c04bfce ancestors of origin/main tip 28ce302; remote freeze absent."
+    - id: C3
+      description: "Policy analysis written as a durable artifact explicitly weighing commit-to-main vs. separate-docs-branch vs. local-only, grounded in the existing repository precedent."
+    - id: C4
+      description: "Execution decision recorded as plan-only unless clean separation from the G-UNRELATED-DIRTY feature work is rigorously proven; if execute, a strict allowlist of paths to stage must be defined."
+    - id: C5
+      description: "Validators PASS; turn-01.yaml, policy doc, summary.md, and named summary written; session closed converged if the policy is unambiguous, otherwise held active with an explicit followup seed."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Gate 2, Gate 3, and the optional local-cleanup session have all been peer-verified
+    and remain converged. The remote freeze branch is gone, origin/main anchors 28ce302
+    with commit 1 and commit 2 as ancestors, and the in-flight feature work is isolated
+    on codex/g-unrelated-dirty-salvage. The only residual open question from the Gate 3
+    closure was whether the five local-only A4 DAD session directories should be promoted
+    to committed audit trail. This session answers that as policy-only and produces a
+    concrete execution plan rather than executing.
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Start-of-turn probe: claude -p "ping" --output-format json --max-turns 1
+          -> is_error=false, result="pong", duration_ms=2220
+        Session bootstrap:
+          mkdir Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy
+          wrote Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/state.json
+          mirrored Document/dialogue/state.json to session_id=2026-04-15-a4-audit-trail-policy
+        Live baseline (current worktree):
+          git branch --show-current -> codex/g-unrelated-dirty-salvage
+          git rev-parse --short HEAD -> c04bfce
+          git status --short | wc -l -> 23 (11 modified + 12 untracked)
+          git branch -a -> codex/g-unrelated-dirty-salvage, main, origin/main
+          git worktree list -> current c04bfce, sister 28ce302 [main]
+        Committed-session inventory (tracked in origin/main via commit 2 c04bfce):
+          2026-04-14-phase-a1-token-logging
+          2026-04-15-a4-closeout-hygiene
+          2026-04-15-phase-a2-token-chunking
+          2026-04-15-phase-a3-token-margin-sampling
+          2026-04-15-phase-a4-generalization-plan
+        Untracked, local-only:
+          2026-04-15-a4-closeack-ack
+          2026-04-15-a4-freeze-execute
+          2026-04-15-a4-publish
+          2026-04-15-a4-postmerge-cleanup
+          2026-04-15-a4-local-cleanup
+          2026-04-15-a4-audit-trail-policy (this session, created above)
+        Sister worktree:
+          git -C C:/github/auto-caption-generator-main branch --show-current -> main
+          git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 28ce302
+          git -C C:/github/auto-caption-generator-main status --short -> clean
+          Document/dialogue/state.json in sister points at session_id=2026-04-15-a4-closeout-hygiene
+          (the committed snapshot at c04bfce, correctly older than live).
+    C2:
+      status: PASS
+      evidence: |
+        gh pr view 6 --json state,mergedAt,mergeCommit
+          -> state=MERGED, mergedAt=2026-04-15T08:19:25Z, mergeCommit=28ce302a3041ef197607384a23c884abd47e9197
+        git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0 (YES)
+        git merge-base --is-ancestor c04bfce origin/main -> exit 0 (YES)
+        git ls-remote origin codex/a4-closeout-freeze -> empty
+        git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1
+    C3:
+      status: PASS
+      evidence: |
+        Durable policy doc written at
+          Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/policy.md
+        Doc compares three options (commit-to-main, separate docs branch, local-only)
+        with explicit pros and cons, grounded in:
+          - repository precedent: commit 2 c04bfce already committed five earlier DAD
+            session directories
+          - PROJECT-RULES.md source-of-truth ranking: Document/ is authority 6, not
+            ephemeral scratch
+          - DIALOGUE-PROTOCOL.md path rule: sessions live at
+            Document/dialogue/sessions/{session-id}/
+        Decision: option (a) commit-to-main, for the five Gate 2 / Gate 3 sessions
+        plus this policy session, via a dedicated execute session.
+    C4:
+      status: PASS
+      evidence: |
+        Execution decision is explicitly plan-only for this turn. The policy doc
+        specifies the exact execution path, staging allowlist, forbidden files,
+        and risk controls, all designed so the execute session never touches the
+        G-UNRELATED-DIRTY feature work on codex/g-unrelated-dirty-salvage:
+          - Execute from sister worktree C:/github/auto-caption-generator-main
+            (clean, main@28ce302, confirmed by git status --short).
+          - Branch name codex/a4-audit-trail off main@28ce302.
+          - Stage by explicit path list only (six session directories); never
+            git add -A or git add ..
+          - Do not stage root Document/dialogue/state.json, .gitignore, README.md,
+            prompts/*, pipeline/*, experiments/*.
+          - Merge strategy only for the PR; no squash, no rebase, no force push,
+            no amend. If GitHub cannot merge cleanly, repair with a branch-local
+            merge commit in a disposable clean clone (same pattern as Gate 2
+            publish and merge commit 506411b).
+        Clean separation from feature work is proven by the fact that the execute
+        path never runs inside C:/github/auto-caption-generator (the dirty
+        worktree) and never touches paths outside Document/dialogue/sessions/2026-04-15-a4-*.
+    C5:
+      status: PASS
+      evidence: |
+        Artifacts produced:
+          Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/state.json
+          Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/policy.md
+          Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-01.yaml
+          Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/summary.md
+          Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/2026-04-15-2026-04-15-a4-audit-trail-policy-summary.md
+        No stash/reset/revert. No commit. No branch creation. No remote mutation.
+        Dirty set on codex/g-unrelated-dirty-salvage is byte-for-byte preserved.
+        Validators ran after this packet was written; see evidence block.
+  issues_found:
+    - "The policy doc's 'include this session in the audit-trail commit' instruction is slightly lossy because Turn 2 (if codex writes one) would not yet exist when the execute session copies the directory. The policy doc flags this as a risk control and allows a Turn-1-only snapshot with an explicit note in the commit body."
+    - "Root Document/dialogue/state.json is volatile by design (live active-session pointer), so no stable commit is possible for it. The policy doc excludes it from the staging allowlist to avoid shipping stale state."
+  fixes_applied:
+    - "Wrote policy.md as a durable artifact rather than leaving the decision only in turn-01.yaml, so future sessions can cite it by stable path."
+    - "Made the staging allowlist explicit and forbidden-list explicit, so the execute session cannot drift into feature work or scratch output."
+
+my_work:
+  task_model:
+    goal: "Decide whether and how the five local-only Gate 2 / Gate 3 A4 DAD session directories should be promoted to committed audit trail on origin/main, and record that decision as a durable policy artifact with a concrete execute-session handoff."
+    non_goals:
+      - "actually committing or staging anything in this turn"
+      - "rewriting commit 1 0a8bc65 or commit 2 c04bfce"
+      - "modifying pipeline/ feature work or the untracked pipeline modules"
+      - "stash/reset/revert of any user in-flight edit"
+      - "mutating the sister worktree in this turn"
+      - "changing PROJECT-RULES.md or DIALOGUE-PROTOCOL.md wording"
+      - "gitignoring scratch experiment logs"
+  plan: |
+    1) claude auth probe; ok either way because this session is documentation-only.
+    2) Open session 2026-04-15-a4-audit-trail-policy, write its state.json, and mirror the root state.
+    3) Capture the baseline including the committed-session inventory in both worktrees.
+    4) Re-check Gate 2 provenance; abort and OBJECT if broken.
+    5) Write a durable policy.md comparing three options and choosing commit-to-main, grounded in repository precedent and PROJECT-RULES.md authority ranking.
+    6) Specify a plan-only execute path using the clean sister worktree, with an explicit staging allowlist and forbidden-list.
+    7) Write turn-01.yaml, summary.md, and named summary, all with BOM where required.
+    8) Run both validators.
+    9) Mirror converged state only if the policy is unambiguous and the execute-session seed is fully specified.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/policy.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/2026-04-15-2026-04-15-a4-audit-trail-policy-summary.md"
+    remote_refs_mutated: []
+    local_refs_mutated: []
+    summary: |
+      Policy-only session. Wrote policy.md that chooses commit-to-main for the five
+      Gate 2 / Gate 3 A4 DAD session directories plus this policy session, via a
+      dedicated execute session run from the clean sister worktree
+      C:/github/auto-caption-generator-main. Gave the execute session an explicit
+      staging allowlist, an explicit forbidden-list, the exact branch name
+      codex/a4-audit-trail, and a mandatory merge-strategy PR path mirroring the
+      Gate 2 publish flow. No commit, no stage, no remote mutation was made in
+      this turn.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        -> is_error=false, result="pong", duration_ms=2220
+      - "git branch --show-current -> codex/g-unrelated-dirty-salvage"
+      - "git rev-parse --short HEAD -> c04bfce"
+      - "git status --short | wc -l -> 23 (11 modified + 12 untracked)"
+      - "git branch -a -> codex/g-unrelated-dirty-salvage, main, origin/main"
+      - "git worktree list -> current c04bfce [codex/g-unrelated-dirty-salvage], sister 28ce302 [main]"
+      - "git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1"
+      - "gh pr view 6 --json state,mergedAt,mergeCommit -> MERGED, 28ce302a3041ef197607384a23c884abd47e9197"
+      - "git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0"
+      - "git merge-base --is-ancestor c04bfce origin/main -> exit 0"
+      - "git ls-remote origin codex/a4-closeout-freeze -> empty"
+      - "ls Document/dialogue/sessions -> 10 dirs including 5 tracked + 5 untracked A4 sessions + this new one"
+      - "git status --short Document/dialogue/sessions/ -> lists the 5 untracked A4 session dirs as ??"
+      - "ls C:/github/auto-caption-generator-main/Document/dialogue/sessions/ -> only the 5 tracked dirs (confirming sister worktree is at the committed snapshot)"
+      - "grep session_id C:/github/auto-caption-generator-main/Document/dialogue/state.json -> 2026-04-15-a4-closeout-hygiene"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/policy.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/2026-04-15-2026-04-15-a4-audit-trail-policy-summary.md"
+  verification: |
+    Policy is durable (policy.md is a new committed-style artifact in the session
+    directory), grounded in repository precedent (commit 2 c04bfce already
+    committed five peer DAD session directories), and scoped so the execute
+    session cannot touch feature work or provenance. No git mutation was made in
+    this turn. Gate 2 provenance was re-checked before writing the policy and
+    remains intact.
+  open_risks:
+    - "The policy instructs the execute session to include this policy session directory in the audit-trail commit. If Turn 2 of this session has not been authored by the time the execute session runs, the committed snapshot will be Turn-1-only. policy.md flags this as a risk control; the execute session must either wait for Turn 2 or record the snapshot cutoff in its commit body."
+    - "Running the execute session from the sister worktree requires that the sister worktree stays clean until then. If the user does unrelated work in the sister worktree before the execute session runs, the execute session must re-check git status there before staging."
+    - "G-UNRELATED-DIRTY on codex/g-unrelated-dirty-salvage is still outstanding as user-owned cleanup. This session deliberately does not couple its execution to the audit-trail commit; the two decisions are independent."
+  confidence: high
+
+handoff:
+  next_task: |
+    Open session 2026-04-15-a4-audit-trail-execute (Turn 1). Scope:
+      1) Re-check Gate 2 provenance (PR #6 MERGED at 28ce302, commit 1 and commit 2 ancestors, remote freeze absent) and that the sister worktree C:/github/auto-caption-generator-main is still clean on main@28ce302.
+      2) From the sister worktree, git fetch origin and git pull --ff-only origin main, then git switch -c codex/a4-audit-trail.
+      3) Copy the six A4 session directories (closeack-ack, freeze-execute, publish, postmerge-cleanup, local-cleanup, audit-trail-policy) from the live worktree into the sister worktree under Document/dialogue/sessions/.
+      4) Verify git status in the sister worktree shows only those six directories as untracked/added; abort if anything else is touched.
+      5) git add with the explicit six-path list from policy.md and verify git diff --cached --name-only shows only those paths.
+      6) Commit with a subject and body that cite commit 1 0a8bc65, commit 2 c04bfce, and merge commit 28ce302.
+      7) Push, open a PR, merge with the merge strategy only. No squash, no rebase, no force push, no amend. Mergeability fix path is the same as Gate 2 publish (branch-local merge commit in a disposable clean clone).
+      8) Close the execute session with validators PASS and a named summary.
+  context: |
+    This policy session recorded the commit-to-main decision and the exact
+    execute path. Provenance is intact, feature work is isolated, and the
+    sister worktree is the clean staging surface. The execute session must
+    not run from the current live worktree and must not stage anything
+    outside the six allowlisted session directories.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Policy written as a durable artifact, repository precedent cited, execute-session seed fully specified with an allowlist, forbidden-list, and risk controls; no git mutation was performed, Gate 2 provenance intact, validators PASS."

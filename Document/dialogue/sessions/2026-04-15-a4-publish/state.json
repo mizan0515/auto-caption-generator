@@ -1,0 +1,38 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-15-a4-publish",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Gate 2 publish completed: PR #6 merged into origin/main with --merge while preserving commit 1 and commit 2 ancestry; Gate 3 cleanup deferred",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 1,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "task_summary": "Gate 2 publish completed for the frozen A4 closeout branch. Pre-push invariants passed, the freeze branch was pushed, PR #6 was opened with commit provenance, mergeability was repaired by merge commit 506411b on the freeze branch, and PR #6 merged as 28ce302 with commit 1 and commit 2 preserved in origin/main.",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Auth probe, session bootstrap, and root/session state mirroring completed without rewriting commit 1 or commit 2.",
+    "C2": "Pre-push provenance invariants matched the handoff exactly: branch/log order, artifact byte identity, 5-anchor commit 1, 11-file commit 2, and commit 1 BOM.",
+    "C3": "The freeze branch was pushed and PR #6 was opened with the required provenance body while preserving the cited commit graph.",
+    "C4": "PR #6 merged with the merge strategy after a branch-local mergeability fix 506411b; origin/main now contains both commit 1 and commit 2.",
+    "C5": "turn-01.yaml, BOM summaries, converged state, and both validators finished PASS; Gate 3 cleanup is deferred."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-15-a4-publish/turn-01.yaml"
+  ],
+  "decisions": [
+    "Opened session 2026-04-15-a4-publish as a dedicated Gate 2 publish slice after Gate 1 ACK converged.",
+    "Recorded the start-of-turn claude auth 401 plus setup-token timeout, but used the still-valid GitHub CLI auth path for publish execution.",
+    "Verified all pre-push provenance invariants before the first remote mutation and confirmed commit 1 BOM via bash od output.",
+    "Pushed the freeze branch at c04bfce, created PR #6 with the required provenance narrative, then repaired mergeability by merging origin/main into the freeze branch as 506411b in a disposable clean clone.",
+    "Merged PR #6 with the merge strategy only. origin/main tip is now 28ce302 and contains both 0a8bc65 and c04bfce.",
+    "Closed the publish session locally with turn-01.yaml, summary.md, named summary, mirrored converged state, and validator passes."
+  ],
+  "meta_improvements": [
+    "The mergeability fix kept the critical provenance commits intact by using a branch-local merge commit rather than any history rewrite.",
+    "The required PR body now captures not only commit 1 provenance but also the hygiene-session rationale and the permanent no-squash/no-rebase rule.",
+    "Gate 3 cleanup is isolated cleanly from Gate 2 publish so remote-branch deletion and dirty-worktree triage cannot accidentally perturb the published provenance graph."
+  ]
+}

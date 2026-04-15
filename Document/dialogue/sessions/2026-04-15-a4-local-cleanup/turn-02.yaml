@@ -1,0 +1,178 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-15-a4-local-cleanup"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Bootstrap and baseline claims are acceptable only if the live topology after cleanup still matches the claimed branch/worktree layout."
+    - id: C2
+      description: "Gate 2 provenance must still be intact: PR #6 merged as 28ce302, commits 0a8bc65 and c04bfce ancestors of origin/main, and remote freeze branch absent."
+    - id: C3
+      description: "Sister worktree fast-forward is valid only if the sister worktree is now main@28ce302 and remains clean."
+    - id: C4
+      description: "Same-HEAD salvage migration and local freeze deletion are valid only if the current worktree is codex/g-unrelated-dirty-salvage@c04bfce, the old local freeze branch is gone, and no new commits were introduced."
+    - id: C5
+      description: "Session closure remains valid only if the dirty-set file set is preserved and any documentary errors in the written artifacts are corrected before validators pass."
+  amendments:
+    - "Treat exact diff-stat integers as documentary observations, not byte-identity proof. Use branch/head/status file-set equality as the authoritative preservation check."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "Claude Turn 1's byte-identity claim is well supported for the status file set and branch topology, but the summary's exact git diff --stat narrative is not reproducible live."
+    scope_creep: []
+    risk_followups:
+      - "Current claude auth probe returned 401, so Turn 1's auth=pong observation should not be generalized beyond that turn."
+      - "Untracked DAD session directories remain local-only audit trail and still need a separate policy decision."
+    amendments:
+      - "Accept the cleanup mutations as non-destructive, but correct the summary/state narrative so convergence does not depend on an over-precise diff-stat explanation."
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Live topology matches the claimed post-cleanup state:
+          git branch --show-current -> codex/g-unrelated-dirty-salvage
+          git rev-parse --short HEAD -> c04bfce
+          git branch -a -> codex/g-unrelated-dirty-salvage / main / origin/main
+          git worktree list ->
+            C:/github/auto-caption-generator       c04bfce [codex/g-unrelated-dirty-salvage]
+            C:/github/auto-caption-generator-main  28ce302 [main]
+        Current auth probe is 401, but auth was not required for the git-only cleanup path and
+        does not invalidate the bootstrap/topology claim itself.
+    C2:
+      status: PASS
+      evidence: |
+        Gate 2 provenance is still fixed:
+          gh pr view 6 --json state,mergedAt,mergeCommit
+            -> state=MERGED, mergeCommit=28ce302a3041ef197607384a23c884abd47e9197
+          git log --oneline origin/main -5
+            -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1
+          git merge-base --is-ancestor 0a8bc65 origin/main -> YES
+          git merge-base --is-ancestor c04bfce origin/main -> YES
+          git ls-remote origin codex/a4-closeout-freeze -> empty
+    C3:
+      status: PASS
+      evidence: |
+        Sister worktree state is exactly the expected fast-forwarded state:
+          git worktree list -> sister worktree at 28ce302 [main]
+          git -C C:/github/auto-caption-generator-main status --short -> empty
+        This is consistent with a clean ff-only pull and shows no residual dirty state there.
+    C4:
+      status: PASS
+      evidence: |
+        The salvage migration remained same-HEAD and introduced no new commits:
+          git branch --show-current -> codex/g-unrelated-dirty-salvage
+          git rev-parse codex/g-unrelated-dirty-salvage -> c04bfcefce8e65b04fa78b662788ba1da9d6afc1
+          git log --oneline codex/g-unrelated-dirty-salvage -3
+            -> c04bfce / 0a8bc65 / c6b0adc
+          git cherry origin/main codex/g-unrelated-dirty-salvage -> empty
+          git branch -a -> codex/a4-closeout-freeze absent
+        That is the expected non-destructive branch-label migration.
+    C5:
+      status: FAIL-then-FIXED
+      evidence: |
+        The preserved dirty-set file set matches the claimed end-state:
+          git status --short -> 11 modified + 12 untracked = 23 lines
+          untracked list includes Document/dialogue/sessions/2026-04-15-a4-local-cleanup/
+          modified set remains the same 11 tracked files
+        Sampled preservation checks still match the Turn 1 semantics:
+          git diff -- pipeline/monitor.py -> interactive bootstrap mode feature remains
+          git diff -- pipeline/downloader.py -> .downloading temp-file logic remains
+          Get-Content pipeline/community_matcher.py -TotalCount 20 -> same untracked module still present
+          Get-ChildItem pipeline/community_matcher.py,pipeline/subtitle_analyzer.py -> files still present, unchanged by git
+        However, the written summaries claimed an exact diff-stat narrative ending at 348/107 and
+        described the byte drift as entirely explained by state mirroring. Live diff-stat is now:
+          git diff --stat -> 11 files changed, 352 insertions(+), 102 deletions(-)
+        That mismatch is documentary, not provenance-affecting, so Turn 2 corrected the summaries
+        and state narrative before re-running validators.
+  issues_found:
+    - "Current auth probe returned 401 while Claude Turn 1 recorded pong. This confirms auth continuity is unstable and should not be treated as a durable property."
+    - "The local-cleanup summaries overstated the exact diff-stat evolution. Live state confirms the file set and branch topology, but not the exact 348/107 ending described in Turn 1."
+    - "community_matcher.py displays mojibake under the current terminal decoding, so semantic verification of that untracked file should rely on its role and existence rather than terminal-rendered Korean text alone."
+  fixes_applied:
+    - "Updated the local-cleanup summaries and state mirrors to remove over-precise diff-stat claims and replace them with the current verified baseline."
+    - "Appended a Turn 2 peer-verify section confirming that convergence stands on provenance, branch topology, and dirty-set file-set preservation."
+
+my_work:
+  task_model:
+    goal: "Peer-verify the optional local cleanup end state and either confirm convergence or reopen the session if the cleanup mutated the dirty set destructively."
+    non_goals:
+      - "Any mutation of the dirty set"
+      - "Any sister-worktree mutation"
+      - "Any remote ref mutation"
+      - "Any stash/reset/revert/commit/rebase"
+  plan: |
+    1) Re-run the full provenance and worktree topology checks.
+    2) Verify the salvage branch still points at c04bfce and carries no new commits beyond origin/main ancestry.
+    3) Recount the dirty set and compare its file-set cardinality against Turn 1's claim.
+    4) Sample representative diffs and untracked file presence to confirm non-destructive preservation.
+    5) Correct only documentary inaccuracies in the DAD artifacts if the live state otherwise supports convergence.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/2026-04-15-2026-04-15-a4-local-cleanup-summary.md"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/turn-02.yaml"
+    summary: |
+      Verified live that the optional local cleanup was non-destructive: the current worktree is
+      codex/g-unrelated-dirty-salvage@c04bfce, sister worktree is main@28ce302 and clean, the
+      old local freeze branch is gone, and origin/main still preserves 28ce302 with 0a8bc65 and
+      c04bfce as ancestors. The only fix needed was documentary: the written diff-stat narrative
+      did not match the current live reading, so Turn 2 corrected the summaries and state notes.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        -> 401 authentication_error
+      - "gh pr view 6 --json state,mergedAt,mergeCommit -> MERGED, 28ce302a3041ef197607384a23c884abd47e9197"
+      - "git fetch origin -> ok"
+      - "git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1"
+      - "git merge-base --is-ancestor 0a8bc65 origin/main -> YES"
+      - "git merge-base --is-ancestor c04bfce origin/main -> YES"
+      - "git ls-remote origin codex/a4-closeout-freeze -> empty"
+      - "git branch --show-current -> codex/g-unrelated-dirty-salvage"
+      - "git rev-parse --short HEAD -> c04bfce"
+      - "git branch -a -> codex/g-unrelated-dirty-salvage / main / origin/main"
+      - "git worktree list -> current c04bfce [codex/g-unrelated-dirty-salvage], sister 28ce302 [main]"
+      - "git -C C:/github/auto-caption-generator-main status --short -> clean"
+      - "git status --short -> 23 lines (11 modified + 12 untracked)"
+      - "git diff --stat -> 11 files changed, 352 insertions(+), 102 deletions(-)"
+      - "git rev-parse codex/g-unrelated-dirty-salvage -> c04bfcefce8e65b04fa78b662788ba1da9d6afc1"
+      - "git log --oneline codex/g-unrelated-dirty-salvage -3 -> c04bfce / 0a8bc65 / c6b0adc"
+      - "git cherry origin/main codex/g-unrelated-dirty-salvage -> empty"
+      - "git diff -- pipeline/monitor.py | Select-Object -First 50 -> same bootstrap feature diff remains"
+      - "git diff -- pipeline/downloader.py | Select-Object -First 50 -> same download temp-file diff remains"
+      - "Get-Content pipeline/community_matcher.py -TotalCount 20 -> untracked module still present"
+      - "Get-ChildItem pipeline/community_matcher.py,pipeline/subtitle_analyzer.py | Select-Object Name,Length,LastWriteTime -> untracked files present"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/2026-04-15-2026-04-15-a4-local-cleanup-summary.md"
+      - "Document/dialogue/state.json"
+  verification: |
+    The optional local cleanup still stands as non-destructive. The current worktree remains on a
+    same-HEAD salvage branch at c04bfce with no extra commits, the sister worktree remains on
+    main@28ce302 and clean, the remote freeze branch remains absent, and origin/main still
+    preserves commit 1 and commit 2 ancestry. No reopening is needed.
+  open_risks:
+    - "Auth continuity remains unstable across turns and should not be inferred from any single session."
+    - "Untracked DAD session directories remain local-only audit trail and still require a separate policy decision if they are ever to be committed."
+  confidence: high
+
+handoff:
+  next_task: ""
+  context: ""
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Optional local cleanup is confirmed converged: provenance intact, sister worktree updated, salvage branch same-HEAD at c04bfce, local freeze branch removed, and only documentary corrections were needed."
