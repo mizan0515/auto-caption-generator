@@ -18,6 +18,8 @@ FIELDS = [
     ("target_channel_id",    "채널 ID",            "str",   "Chzzk 채널 ID (32자리 hex)"),
     ("poll_interval_sec",    "폴링 간격 (초)",      "int",   "새 VOD 확인 주기 (기본: 300초 = 5분)"),
     ("download_resolution",  "다운로드 해상도",     "int",   "VOD 다운로드 해상도 (기본: 144)"),
+    ("bootstrap_mode",       "Bootstrap 모드",     "str",   "최초 실행 시 정책: 빈칸(질문) / skip_all / latest_n"),
+    ("bootstrap_latest_n",   "Bootstrap 최신 N개",  "int",   "latest_n 모드일 때 처리할 개수"),
 
     # 커뮤니티
     ("fmkorea_enabled",      "fmkorea 수집",       "bool",  "fmkorea 커뮤니티 스크레이핑 활성화"),

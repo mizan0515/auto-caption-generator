@@ -97,3 +97,38 @@ def sanitize_filename(name: str, max_len: int = 80) -> str:
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len].rstrip()
     return cleaned
+
+
+def clip_video(src_path: str, dst_path: str, duration_sec: int) -> str:
+    """ffmpeg으로 영상 앞부분만 잘라 새 파일 생성 (테스트용).
+
+    Args:
+        src_path: 원본 영상
+        dst_path: 잘라낸 결과 파일 (덮어씀)
+        duration_sec: 앞에서부터 포함할 시간(초)
+    Returns:
+        dst_path
+    """
+    import subprocess
+    logger = logging.getLogger("pipeline")
+    logger.info(f"영상 자르기: {duration_sec}초 (→ {dst_path})")
+
+    # -c copy 는 키프레임 단위라 오디오 동기가 틀어질 수 있음. 재인코딩으로 안전하게.
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", src_path,
+        "-t", str(duration_sec),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+        "-c:a", "aac", "-b:a", "96k",
+        dst_path,
+    ]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg 실패 (code={result.returncode}): {result.stderr[-500:]}")
+        logger.info(f"  자르기 완료: {dst_path}")
+        return dst_path
+    except FileNotFoundError:
+        raise RuntimeError("ffmpeg 을 찾을 수 없습니다. PATH에 등록하세요.")
