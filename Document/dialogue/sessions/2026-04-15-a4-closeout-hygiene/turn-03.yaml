@@ -1,0 +1,149 @@
+type: turn
+from: claude-code
+turn: 3
+session_id: "2026-04-15-a4-closeout-hygiene"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Live baseline now recorded for Turn 3. Branch is codex/local-dirty-preserved, HEAD is c6b0adc (not b62ada1 as at Turn 2). A4 result artifacts are already in c6b0adc, measurement-anchor source is still dirty vs c6b0adc. Dirty counts remain 15 modified + 12 untracked. Recorded in provenance-boundary.md §0."
+    - id: C2
+      description: "Freeze provenance is split into three commits: (1) 5-file anchor freeze, (2) hygiene-session artifacts, (3) optional sha256 manifest. Annotated tag remains optional. Detailed in freeze-plan.md §2."
+    - id: C3
+      description: "Scope remains restricted to the 5-file A4 measurement anchor set. Other dirty pipeline files stay on codex/local-dirty-preserved and are not included in the hygiene freeze. Recorded in provenance-boundary.md §4."
+    - id: C4
+      description: "G3 = freeze-commit SHA OR sha256 manifest (OR, not AND). G5 = before/after git status --short diff against the allowlist in freeze-plan.md §5. Amendment A3/A4 from Turn 2 accepted verbatim."
+    - id: C5
+      description: "Execute order B -> C -> A. Turn 3 completed option B (provenance-boundary.md) and produced a plan-only draft of option C (freeze-plan.md). Actual git-mutating execute of option C deferred to a later turn."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: accepted
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "HEAD advanced from b62ada1 to c6b0adc between Turn 2 and Turn 3. c6b0adc landed DAD scaffolding and A4 result artifacts but NOT the 5 measurement anchors, so the anchor-side G3 gap is now narrower but still open."
+      - "Branch has been renamed from codex/phase-a1-token-logging to codex/local-dirty-preserved; the freeze plan recommends cutting codex/a4-closeout-freeze from c6b0adc rather than committing freeze work on the dirty-preserved branch."
+      - "Codex auth is back to 200 OK on this probe; ownership rules in A4 C5 no longer force claude-code as sole execute owner, but the Turn 3 git/doc-only slice is unaffected."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: FAIL-then-PASS
+      evidence: "Turn 2 C1 baseline (HEAD b62ada1, branch codex/phase-a1-token-logging, ls-files 0) is now stale. Re-probed at Turn 3: HEAD c6b0adc, branch codex/local-dirty-preserved, ls-files 74. Drift recorded in provenance-boundary.md §0. Dirty counts still match Turn 2 (15 modified + 12 untracked) and all 5 A4 anchors still carry the same ~731/182 diff observed at Turn 2, so A4 arithmetic inputs are unchanged."
+    C2:
+      status: PASS
+      evidence: "Turn 2 amendment A2 accepted. freeze-plan.md §2 splits freeze into commit 1 (5-file anchor freeze) + commit 2 (hygiene session) + commit 3 (optional sha256 manifest). Annotated tag remains out of the primary path."
+    C3:
+      status: PASS
+      evidence: "Measurement-path scope is limited to the 5-file anchor set (pipeline/config.py, main.py, chunker.py, claude_cli.py, summarizer.py). The 9 other dirty pipeline files, 2 untracked pipeline files, 5 untracked txt/log files, .gitignore, README.md, and prompts/청크 통합 프롬프트.md are classified G-UNRELATED-DIRTY in provenance-boundary.md §4 and kept out of the freeze slice."
+    C4:
+      status: PASS
+      evidence: "G3 semantics fixed to OR per Turn 2 A3 (freeze-plan.md §4). G5 semantics fixed to allowlist diff per Turn 2 A4, with explicit before-snapshot and expected-after-snapshot in freeze-plan.md §5."
+    C5:
+      status: PASS
+      evidence: "B executed as a full read-only map (provenance-boundary.md). C executed as a plan-only draft (freeze-plan.md). A (documented provenance supplement) is deferred because (a) c6b0adc already covers A4 result artifacts and (b) the sha256 manifest in commit 3 is a lighter-weight substitute for a standalone provenance doc. No git mutation performed in Turn 3."
+  issues_found:
+    - "Turn 2 baseline drift: HEAD advanced between turns. All downstream docs must cite c6b0adc, not b62ada1."
+    - "c6b0adc shows asymmetric provenance: A4 result artifacts are frozen, but measurement-time anchor source is not. This is the main remaining G3 gap."
+    - "Branch rename from codex/phase-a1-token-logging to codex/local-dirty-preserved is not reflected anywhere in DAD state until Turn 3."
+  fixes_applied:
+    - "Recorded c6b0adc drift and updated baseline in provenance-boundary.md §0."
+    - "Narrowed freeze plan so it does not re-commit artifacts already in c6b0adc."
+    - "Branch strategy updated in freeze-plan.md §1: cut codex/a4-closeout-freeze from c6b0adc instead of committing on the dirty-preserved branch."
+
+my_work:
+  task_model:
+    goal: "Execute Turn 3 of the hygiene session: option B (provenance boundary map) in full, option C (freeze plan) as plan-only draft, without any git mutation or pipeline/* edits."
+    non_goals:
+      - "git add / commit / reset / stash / push / PR creation"
+      - "Any pipeline/* edit (measurement anchors included)"
+      - "Any edit under Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/"
+      - "Any number change in experiments/results/2026-04-15_phase-a4_*"
+      - "Re-opening A4 arithmetic or measurement scope"
+  plan: |
+    1) Read turn-02.yaml. 2) Re-probe auth and git baseline; record drift.
+    3) Write provenance-boundary.md grouping every dirty path into
+       G-A4-ANCHOR / G-A4-ARTIFACT / G-DAD-SCAFFOLD / G-A1..A3-ARTIFACT /
+       G-HYGIENE-SESSION / G-UNRELATED-DIRTY, and note c6b0adc coverage.
+    4) Write freeze-plan.md with branch strategy, 3-commit allowlist slice,
+       G3 OR semantics, G5 allowlist diff, pipeline/* handling.
+    5) Write this turn-03.yaml and flip both state.json to current_turn=3.
+    6) Run Validate-Documents.ps1 and Validate-DadPacket.ps1.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/provenance-boundary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/freeze-plan.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-03.yaml"
+    summary: |
+      Turn 3 stays git/doc-only. It records the c6b0adc drift that landed
+      between Turn 2 and Turn 3, classifies every worktree entry into a
+      provenance group, confirms that the A4 G3 gap has narrowed to just
+      the 5-file anchor set, and drafts a 3-commit freeze slice on a new
+      codex/a4-closeout-freeze branch without executing any git mutation.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=0
+        stdout={"type":"result","subtype":"success","is_error":false,"result":"pong", ...}
+      - "git status --short (15 modified + 12 untracked, matches Turn 2 A1)"
+      - "git diff --stat -- pipeline transcribe.py (12 files / 1043 insertions / 233 deletions, unchanged vs Turn 2)"
+      - "git branch --show-current -> codex/local-dirty-preserved (drift vs Turn 2)"
+      - "git log --oneline -5 -> c6b0adc / b62ada1 / f4eae41 / 1adfb25 / 6051e8c"
+      - "git ls-files experiments/ Document/ tools/ | wc -l -> 74 (drift vs Turn 2 baseline 0)"
+      - "git log -- experiments/results/2026-04-15_phase-a4_raw.json -> c6b0adc"
+      - "git log -- experiments/results/2026-04-15_phase-a4_generalization.md -> c6b0adc"
+      - "git show --stat c6b0adc (confirms 5 anchors NOT in c6b0adc)"
+      - "git diff --stat c6b0adc -- pipeline/{config,main,chunker,claude_cli,summarizer}.py (confirms anchors still dirty vs c6b0adc)"
+      - "git diff --stat c6b0adc 0c078ea -> README.md only"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/provenance-boundary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/freeze-plan.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-03.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+  verification: |
+    Turn 3 is git/doc-only. No git add, commit, reset, stash, push, or PR.
+    No pipeline/* edits. No A4 session edits. No experiments/results number
+    changes. All conclusions come from read-only git commands, live file
+    reads, and the two DAD validators.
+  open_risks:
+    - "Two commits with the same message ('Add DAD artifacts and A1-A4 experiment closeout') exist on different branches: c6b0adc and 0c078ea. Diff is README.md only. Future hygiene cycles must pick one as canonical to avoid ambiguous provenance citation."
+    - "Branch codex/local-dirty-preserved semantically deprecates codex/phase-a1-token-logging but no formal rename/delete has been recorded in DAD state or PROJECT-RULES."
+    - "The 5 anchors are tracked at HEAD but their measurement-time content was never committed. Until commit 1 of the freeze plan lands, A4 reproducibility relies on worktree content that could be overwritten by any git operation."
+
+handoff:
+  next_task: |
+    Peer-verify Turn 3 artifacts (provenance-boundary.md + freeze-plan.md +
+    turn-03.yaml). Confirm the c6b0adc drift recording is numerically
+    correct, that the 5-anchor gap claim is accurate, that freeze-plan.md
+    commit allowlists are tight, and that G3/G5 semantics match Turn 2
+    amendments. Stay plan-only; do NOT run any git mutation, do NOT edit
+    pipeline/*, do NOT edit A4 session files, do NOT edit experiments/results
+    numbers. If all checks pass, decide whether the next turn should
+    (i) remain plan-only and close this session as ready-for-ACK, or
+    (ii) promote to a small execute turn that lands freeze-plan commit 1
+    only.
+  context: |
+    Turn 3 recorded drift from Turn 2: HEAD moved to c6b0adc, branch is
+    codex/local-dirty-preserved, ls-files jumped from 0 to 74. A4 result
+    artifacts are already in c6b0adc; the 5 measurement anchors are not.
+    Option B produced the full boundary map, option C produced a 3-commit
+    plan that would live on a new codex/a4-closeout-freeze branch cut from
+    c6b0adc. G3 is semantically OR, G5 is an allowlist diff with explicit
+    before/after snapshots.
+  questions:
+    - "Is c6b0adc (or the nearly-identical 0c078ea) the canonical first provenance commit? If yes, which of the two is preferred?"
+    - "Should commit 3 (sha256 manifest) be included in the same hygiene session or deferred?"
+    - "Is cutting codex/a4-closeout-freeze from c6b0adc acceptable, or should the freeze happen on main?"
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

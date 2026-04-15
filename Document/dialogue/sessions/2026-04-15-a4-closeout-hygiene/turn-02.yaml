@@ -1,0 +1,179 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-15-a4-closeout-hygiene"
+
+contract:
+  status: amended
+  checkpoints:
+    - id: C1
+      description: "Live baseline must be anchored to the current repository state before any hygiene execute slice. A4 remains converged, but the hygiene baseline itself must record actual branch/head/worktree counts, pipeline diff footprint, tracked-path gaps, and result-artifact git history."
+    - id: C2
+      description: "Freeze provenance should prefer a dedicated freeze commit for A4 closeout artifacts, with a sha256 manifest as supplemental evidence. Annotated tag is optional after freeze commit, not a primary prerequisite."
+    - id: C3
+      description: "A4 closeout trust claims must distinguish measurement-path provenance from broader repository dirtiness. For A4 arithmetic/result provenance, the relevant snapshot set is the five measurement anchors (config/main/chunker/claude_cli/summarizer._build_chunk_prompt path), not every pipeline module."
+    - id: C4
+      description: "Git-frozen closeout ACK requires explicit pass/fail rules. G3 should accept either a measurement-time sha256 manifest OR a measurement-time freeze commit SHA pointer for the anchor set; G5 should compare before/after git status against a preregistered allowlist, not rely on informal visual inspection."
+    - id: C5
+      description: "Execute should start with a read-only scope-separation slice before any commit hygiene. Preferred order: B (dirty worktree boundary map) -> C (minimal hygiene branch + freeze commit plan) -> A (documented provenance supplementation if still needed)."
+  amendments:
+    - id: A1
+      origin: codex-turn-02
+      affects: [C1]
+      rationale: "Update the baseline counts to the live values: 15 modified and 12 untracked, not 14/11."
+    - id: A2
+      origin: codex-turn-02
+      affects: [C2]
+      rationale: "Prefer freeze commit plus sha256 manifest; treat annotated tag as optional."
+    - id: A3
+      origin: codex-turn-02
+      affects: [C4]
+      rationale: "Clarify G3 as OR rather than AND."
+    - id: A4
+      origin: codex-turn-02
+      affects: [C4, C5]
+      rationale: "Clarify G5 as before/after allowlist diff and order the execute plan as B -> C -> A."
+    - id: A5
+      origin: codex-turn-02
+      affects: [C3, C4]
+      rationale: "Keep community_matcher/subtitle_analyzer and summarizer parser/html helpers out of the measurement manifest unless the scope expands to full report-render provenance."
+    - id: A6
+      origin: codex-turn-02
+      affects: [C5]
+      rationale: "Acknowledge that option C is effectively the first provenance commit for A1-A4 plus DAD infrastructure, not just an A4-only freeze."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "Turn 1 C1 undercounted the live worktree by one modified path and one untracked path."
+      - "Turn 1 did not resolve whether G3 requires one proof source or both."
+      - "Turn 1 did not explicitly choose an execution order among A/B/C."
+    scope_creep:
+      - "Including every pipeline module in G3 would overshoot the actual A4 measurement path."
+    risk_followups:
+      - "Codex auth is still 401, but the likely Turn 3 execute slice is git/doc-only, so auth recovery is not a practical blocker."
+      - "The current branch name `codex/phase-a1-token-logging` is semantically stale relative to the worktree. Any freeze commit on this branch would weaken provenance."
+      - "The close-ack OBJECT is broader than `pipeline/ dirty + no git log for A4 artifacts`; it is a first-commit/provenance problem for the whole DAD scaffold."
+    amendments:
+      - id: A1
+        origin: codex-turn-02
+        affects: [C1]
+        rationale: "Update baseline counts to actual live values."
+      - id: A2
+        origin: codex-turn-02
+        affects: [C2]
+        rationale: "Prefer freeze commit + sha256 manifest; tag optional."
+      - id: A3
+        origin: codex-turn-02
+        affects: [C4]
+        rationale: "Clarify G3 as OR."
+      - id: A4
+        origin: codex-turn-02
+        affects: [C4, C5]
+        rationale: "Clarify G5 as allowlist diff and order B -> C -> A."
+      - id: A5
+        origin: codex-turn-02
+        affects: [C3, C4]
+        rationale: "Exclude community/subtitle modules and parser/html helpers from the initial measurement manifest."
+      - id: A6
+        origin: codex-turn-02
+        affects: [C5]
+        rationale: "Recognize the wider meta-hygiene scope of option C."
+  checkpoint_results:
+    C1:
+      status: FAIL-then-PASS
+      evidence: "Live baseline drift exists versus Turn 1. `git status --short` currently yields 15 modified and 12 untracked paths, not 14/11. `git diff --stat -- pipeline transcribe.py` still matches the claimed 12 files and 1043 insertions / 233 deletions. `git ls-files experiments/ Document/ tools/` is still empty, both A4 artifact git logs are still empty, `git log --oneline -5` still starts at `b62ada1`, and `git branch --show-current` is still `codex/phase-a1-token-logging`. Amendment A1 is required to make C1 live-accurate."
+    C2:
+      status: FAIL-then-PASS
+      evidence: "Turn 1 left (a)/(b)/(c) as open options. Codex accepts C2 only with A2: choose freeze commit plus sha256 manifest as the preferred combination, and demote annotated tag to optional after freeze."
+    C3:
+      status: PASS
+      evidence: "The five-file measurement anchor set is sufficient for A4 arithmetic/result provenance. `pipeline/main.py` imports `process_chunks`, `merge_results`, and `generate_reports` from summarizer, but A4 raw measurement flowed through `experiments/a4_measure.py`, `chunk_srt`, `_build_chunk_prompt`, and `call_claude`. `community_matcher.py`, `subtitle_analyzer.py`, `_parse_summary_sections`, and `_generate_html` are outside that measurement path."
+    C4:
+      status: FAIL-then-PASS
+      evidence: "G1/G2/G4 are directionally sound, but G3/G5 need clarification. Codex recommends G3 = (sha256 manifest OR measurement-time freeze commit SHA pointer) for the measurement anchor set, not AND. Codex also recommends G5 = before/after `git status --short` compared against an allowlist captured at execute start, with no unexpected staged files or path-class expansion."
+    C5:
+      status: FAIL-then-PASS
+      evidence: "Turn 1 offered A/B/C but did not prioritize them. Codex recommends B -> C -> A. First map and separate the dirty worktree boundary, then perform minimal hygiene on a dedicated branch, then add provenance supplementation only if the freeze commit still leaves ambiguity. Freeze commits should not land directly on `codex/phase-a1-token-logging`."
+  issues_found:
+    - "Turn 1 C1 baseline is numerically stale by one modified path and one untracked path."
+    - "The repository state shows a larger meta-hygiene gap than the original close-ack captured: DAD infrastructure and session artifacts are themselves untracked."
+    - "The current branch name and HEAD position are semantically inconsistent with the worktree content, so a freeze commit on this branch would weaken provenance."
+  fixes_applied:
+    - "변경 불필요, PASS — strict plan-only peer review only. No code, no git ops, no A4 session edits, and no artifact number changes."
+
+my_work:
+  task_model:
+    goal: "Peer-review the hygiene contract, correct live-baseline drift, and narrow the first execute slice without touching code or A4 artifacts."
+    non_goals:
+      - "Re-opening A4"
+      - "Changing raw.json or result MD numbers"
+      - "Any git mutation in Turn 2"
+  plan: |
+    Re-probe auth, re-check the live git baseline, verify the measurement-path import graph for
+    the two open questions, amend the contract where Turn 1 stayed too broad or numerically
+    stale, and hand off a Turn 3 execute slice that stays git/doc-only and keeps pipeline/*
+    untouched.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-02.yaml"
+    summary: |
+      Peer-plan review found concrete C1 drift (15 modified, 12 untracked) and clarified the
+      execute path: use B -> C -> A, treat G3 as OR, and keep the measurement manifest scoped to
+      the five A4 anchor files. The session stays plan-only and moves from proposed to amended.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"duration_ms":619,"duration_api_ms":0,"num_turns":1,"result":"Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid authentication credentials\"},\"request_id\":\"req_011Ca49aq6r3MZ9YsnE9pvUN\"}","stop_reason":"stop_sequence","session_id":"4f76a0e7-662b-4ea3-b802-da7bc18079bb","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"fast_mode_state":"off","uuid":"6031c38b-1a20-4b34-86b9-0c0cf5373401"}
+        stderr=
+      - "git status --short"
+      - "python count git status entries => {modified: 15, untracked: 12}"
+      - "git diff --stat -- pipeline transcribe.py"
+      - "git ls-files experiments/ Document/ tools/"
+      - "git log --oneline --decorate -- experiments/results/2026-04-15_phase-a4_raw.json"
+      - "git log --oneline --decorate -- experiments/results/2026-04-15_phase-a4_generalization.md"
+      - "git log --oneline -5"
+      - "git branch --show-current"
+      - "rg -n \"community_matcher|subtitle_analyzer|_parse_summary_sections|_generate_html|process_chunks|merge_results\" pipeline/main.py pipeline/summarizer.py pipeline/community_matcher.py pipeline/subtitle_analyzer.py"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/turn-02.yaml"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeout-hygiene/state.json"
+  verification: |
+    This turn remained strict plan-only. No git add/commit/reset/stash, no pipeline/transcribe
+    edits, no A4 session edits, and no result-number changes were performed. All conclusions come
+    from live file reads, git read-only commands, and validator re-runs.
+  open_risks:
+    - "Codex auth is still 401, but the planned Turn 3 execute slice is git/doc-only, so auth is not a hard blocker."
+    - "Because HEAD still predates A1 while the worktree contains A1-A4 + DAD scaffolding, any future freeze commit will need a carefully scoped branch strategy."
+    - "If the user wants a truly minimal A4-only ACK path, they may need to relax the meta-hygiene scope; otherwise option C expands to the first provenance commit for the entire DAD scaffold."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 3 execute should start with option B, not C. Build a read-only provenance boundary
+    document for the current worktree: enumerate which modified/untracked paths belong to
+    A4-closeout trust claims, which belong to broader DAD scaffolding, and which are unrelated.
+    Then use that boundary to draft the minimal hygiene branch/commit plan (option C) without
+    actually committing yet. Keep pipeline/* untouched.
+  context: |
+    Codex recommends B -> C -> A. Use a dedicated hygiene branch such as `codex/a4-closeout-freeze`
+    once git operations are allowed; do not commit on `codex/phase-a1-token-logging`. For G3,
+    treat `sha256 manifest OR measurement-time freeze commit SHA pointer` as sufficient. For G5,
+    compare before/after `git status --short` against an allowlist captured at execute start.
+    pipeline/community_matcher.py and pipeline/subtitle_analyzer.py are outside the A4 raw
+    measurement path and should not be in the initial G3 manifest unless the execute scope is
+    expanded to full report-render provenance.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""
