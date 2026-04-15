@@ -1,0 +1,41 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-15-a4-postmerge-cleanup",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Gate 3 executed the two safe cleanup mutations (remote freeze branch deletion on origin and local codex/local-dirty-preserved deletion) while preserving commit 1 0a8bc65 and commit 2 c04bfce as ancestors of origin/main tip 28ce302. Turn 2 peer verification accepted the close after correcting the dirty baseline record to 11 modified + 11 untracked with a 353/102 diff-stat.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "task_summary": "Gate 3 post-merge cleanup remains converged after Turn 2 peer verification. Remote freeze deletion and codex/local-dirty-preserved deletion stand; local main fast-forward and local codex/a4-closeout-freeze deletion remain deferred user-owned cleanup; the only Turn 2 correction was the exact dirty baseline: 11 modified + 11 untracked, 353 insertions / 102 deletions.",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Turn 1 bootstrap stands, and Turn 2 corrected the exact live baseline counts to 11 modified + 11 untracked with a 353/102 diff-stat.",
+    "C2": "Gate 2 provenance preserved on origin/main: commit 1 0a8bc65 and commit 2 c04bfce both ancestors; PR #6 state MERGED; merge commit 28ce302 tip confirmed.",
+    "C3": "Remote freeze branch codex/a4-closeout-freeze deleted via git push origin --delete and remains absent via git ls-remote.",
+    "C4": "codex/local-dirty-preserved deletion stands; local main fast-forward and local codex/a4-closeout-freeze deletion were permissibly deferred under the checkpoint wording because they are not safe unconditional mutations in the current worktree layout.",
+    "C5": "G-UNRELATED-DIRTY triage remains plan-only because sampled diffs show real in-flight work; validators PASS; both turn packets and summaries are written; session remains converged."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/turn-02.yaml"
+  ],
+  "decisions": [
+    "Opened session 2026-04-15-a4-postmerge-cleanup as a dedicated Gate 3 slice after the Gate 2 publish session converged.",
+    "Restricted Gate 3 execution to mutations that did not require a branch switch, so the G-UNRELATED-DIRTY working copy stayed byte-identical.",
+    "Deleted remote codex/a4-closeout-freeze because PR #6 was merged and commits 0a8bc65 and c04bfce are ancestors of origin/main.",
+    "Deleted local codex/local-dirty-preserved because its tip c6b0adc is already an ancestor of origin/main (merge-base --is-ancestor returned YES).",
+    "Deferred local main fast-forward after git fetch origin main:main failed due to a sister worktree C:/github/auto-caption-generator-main holding main checked out.",
+    "Deferred local codex/a4-closeout-freeze deletion because switching off it would cross 506411b's new Document/dialogue/state.json and PROJECT-RULES.md baselines with the dirty working copy still in place.",
+    "Turn 2 (codex) peer-verified that Gate 2 provenance still holds, accepted C4's PARTIAL-to-PASS normalization as consistent with the checkpoint wording, and corrected the dirty baseline record from 11+7 / 355-103 to 11+11 / 353-102."
+  ],
+  "meta_improvements": [
+    "Worktree layout is now a first-class planning input: Gate 3 discovered the sister worktree only at execution time. Future post-merge sessions should capture git worktree list in the pre-execution baseline.",
+    "The DAD session directories themselves are untracked on every branch, which makes them fragile under branch switches; a dedicated audit-trail commit policy is worth a future session.",
+    "Dirty-set cardinality should be recorded from the literal git status --short line count, not from a narrative subset, to avoid the 7-vs-11 untracked mismatch that Turn 2 had to correct.",
+    "A same-HEAD topic-branch switch is the safest future path for freeing the local freeze branch while preserving the dirty worktree unchanged."
+  ]
+}

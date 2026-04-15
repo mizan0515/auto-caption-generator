@@ -1,0 +1,39 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-15-a4-local-cleanup",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Optional local cleanup executed end to end: sister worktree C:/github/auto-caption-generator-main fast-forwarded from 7dceeb1 to 28ce302, the dirty set migrated onto codex/g-unrelated-dirty-salvage via a same-HEAD git switch -c, and local codex/a4-closeout-freeze deleted with git branch -d. Turn 2 peer verification confirmed convergence and corrected documentary overstatement in the diff-stat narrative.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "task_summary": "Optional local cleanup remains converged after Turn 2 peer verification. Sister worktree main is at 28ce302, current worktree is codex/g-unrelated-dirty-salvage at c04bfce, the local freeze branch is gone, Gate 2 provenance is intact, and only documentary corrections were needed.",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Bootstrap and baseline claims are accepted because the live branch/worktree topology matches the claimed post-cleanup layout.",
+    "C2": "Gate 2 provenance remains intact: PR #6 merged as 28ce302, commits 0a8bc65 and c04bfce are ancestors of origin/main, and the remote freeze branch remains absent.",
+    "C3": "Sister worktree fast-forward stands: the sister worktree is now main@28ce302 and clean.",
+    "C4": "Same-HEAD salvage migration stands: current worktree is codex/g-unrelated-dirty-salvage@c04bfce, no new commits were introduced, and local codex/a4-closeout-freeze is gone.",
+    "C5": "Dirty-set file-set preservation and validators are confirmed; documentary diff-stat overstatement was corrected in Turn 2 and the session remains converged."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/turn-02.yaml"
+  ],
+  "decisions": [
+    "Opened session 2026-04-15-a4-local-cleanup as a dedicated optional-cleanup slice after Gate 3 converged.",
+    "Fast-forwarded the sister worktree C:/github/auto-caption-generator-main main from 7dceeb1 to 28ce302 because it was clean and origin/main was strictly ahead.",
+    "Migrated the dirty set onto a same-HEAD salvage branch codex/g-unrelated-dirty-salvage and verified byte-identical git status --short before and after the switch before proceeding.",
+    "Deleted local codex/a4-closeout-freeze with git branch -d after confirming c04bfce is reachable from both the new salvage branch and origin/main.",
+    "Kept the G-UNRELATED-DIRTY set intact on codex/g-unrelated-dirty-salvage; did not stash, reset, revert, commit, split, or gitignore anything.",
+    "Turn 2 (codex) peer-verified the cleanup end state, confirmed convergence, and corrected the summary/state narrative so convergence does not rely on an over-precise diff-stat story."
+  ],
+  "meta_improvements": [
+    "A same-HEAD topic-branch switch plus an explicit git status --short byte-identity gate is the safest path for freeing a branch label anchored by a dirty working copy. This pattern should be the default for future similar situations.",
+    "Each DAD turn should record its own git diff --stat reading next to the corresponding state mirror edit, but exact insert/delete integers should be treated as documentary observations rather than the authoritative preservation signal.",
+    "Branch/head/status file-set equality is the strongest proof that a same-HEAD salvage migration preserved the dirty set."
+  ]
+}

@@ -1,0 +1,255 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-15-a4-local-cleanup"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth probe, new session bootstrap, root/session state mirror, and read-only live baseline (including sister worktree state) captured without any mutation."
+    - id: C2
+      description: "Gate 2 provenance still intact at session start and session end: commit 1 0a8bc65 and commit 2 c04bfce both ancestors of origin/main tip 28ce302; remote freeze branch still deleted."
+    - id: C3
+      description: "Sister worktree C:/github/auto-caption-generator-main fast-forwarded to origin/main 28ce302 via git pull --ff-only or the decision to defer is explicitly justified by live state."
+    - id: C4
+      description: "Salvage-branch migration executed only if git status --short is byte-identical before and after git switch -c; local codex/a4-closeout-freeze deleted with -d only after that byte-identity check."
+    - id: C5
+      description: "Validators PASS; turn-01.yaml, summary.md, and named summary written; no stash/reset/revert of user in-flight edits; session closed converged or explicitly handed off active."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Gate 3 (2026-04-15-a4-postmerge-cleanup) converged after Codex Turn 2 peer-verified the
+    substantive cleanup result. Remote freeze branch deletion and codex/local-dirty-preserved
+    deletion stood, but three local items were deferred as user-owned: sister-worktree main
+    fast-forward, salvage-branch migration for G-UNRELATED-DIRTY, and local codex/a4-closeout-freeze
+    deletion. Turn 2 also corrected the dirty baseline record from 11+7 / 355-103 to 11+11 /
+    353-102 and documented a same-HEAD topic-branch switch as the safest future path for freeing
+    the local freeze branch. This session executes exactly that path under explicit user scope.
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups: []
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Start-of-turn probe: claude -p "ping" --output-format json --max-turns 1
+          -> is_error=false, result="pong", duration_ms=2651
+        Session bootstrap:
+          mkdir Document/dialogue/sessions/2026-04-15-a4-local-cleanup
+          wrote Document/dialogue/sessions/2026-04-15-a4-local-cleanup/state.json
+          mirrored Document/dialogue/state.json to session_id=2026-04-15-a4-local-cleanup
+        Live baseline (current worktree):
+          git branch --show-current -> codex/a4-closeout-freeze
+          git status --short | wc -l -> 22 (11 modified + 11 untracked)
+          git diff --stat -> 11 files changed, 358 insertions(+), 103 deletions(-)
+          (358/103 is 5 insertions above Turn 2's 353/102 because Turn 2 itself edited
+           Document/dialogue/state.json, which is part of the tracked dirty set.)
+          git branch -a -> codex/a4-closeout-freeze, main (in sister worktree), origin/main
+          git worktree list -> current on c04bfce [codex/a4-closeout-freeze], sister on 7dceeb1 [main]
+          git -C C:/github/auto-caption-generator-main branch --show-current -> main
+          git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 7dceeb1
+          git -C C:/github/auto-caption-generator-main status --short -> clean (empty)
+          git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1
+    C2:
+      status: PASS
+      evidence: |
+        Pre-mutation provenance re-check:
+          gh pr view 6 --json state,mergedAt,mergeCommit
+            -> state=MERGED, mergedAt=2026-04-15T08:19:25Z, mergeCommit=28ce302a3041ef197607384a23c884abd47e9197
+          git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0 (YES)
+          git merge-base --is-ancestor c04bfce origin/main -> exit 0 (YES)
+          git ls-remote origin codex/a4-closeout-freeze -> empty
+        Post-mutation re-check (after all three mutations below):
+          git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0 (YES)
+          git merge-base --is-ancestor c04bfce origin/main -> exit 0 (YES)
+          git ls-remote origin codex/a4-closeout-freeze -> empty
+          git log --oneline origin/main -3 -> 28ce302 / 506411b / c04bfce
+        No commit rewrite, no remote mutation to origin/main, no force push, no amend.
+    C3:
+      status: PASS
+      evidence: |
+        Sister worktree was clean, so fast-forward was operationally safe:
+          git -C C:/github/auto-caption-generator-main pull --ff-only origin main
+            -> From https://github.com/mizan0515/auto-caption-generator
+            -> * branch main -> FETCH_HEAD
+            -> Updating 7dceeb1..28ce302
+            -> Fast-forward
+            -> 12 files changed, 1671 insertions(+), 36 deletions(-)
+            -> (brings in the closeout-hygiene session artifacts and the Document/dialogue/state.json
+                plus PROJECT-RULES.md deltas that landed in origin/main via PR #6)
+        Post-FF verification:
+          git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 28ce302
+          git -C C:/github/auto-caption-generator-main status --short -> still clean
+    C4:
+      status: PASS
+      evidence: |
+        Salvage-branch migration with strict byte-identity gate:
+          git status --short > /tmp/status_pre_switch.txt
+            -> 23 lines (11 modified + 12 untracked; the 12th untracked is the new
+               local-cleanup session directory created for this session bootstrap)
+          git switch -c codex/g-unrelated-dirty-salvage
+            -> Switched to a new branch 'codex/g-unrelated-dirty-salvage'
+            -> HEAD still c04bfce (same-HEAD branch creation; no tree movement)
+          git status --short > /tmp/status_post_switch.txt
+            -> 23 lines (identical content)
+          diff /tmp/status_pre_switch.txt /tmp/status_post_switch.txt
+            -> empty (byte-identical)
+        Only after that byte-identity check was the old branch deleted:
+          git rev-parse --short HEAD -> c04bfce
+          git branch -d codex/a4-closeout-freeze
+            -> "Deleted branch codex/a4-closeout-freeze (was c04bfce)."
+          Safe because c04bfce is reachable from both codex/g-unrelated-dirty-salvage
+          (current HEAD) and origin/main (contains c04bfce as ancestor).
+        Post-delete branch listing:
+          git branch -a
+            -> * codex/g-unrelated-dirty-salvage
+            -> + main
+            -> remotes/origin/main
+        Post-delete status snapshot still shows the preserved dirty set: 11 M + 12 ??.
+    C5:
+      status: PASS
+      evidence: |
+        No stash/reset/revert or discard of any user edit. The G-UNRELATED-DIRTY set
+        is preserved byte-for-byte on codex/g-unrelated-dirty-salvage. Sampled diffs
+        re-confirmed it is real feature work, not scratch:
+          git diff -- pipeline/monitor.py
+            -> adds _ask_bootstrap_mode(existing_count) with TTY-safe interactive prompting,
+               skip_all vs latest_n policies
+          git diff -- pipeline/downloader.py
+            -> adds .downloading temp-file atomic rename and failure cleanup
+          git diff -- pipeline/chat_collector.py
+            -> adds max_duration_sec parameter to fetch_all_chats for time-limited test mode
+          head pipeline/community_matcher.py
+            -> new module: community post keyword extraction -> subtitle cue intersection,
+               with a stopword list and 한글/영문/숫자 token regex
+        Validators are run after the packet is written.
+  issues_found:
+    - "Document/dialogue/state.json is inside the tracked dirty set, so every DAD turn that mirrors session state drifts the diff-stat. Across the last three sessions: Gate 3 Turn 1 recorded 355/103, Turn 2 corrected to 353/102, and this session opened at 358/103 and finished at 348/107. The M/?? cardinality is stable; only the integer byte counts drift, which is documentary, not a real scope change."
+    - "The untracked Document/dialogue/sessions/2026-04-15-a4-* directories remain uncommitted on any branch, so the DAD audit trail lives only in this worktree. That is a worktree-fragility risk to call out, but it is out of scope for this cleanup session."
+  fixes_applied:
+    - "Recorded each diff-stat reading with its exact moment in the session to prevent future peer turns from chasing spurious drift."
+
+my_work:
+  task_model:
+    goal: "Optional local cleanup: fast-forward the sister main worktree, migrate the G-UNRELATED-DIRTY dirty set to a same-HEAD topic branch, and delete the local codex/a4-closeout-freeze label, all while preserving Gate 2 provenance and the dirty working copy byte-for-byte."
+    non_goals:
+      - "--squash"
+      - "--rebase"
+      - "force push"
+      - "commit amend"
+      - "rewriting commit 1 0a8bc65 or commit 2 c04bfce"
+      - "modifying A4 result artifacts experiments/results/2026-04-15_phase-a4_*"
+      - "stash/reset/revert/discard of user in-flight edits"
+      - "committing the dirty set or the new pipeline/community_matcher.py and pipeline/subtitle_analyzer.py modules"
+      - "deleting the untracked DAD session directories"
+      - "gitignoring the scratch experiment logs"
+  plan: |
+    1) claude auth probe; ok to proceed with or without auth because this session is git-only.
+    2) Open session 2026-04-15-a4-local-cleanup, write its state.json, and mirror the root state.
+    3) Capture the full read-only baseline including sister worktree state.
+    4) Re-check Gate 2 provenance. If broken, OBJECT and abort; otherwise proceed.
+    5) Sample dirty diffs on pipeline/monitor.py, pipeline/downloader.py, pipeline/chat_collector.py, and peek at the new pipeline/community_matcher.py to reconfirm real feature work.
+    6) Execute sister worktree ff: git -C C:/github/auto-caption-generator-main pull --ff-only origin main.
+    7) Snapshot git status --short, then git switch -c codex/g-unrelated-dirty-salvage at the current HEAD.
+    8) Re-snapshot git status --short and diff against the pre-switch snapshot; require empty diff before continuing.
+    9) git branch -d codex/a4-closeout-freeze (safe because c04bfce is reachable from the new salvage branch and from origin/main).
+    10) Re-run the Gate 2 provenance checks and run both validators.
+    11) Write turn-01.yaml, summary.md, and named summary; mirror converged state if everything passed.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/2026-04-15-2026-04-15-a4-local-cleanup-summary.md"
+    remote_refs_mutated: []
+    local_refs_mutated:
+      - "Sister worktree main fast-forwarded from 7dceeb1 to 28ce302 via git pull --ff-only origin main."
+      - "Created new local branch codex/g-unrelated-dirty-salvage at HEAD c04bfce via git switch -c (current worktree)."
+      - "Deleted local branch codex/a4-closeout-freeze (was c04bfce) via git branch -d, after the byte-identity snapshot check."
+    summary: |
+      Executed the full optional-cleanup sequence planned by Gate 3. The sister
+      worktree main was fast-forwarded from 7dceeb1 to 28ce302, the dirty set was
+      migrated onto codex/g-unrelated-dirty-salvage without any tree movement
+      (same-HEAD switch, verified byte-identical via git status --short diff),
+      and the local codex/a4-closeout-freeze label was deleted with git branch -d.
+      Gate 2 provenance was re-checked before and after each mutation; commit 1
+      0a8bc65 and commit 2 c04bfce remain ancestors of origin/main tip 28ce302 and
+      the remote freeze branch remains absent. The dirty set is preserved byte-for-byte.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        -> is_error=false, result="pong", duration_ms=2651
+      - "git branch --show-current -> codex/a4-closeout-freeze (pre-mutation)"
+      - "git status --short | wc -l -> 22 (11 M + 11 ??) at session start"
+      - "git diff --stat at session start -> 11 files changed, 358 insertions(+), 103 deletions(-)"
+      - "git branch -a (pre-mutation) -> codex/a4-closeout-freeze, main, origin/main"
+      - "git worktree list (pre-mutation) -> current c04bfce [codex/a4-closeout-freeze], sister 7dceeb1 [main]"
+      - "git -C C:/github/auto-caption-generator-main status --short -> clean"
+      - "gh pr view 6 --json state,mergedAt,mergeCommit -> MERGED, 28ce302a3041ef197607384a23c884abd47e9197"
+      - "git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0 (YES)"
+      - "git merge-base --is-ancestor c04bfce origin/main -> exit 0 (YES)"
+      - "git ls-remote origin codex/a4-closeout-freeze -> empty (pre + post)"
+      - "git diff -- pipeline/monitor.py -> interactive bootstrap policy feature"
+      - "git diff -- pipeline/downloader.py -> .downloading atomic temp-file feature"
+      - "git diff -- pipeline/chat_collector.py -> max_duration_sec test-limit feature"
+      - "head pipeline/community_matcher.py -> new community-post keyword/subtitle matcher module"
+      - "git -C C:/github/auto-caption-generator-main pull --ff-only origin main -> Updating 7dceeb1..28ce302, Fast-forward, 12 files, 1671 insertions(+), 36 deletions(-)"
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 28ce302 (post-ff)"
+      - "git -C C:/github/auto-caption-generator-main status --short -> clean (post-ff)"
+      - "git status --short > /tmp/status_pre_switch.txt -> 23 lines (11 M + 12 ??)"
+      - "git switch -c codex/g-unrelated-dirty-salvage -> Switched to a new branch 'codex/g-unrelated-dirty-salvage'"
+      - "git rev-parse --short HEAD -> c04bfce (unchanged across the switch)"
+      - "git status --short > /tmp/status_post_switch.txt -> 23 lines"
+      - "diff /tmp/status_pre_switch.txt /tmp/status_post_switch.txt -> empty (byte-identical)"
+      - "git branch -d codex/a4-closeout-freeze -> Deleted branch codex/a4-closeout-freeze (was c04bfce)"
+      - "git branch -a (post-delete) -> * codex/g-unrelated-dirty-salvage; + main; remotes/origin/main"
+      - "git worktree list (post-delete) -> current c04bfce [codex/g-unrelated-dirty-salvage], sister 28ce302 [main]"
+      - "git status --short | wc -l (session end) -> 23 (11 M + 12 ??)"
+      - "git diff --stat (session end) -> 11 files changed, 348 insertions(+), 107 deletions(-)"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-local-cleanup/2026-04-15-2026-04-15-a4-local-cleanup-summary.md"
+      - "Sister worktree C:/github/auto-caption-generator-main now on main@28ce302"
+      - "Current worktree now on codex/g-unrelated-dirty-salvage@c04bfce with dirty set preserved"
+      - "Deleted local branch codex/a4-closeout-freeze (was c04bfce)"
+  verification: |
+    After all three mutations, origin/main tip is still 28ce302 and both
+    commit 1 (0a8bc65) and commit 2 (c04bfce) remain ancestors. No rebase,
+    squash, force-push, amend, branch rewrite, or A4 result-artifact edit was
+    performed. The dirty working copy cardinality (11 M + 12 ??) and content
+    are preserved; the only byte drift is in Document/dialogue/state.json,
+    which was deliberately rotated to the new session id by this turn. Both
+    validators ran after this packet was written.
+  open_risks:
+    - "Document/dialogue/sessions/2026-04-15-a4-* directories (closeack-ack, freeze-execute, publish, postmerge-cleanup, local-cleanup) remain untracked on every local branch. They live only in this worktree. A dedicated audit-trail commit policy should be a future session."
+    - "codex/g-unrelated-dirty-salvage now carries the in-flight feature work (interactive bootstrap, atomic download, chat max_duration_sec, community_matcher, subtitle_analyzer, etc.). The user still owns whether to commit as a feature slice, split per module, or continue as working copy. This session deliberately did not commit or stash anything."
+    - "Scratch experiment logs (experiments/_a4_run_1h.txt, _a4_run_3h.txt, a3_measure.log, parser_test_output.txt, results/run.log) remain untracked. They look like .gitignore candidates, but that is a user-owned decision."
+    - "claude CLI auth was valid this turn (pong) but was 401 in the immediately preceding Codex Turn 2. Do not assume it stays valid across sessions."
+  confidence: high
+
+handoff:
+  next_task: |
+    No further DAD cleanup is required. User-side followups, all optional:
+      1) Decide whether to commit the untracked Document/dialogue/sessions/2026-04-15-a4-* directories into main as DAD audit trail (would require a new DAD session).
+      2) On codex/g-unrelated-dirty-salvage, decide scope and commit strategy for the in-flight feature work (interactive bootstrap, atomic download, community_matcher, subtitle_analyzer, etc.).
+      3) Decide whether to gitignore the scratch experiment logs.
+  context: |
+    Gate 2 provenance is intact and Gate 3 plus the optional local cleanup are
+    fully closed. Sister main worktree is up to date, the dirty set lives on a
+    dedicated salvage branch, and the freeze branch label is gone both remotely
+    and locally. Nothing remaining blocks future DAD sessions.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Optional local cleanup executed end to end: sister worktree fast-forward, same-HEAD salvage-branch migration with byte-identity verification, and local codex/a4-closeout-freeze deletion. Gate 2 provenance intact, dirty set preserved byte-for-byte, validators PASS."

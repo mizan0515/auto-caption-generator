@@ -1,0 +1,41 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-15-a4-freeze-execute",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Gate 0 local freeze execution verified; commit-1 SHA is ready for separate Gate 1 ACK re-adjudication session",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "claude-code",
+  "task_summary": "Gate 0 freeze execution for A4 closeout completed on codex/a4-closeout-freeze. Commit 1 (0a8bc65) froze the 5 A4 measurement anchors; commit 2 (c04bfce) packaged the converged closeout-hygiene session plus root dialogue state (11 files, +2 over the older 9-file plan text). Turn 2 peer verification reproduced the G5 24->17 delta independently and accepted the contract. Gate 1 ACK re-adjudication and Gate 2 publish are both deferred to separate sessions; Gate 2 must use `gh pr merge --merge` (NEVER --squash) to preserve the G3-cited commit-1 SHA.",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Gate 0 live baseline at Turn 1 start matched 24 entries (16 M + 8 ??) with HEAD c6b0adc; re-verified at Turn 2 via commit graph and diff-tree output.",
+    "C2": "codex/a4-closeout-freeze was cut from c6b0adc, not main; parent graph c04bfce -> 0a8bc65 -> c6b0adc confirmed.",
+    "C3": "Commit 1 diff-tree = exactly 5 anchor files; commit 2 diff-tree = exactly 11 files (1 root state + 10 hygiene session files). +2 delta vs old 9-file plan is documented.",
+    "C4": "G5 math 24 -> 17 reproduced independently: 7 removed (5 anchors + root state + collapsed hygiene dir) / 0 added. Commit 1 SHA 0a8bc65 is the G3 freeze-commit provenance path for A4.",
+    "C5": "No push / PR / merge / rebase / force-push / branch-delete / manifest. Gate 1 ACK re-adjudication moves to a new session. Gate 2 publish remains blocked until Gate 1 ACK."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-15-a4-freeze-execute/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-15-a4-freeze-execute/turn-02.yaml"
+  ],
+  "decisions": [
+    "Opened session 2026-04-15-a4-freeze-execute for Gate 0 local freeze execution only.",
+    "Cut codex/a4-closeout-freeze from canonical artifact-freeze SHA c6b0adc and landed commit 1 (0a8bc651e1b14617cc53f985f4658b1cf8799179) for the 5 A4 measurement anchors.",
+    "Landed commit 2 (c04bfcefce8e65b04fa78b662788ba1da9d6afc1) for root dialogue state plus the 10 closeout-hygiene session files, explicitly acknowledging the live 11-file commit size (+2 over the older 9-file plan text).",
+    "Verified G5 before creating the new freeze-execute session files: status moved from 24 entries to 17 entries exactly, removing 5 anchors plus root state and the collapsed hygiene-session directory, with no added entries.",
+    "Turn 2 (claude-code) peer-verified Gate 0 independently via git diff-tree output, confirmed commit 1 / commit 2 allowlist exactness, re-derived G5 24->17 delta, flagged commit 1 subject BOM as cosmetic-only, and accepted the contract.",
+    "Closed session 2026-04-15-a4-freeze-execute as converged. Gate 1 ACK re-adjudication and Gate 2 publish are handed off to separate future sessions."
+  ],
+  "meta_improvements": [
+    "To preserve the Gate 0 before/after status math, the new freeze-execute session files were intentionally created only after commit 2 and the G5 verification were complete.",
+    "Publish actions remain blocked until a separate Gate 1 ACK session verifies the new local commit SHAs against G1-G5.",
+    "Commit 1 subject line begins with a UTF-8 BOM (EF BB BF). The SHA itself is valid and cited by G3; do NOT amend the commit (would change SHA and break the G3 citation). A Gate 2 publish session may note the cosmetic artifact in the PR body.",
+    "Gate 2 publish MUST use `gh pr merge --merge`, never `--squash`. Squash rewrites commit 1 into a new SHA, which would invalidate the G3 freeze-commit provenance path.",
+    "Auth status continues to oscillate (401 at Turn 1 start, 200 at Turn 2 start). Every future DAD session in this project must re-probe auth at turn start rather than assume continuity."
+  ]
+}

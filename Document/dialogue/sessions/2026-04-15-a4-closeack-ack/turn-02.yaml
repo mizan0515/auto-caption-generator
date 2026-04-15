@@ -1,0 +1,214 @@
+type: turn
+from: claude-code
+turn: 2
+session_id: "2026-04-15-a4-closeack-ack"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Rubric citation re-verified by reading close-ack.md at c6b0adc directly. Section anchors confirmed at lines 1 (State consistency), 13 (Summary consistency), 28 (Artifact frozen check), 44 (Validator results), 67 (Close verdict). codex Turn 1 mapping G1-G5 to these five sections is literal and defensible."
+    - id: C2
+      description: "Per-gate judgment re-derived independently from read-only git commands. G1/G2/G3/G4 all PASS against the live state; G5 Close verdict flips from the original OBJECT to ACK because the G3 gap the original OBJECT cited is now cured by commit 1 + commit 2."
+    - id: C3
+      description: "No repair path required for ACK itself. One scope-narrowing observation is documented as an open_risk (see below) but does not block ACK."
+    - id: C4
+      description: "Commit 1 subject BOM (EF BB BF) independently confirmed by `git log --format=%s -n 1 0a8bc65 | od -c` showing leading bytes `357 273 277`. Cosmetic only. Per prompt and hygiene-session convention, amending commit 1 is forbidden because the SHA is the G3 citation."
+    - id: C5
+      description: "Gate 2 publish is now unblocked as a precondition, but must be performed in a separate publish session. No push / PR / merge / rebase / force-push / branch-delete / manifest was performed in this turn."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: accepted
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "G3 scope was narrowed by the converged hygiene session from the literal close-ack.md text (which spoke broadly of `pipeline/` and `transcribe.py` working-tree cleanliness) to the 5 measurement anchors only. This narrowing is legitimate because the hygiene session was opened specifically to re-adjudicate the OBJECT, and the narrowing was peer-verified there. A future reviewer reading only close-ack.md at c6b0adc (without hygiene-session context) could mistakenly think G3 still FAILs. Any future publish-session PR body should link the hygiene session's provenance-boundary.md and freeze-plan.md to record the narrowing."
+      - "Commit 1 subject begins with UTF-8 BOM (bytes EF BB BF before 'Freeze'). Do NOT amend — amending rewrites the SHA and breaks the G3 citation. Gate 2 publish session's PR body is the right place to call this out so remote reviewers are not surprised."
+      - "Auth continues to oscillate: codex Turn 1 recorded 401, claude-code Turn 2 start returned 200 (pong). Gate 2 publish must not assume stable auth."
+      - "Gate 2 publish MUST use `gh pr merge --merge`, never `--squash`. Squash rewrites commit 1 into a new SHA and invalidates the G3 citation path."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Read `git show c6b0adc:Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/close-ack.md`
+        directly and confirmed codex Turn 1's section anchors:
+          line 1:  "## State consistency"          -> mapped to G1 (original verdict PASS)
+          line 13: "## Summary consistency"        -> mapped to G2 (original verdict PASS)
+          line 28: "## Artifact frozen check"      -> mapped to G3 (original verdict FAIL)
+          line 44: "## Validator results"          -> mapped to G4 (original verdict PASS)
+          line 67: "## Close verdict"              -> mapped to G5 (original verdict OBJECT)
+        The five-section → G1-G5 mapping is the only natural numbering for this document. No
+        alternative numbering is available in the frozen artifact. codex Turn 1's mapping stands.
+    C2:
+      status: PASS
+      evidence: |
+        Independent re-adjudication vs the live state:
+
+        G1 (State consistency):  PASS
+          Frozen A4 session state.json and packets at c6b0adc are untouched by commit 1/2.
+          `git diff-tree --no-commit-id --name-only -r c04bfce` does not include any
+          `Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/*` entry.
+          The A4 closed_reason, current_turn=7, max_turns=7, last_agent=claude-code survive.
+
+        G2 (Summary consistency): PASS
+          `git diff --name-only c6b0adc -- experiments/results/2026-04-15_phase-a4_raw.json
+          experiments/results/2026-04-15_phase-a4_generalization.md`
+          returns empty. A4 result artifacts are byte-identical to c6b0adc. The close-decision
+          (per_cell_multiplicative, margins W1 3.37x / W2 2.80x / W3 2.80x, additive 7,311-7,817
+          median 7,620, CLI cache 20,668) remains intact.
+
+        G3 (Artifact frozen check): PASS (was FAIL at c6b0adc time)
+          The original FAIL had two drivers:
+            (a) "git log -- path returns no history" for result artifacts — stale because
+                close-ack.md was authored BEFORE c6b0adc committed those files. Live check:
+                `git log --oneline -- experiments/results/2026-04-15_phase-a4_*.md` now returns
+                c6b0adc. Driver (a) is resolved by the existence of c6b0adc itself.
+            (b) "git diff --stat -- pipeline transcribe.py is non-empty" — the measurement-anchor
+                subset of pipeline/ is now frozen at commit 1 SHA 0a8bc65 (5 files: config,
+                main, chunker, claude_cli, summarizer). The hygiene session explicitly narrowed
+                G3 scope to these 5 anchors (see risk_followups). Non-anchor pipeline files
+                are classified G-UNRELATED-DIRTY and are outside A4 G3.
+          Sha256 manifest path is not required (OR rule per freeze-plan.md §4).
+
+        G4 (Validator results): PASS
+          Document/Validator-DadPacket pass was already recorded for the converged
+          freeze-execute session. Turn 2 will re-run both validators before handoff.
+
+        G5 (Close verdict): ACK
+          The original OBJECT was driven solely by G3 FAIL. With G3 now PASS via the scope-
+          narrowed, peer-verified freeze path, the aggregate verdict flips to ACK.
+
+        Supporting diff-tree evidence:
+          commit 1 (0a8bc65) diff-tree = exactly {chunker, claude_cli, config, main, summarizer}.py
+          commit 2 (c04bfce) diff-tree = exactly 1 root state + 10 hygiene session files = 11.
+          No extra files leaked into either commit.
+    C3:
+      status: PASS
+      evidence: |
+        No repair path required for ACK. The G3 scope narrowing is an existing,
+        peer-verified hygiene-session decision, not a new defect. The commit-1
+        subject BOM is explicitly cosmetic-only and amend is forbidden.
+    C4:
+      status: PASS
+      evidence: |
+        Commit 1 BOM re-confirmed independently:
+          $ git log --format=%s -n 1 0a8bc65 | od -c | head -1
+          0000000 357 273 277   F   r   e   e   z   e       p   i   p   e   l   i
+        Leading bytes 357 273 277 == UTF-8 BOM. Cosmetic surface artifact only; the
+        commit tree itself is byte-valid and the SHA is the G3 citation path, so
+        amend is prohibited. Logged as a risk_followup for Gate 2 PR body transparency.
+    C5:
+      status: PASS
+      evidence: |
+        Gate 2 publish is now eligible in principle because the verdict is ACK. Turn 2
+        performed zero git write-path commands: no add, commit, reset, stash, restore,
+        rebase, merge, cherry-pick, revert, push, branch-delete, tag, notes, gh pr
+        create, or gh pr merge. All work was read-only (git show / git diff / git
+        diff-tree / git log / git status) plus DAD packet/state/summary writes to
+        the 2026-04-15-a4-closeack-ack session directory and root state mirror.
+  issues_found:
+    - "G3 scope narrowing from the literal close-ack.md text is session-local (operational rubric, not an edit to close-ack.md). Documented in risk_followups; not a blocker for ACK."
+    - "Commit 1 subject BOM present; cosmetic only; amend forbidden."
+  fixes_applied:
+    - "변경 불필요, PASS — codex Turn 1 ACK verdict holds under independent re-derivation. Turn 2 is judgment-only peer verification; no repair action was taken because none is required."
+
+my_work:
+  task_model:
+    goal: "Peer-verify codex Turn 1 Gate 1 ACK verdict using read-only git evidence and independent reading of the frozen close-ack.md at c6b0adc. Close this session as converged if ACK stands; hand off Gate 2 publish to a separate session."
+    non_goals:
+      - "Any git write-path command (add, commit, reset, push, merge, rebase, tag, notes, branch-delete)"
+      - "Any edit to pipeline/*, transcribe.py, experiments/results/*, frozen A4 session, or closeout-hygiene session"
+      - "Any push / PR / merge / --squash / --merge"
+      - "Any sha256 manifest production"
+      - "Any amend of commit 1 or commit 2"
+  plan: |
+    1) Re-probe auth + branch + HEAD + status.
+    2) Re-read close-ack.md at c6b0adc with line numbers; confirm codex Turn 1 mapping.
+    3) Re-derive G1-G5 adjudication independently from read-only git commands.
+    4) Log BOM + auth-oscillation + G3 scope-narrowing as open risks (non-blocking).
+    5) Write turn-02.yaml with accepted contract and ACK verdict upheld.
+    6) Flip session + root state to converged; add Gate 2 handoff with explicit --merge language.
+    7) Create summary.md and named closed-session summary to satisfy DAD validator.
+    8) Run both validators; fix BOM/ref issues if any; require both PASS before done.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/2026-04-15-2026-04-15-a4-closeack-ack-summary.md"
+    summary: |
+      Gate 1 ACK verdict upheld under independent peer verification. The frozen G3 FAIL at
+      c6b0adc is cured by commit 1 (5 anchors) + commit 2 (hygiene session + root state).
+      G1/G2/G4 remain PASS; G3 flips to PASS under the hygiene session's scope narrowing;
+      G5 Close verdict flips from OBJECT to ACK. Session closes as converged. Gate 2 publish
+      is now eligible but must occur in a separate session.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=0
+        stdout={"type":"result","subtype":"success","is_error":false,"result":"pong", ...}
+      - "git branch --show-current -> codex/a4-closeout-freeze"
+      - "git log --oneline -5 -> c04bfce / 0a8bc65 / c6b0adc / b62ada1 / f4eae41"
+      - "git status --short -> 11 M + 8 ?? (19 entries); includes new a4-closeack-ack session dir, re-modified root state, and prior freeze-execute session dir — all post-Gate-0 workspace evolution, not Gate 0 violations"
+      - "git show c6b0adc:Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/close-ack.md -> 78 lines; section anchors at 1/13/28/44/67 confirm G1-G5 mapping"
+      - "git diff --name-only c6b0adc -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md -> empty"
+      - "git diff-tree --no-commit-id --name-only -r 0a8bc65 -> exactly 5 anchors"
+      - "git diff-tree --no-commit-id --name-only -r c04bfce -> exactly 11 files (1 root state + 10 hygiene session)"
+      - "git log --format=%s -n 1 0a8bc65 | od -c | head -1 -> leading bytes 357 273 277 (UTF-8 BOM) before 'Freeze'"
+      - "git ls-tree -r c6b0adc --name-only Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/ -> 11 files (close-ack.md, summary.md, named summary, state.json, turn-01..turn-07)"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/turn-02.yaml (new)"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/summary.md (new)"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/2026-04-15-2026-04-15-a4-closeack-ack-summary.md (new)"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/state.json (converged)"
+      - "Document/dialogue/state.json (mirror)"
+  verification: |
+    Turn 2 is read-only peer verification. Every gate verdict was re-derived from read-only git
+    evidence and a direct read of close-ack.md at c6b0adc. No git write-path command was issued.
+    No pipeline/*, transcribe.py, experiments/results/*, frozen A4 session, or closeout-hygiene
+    session file was edited. Writes were confined to this new Gate 1 session's packet/state/summary
+    files and the root state mirror.
+  open_risks:
+    - "G3 narrowing is session-local operational rubric, not an edit to close-ack.md at c6b0adc. Link hygiene session's provenance-boundary.md + freeze-plan.md from the Gate 2 PR body to record the narrowing for any future reviewer."
+    - "Commit 1 subject BOM (EF BB BF). Amending is forbidden. Mention in Gate 2 PR body for transparency."
+    - "Auth oscillation (401 at Turn 1, 200 at Turn 2) continues to be a per-turn concern."
+    - "Gate 2 publish must use `gh pr merge --merge`. `--squash` would rewrite commit 1 SHA and destroy the G3 citation path."
+  confidence: high
+
+handoff:
+  next_task: |
+    Open a NEW dedicated publish session (suggested id: 2026-04-15-a4-publish) to execute
+    Gate 2 publish of the freeze branch. Specifically:
+      1) `git push -u origin codex/a4-closeout-freeze`
+      2) `gh pr create --base main --head codex/a4-closeout-freeze` with a PR body that:
+         - cites commit 1 SHA 0a8bc651e1b14617cc53f985f4658b1cf8799179 as the A4 G3 freeze-commit
+         - notes the cosmetic BOM in commit 1 subject and explains why amend is forbidden
+         - links the hygiene session's provenance-boundary.md + freeze-plan.md to document G3 scope narrowing
+         - links this Gate 1 ACK session's summary.md
+      3) `gh pr merge <PR#> --merge` after review. NEVER --squash (would destroy commit 1 SHA
+         and break G3 citation). --rebase is also forbidden for the same reason.
+    Gate 3 post-merge cleanup (remote freeze-branch deletion, codex/local-dirty-preserved rebase,
+    G-UNRELATED-DIRTY triage) remains a separate later session.
+  context: |
+    Gate 1 judgment complete. Verdict: ACK upheld under independent peer verification.
+    Section-level rubric G1/G2/G3/G4 all PASS; G5 Close verdict flips from OBJECT to ACK.
+    Commit 1 SHA 0a8bc651e1b14617cc53f985f4658b1cf8799179 is the authoritative A4 G3 freeze-
+    commit path. Commit 2 SHA c04bfcefce8e65b04fa78b662788ba1da9d6afc1 is the companion
+    hygiene/state provenance commit. A4 result artifacts at experiments/results/2026-04-15_
+    phase-a4_*.{md,json} remain byte-identical to c6b0adc. Gate 2 publish is now eligible
+    but must occur in a separate session. Commit 1 subject carries a cosmetic UTF-8 BOM;
+    amending is forbidden because the SHA is the G3 citation. `gh pr merge --squash` and
+    `--rebase` are permanently banned for this branch.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Gate 1 ACK verified; Gate 2 publish session is now eligible"

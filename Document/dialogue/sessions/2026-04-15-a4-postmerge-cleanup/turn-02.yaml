@@ -1,0 +1,201 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-15-a4-postmerge-cleanup"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth/bootstrap/baseline for Gate 3 is defensible only if the session bootstrap is intact and the recorded live baseline is materially accurate."
+    - id: C2
+      description: "Gate 2 provenance remains fixed: PR #6 stays merged as 28ce302, and commit 1 0a8bc65 plus commit 2 c04bfce remain ancestors of origin/main."
+    - id: C3
+      description: "Remote freeze branch deletion stands only if origin no longer advertises codex/a4-closeout-freeze."
+    - id: C4
+      description: "Local branch reconcile is a PASS only if the checkpoint wording genuinely permits deferring local main fast-forward and local freeze-branch deletion under the observed worktree constraints."
+    - id: C5
+      description: "Plan-only G-UNRELATED-DIRTY triage remains acceptable only if the dirty set is real in-flight work, validators still pass, and the close packet can be corrected without reopening Gate 3 execution."
+  amendments:
+    - "Correct the live dirty baseline from 11 modified + 7 untracked and 355 insertions / 103 deletions to 11 modified + 11 untracked and 353 insertions / 102 deletions."
+    - "Record that C4's PARTIAL to PASS normalization is acceptable because the checkpoint text itself allows deferral when safe and only requires the local freeze branch to be handled based on remote state."
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps:
+      - "Turn 1 miscounted the live dirty baseline. The actual worktree has 22 status lines: 11 modified and 11 untracked, not 11 modified and 7 untracked."
+      - "Turn 1 overreported the diff-stat magnitude. Live git diff --stat is 353 insertions and 102 deletions, not 355 and 103."
+    scope_creep: []
+    risk_followups:
+      - "The sister worktree at C:/github/auto-caption-generator-main is clean, so a future git pull --ff-only origin main there is operationally safe, but this peer-verify turn keeps it plan-only because it mutates a user-owned sibling worktree."
+      - "A safer future cleanup path is to create a same-HEAD topic branch for the dirty set before deleting the local freeze branch."
+    amendments:
+      - "Accept Claude's no-mutation choice on the sister worktree, but correct the dirty-set accounting and explicitly justify why C4 still merits PASS."
+  checkpoint_results:
+    C1:
+      status: FAIL-then-PASS
+      evidence: |
+        The bootstrap itself is intact: the session exists, both state mirrors exist, and
+        Turn 1 captured the expected Gate 3 baseline structure. However, the baseline counts
+        recorded in Turn 1 were not exact:
+          claude -p "ping" --output-format json --max-turns 1
+            -> 401 authentication_error in Turn 2
+          git status --short
+            -> 22 lines total = 11 modified + 11 untracked
+          git diff --stat
+            -> 11 files changed, 353 insertions(+), 102 deletions(-)
+        Turn 2 corrects those counts in the packet and summaries. With that correction, the
+        bootstrap/baseline checkpoint is acceptable.
+    C2:
+      status: PASS
+      evidence: |
+        Gate 2 provenance still holds exactly:
+          gh pr view 6 --json state,mergedAt,mergeCommit
+            -> state=MERGED, mergeCommit=28ce302a3041ef197607384a23c884abd47e9197
+          git fetch origin -> ok
+          git log --oneline origin/main -5
+            -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1
+          git merge-base --is-ancestor 0a8bc65 origin/main -> YES
+          git merge-base --is-ancestor c04bfce origin/main -> YES
+        No later turn has disturbed the Gate 2 commit graph.
+    C3:
+      status: PASS
+      evidence: |
+        Remote freeze deletion stands:
+          git ls-remote origin codex/a4-closeout-freeze
+            -> empty
+        This matches Turn 1's claim that the remote ref was deleted and stayed deleted.
+    C4:
+      status: PASS
+      evidence: |
+        Live branch/worktree reality:
+          git branch -a
+            -> local codex/a4-closeout-freeze, local main (checked out elsewhere), remote origin/main
+            -> codex/local-dirty-preserved is gone
+          git worktree list
+            -> C:/github/auto-caption-generator       c04bfce [codex/a4-closeout-freeze]
+            -> C:/github/auto-caption-generator-main  7dceeb1 [main]
+          git -C C:/github/auto-caption-generator-main status --short
+            -> clean
+        C4 in Turn 1 was normalized from PARTIAL to PASS. That is justified, not lenient,
+        because the checkpoint text says:
+          - local main fast-forwarded to origin/main when safe
+          - local freeze branch handled based on remote state
+        Turn 1 did handle both branches based on the live state:
+          - local main was deferred because another worktree owns the ref
+          - local freeze deletion was deferred to avoid crossing a dirty baseline
+        The checkpoint does not require both deferred operations to be executed unconditionally.
+    C5:
+      status: PASS
+      evidence: |
+        The plan-only triage judgment remains sound because the sampled diffs are real feature
+        work, not scratch noise:
+          git diff -- pipeline/monitor.py
+            -> adds interactive bootstrap policy logic and TTY-safe prompting
+          git diff -- pipeline/downloader.py
+            -> adds .downloading temp-file handling and failure cleanup path
+        Validators still pass after Turn 2 corrections:
+          powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs
+          powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions
+        Closing the session remains appropriate because the remaining items are user-owned
+        worktree operations, not unresolved Gate 3 provenance risks.
+  issues_found:
+    - "Turn 1 undercounted untracked paths: the live worktree has 11 untracked entries, not 7."
+    - "Turn 1 overstated the diff-stat by 2 insertions and 1 deletion relative to the current live baseline."
+    - "claude auth is unstable again in Turn 2 (401), which confirms the session summary's warning not to assume continuity."
+  fixes_applied:
+    - "Corrected the dirty baseline counts and diff-stat in Turn 2 packet, state, and summary artifacts."
+    - "Added an explicit peer-verification rationale that C4's PARTIAL to PASS normalization is substantively valid under the checkpoint wording."
+    - "Recorded a plan-only branch-migration sequence for moving the dirty set off codex/a4-closeout-freeze before deleting that local branch."
+
+my_work:
+  task_model:
+    goal: "Peer-verify Claude Turn 1 Gate 3 cleanup, re-check Gate 2 provenance live, and decide whether the session can remain converged."
+    non_goals:
+      - "--squash"
+      - "--rebase"
+      - "force push"
+      - "commit amend"
+      - "rewriting commit 1 or commit 2"
+      - "stash/reset/revert of the dirty set"
+      - "mutating the sister worktree C:/github/auto-caption-generator-main in this peer-verify turn"
+  plan: |
+    1) Re-run the live provenance checks and compare them against Turn 1's claims.
+    2) Recount the dirty set exactly and sample representative diffs to distinguish real work from scratch.
+    3) Decide whether any further mutation is justified; if not, keep the remaining work deferred and explain why.
+    4) Write Turn 2 packet and correct the summary/state record without reopening the session.
+    5) Run both validators and close only if the corrected artifacts validate.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/2026-04-15-2026-04-15-a4-postmerge-cleanup-summary.md"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/turn-02.yaml"
+    summary: |
+      Performed a live peer verification of Claude Turn 1. Gate 2 provenance, remote freeze
+      deletion, and local codex/local-dirty-preserved deletion all still stand. The only
+      material correction is documentary: the dirty baseline is 11 modified + 11 untracked
+      with a 353 / 102 diff-stat, not 11 + 7 and 355 / 103. Sampled diffs confirm the dirty
+      set is substantive in-flight work, so no extra mutation was taken in this peer-verify turn.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        -> 401 authentication_error (recorded only; no further claude action needed)
+      - "gh pr view 6 --json state,mergedAt,mergeCommit -> MERGED, 2026-04-15T08:19:25Z, 28ce302a3041ef197607384a23c884abd47e9197"
+      - "git fetch origin -> ok"
+      - "git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1"
+      - "git merge-base --is-ancestor 0a8bc65 origin/main -> YES"
+      - "git merge-base --is-ancestor c04bfce origin/main -> YES"
+      - "git ls-remote origin codex/a4-closeout-freeze -> empty"
+      - "git branch -a -> local codex/a4-closeout-freeze; local main in sister worktree; remote origin/main only"
+      - "git worktree list -> current worktree on c04bfce; sister worktree C:/github/auto-caption-generator-main on 7dceeb1 [main]"
+      - "git status --short -> 11 modified + 11 untracked = 22 lines"
+      - "git diff --stat -> 11 files changed, 353 insertions(+), 102 deletions(-)"
+      - "git diff -- pipeline/monitor.py | Select-Object -First 80 -> interactive bootstrap feature work"
+      - "git diff -- pipeline/downloader.py | Select-Object -First 80 -> temp-file and failure-handling feature work"
+      - "git -C C:/github/auto-caption-generator-main branch --show-current -> main"
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 7dceeb1"
+      - "git -C C:/github/auto-caption-generator-main status --short -> clean"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/2026-04-15-2026-04-15-a4-postmerge-cleanup-summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-postmerge-cleanup/state.json"
+      - "Document/dialogue/state.json"
+  verification: |
+    The session remains converged after peer verification. No additional git mutation was
+    needed to uphold Claude Turn 1's substantive cleanup result. The only corrections were
+    documentary: exact dirty-set counts and diff-stat. Gate 2 provenance remains intact and
+    all DAD validators pass after Turn 2 artifacts were written.
+  open_risks:
+    - "Local main in C:/github/auto-caption-generator-main is still at 7dceeb1. A deliberate git pull --ff-only origin main there remains optional future cleanup, not a Gate 3 blocker."
+    - "Local codex/a4-closeout-freeze is still checked out in the current worktree. Deleting it should be preceded by moving the dirty set onto a new topic branch at the same HEAD."
+    - "Untracked DAD session directories remain local-only and still need a separate policy decision if they are to become committed audit trail."
+  confidence: high
+
+handoff:
+  next_task: |
+    Optional future user-approved cleanup, not required for this converged session:
+      1) In C:/github/auto-caption-generator-main run git pull --ff-only origin main.
+      2) In the current worktree run the following only after explicit user approval:
+         - git switch -c codex/g-unrelated-dirty-salvage
+         - verify git status --short is unchanged
+         - git branch -d codex/a4-closeout-freeze
+      3) Then triage whether the salvaged dirty set should be committed, stashed, or split.
+  context: |
+    Turn 2 peer verification accepted Claude Turn 1's substantive Gate 3 result. The remote
+    freeze branch is gone, codex/local-dirty-preserved is gone, origin/main still anchors
+    28ce302 with 0a8bc65 and c04bfce as ancestors, and the remaining work is purely local
+    worktree hygiene. The only correction added in Turn 2 is the exact dirty baseline:
+    11 modified + 11 untracked, 353 insertions / 102 deletions.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Gate 3 close stands after peer verification; only documentary baseline corrections were needed, and remaining work is optional user-owned local cleanup."

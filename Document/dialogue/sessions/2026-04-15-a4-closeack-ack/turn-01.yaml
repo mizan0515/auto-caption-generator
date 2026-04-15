@@ -1,0 +1,176 @@
+type: turn
+from: codex
+turn: 1
+session_id: "2026-04-15-a4-closeack-ack"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Locate the frozen A4 close-ack rubric in c6b0adc and cite it verbatim with file:line evidence. Because the frozen artifact does not literally number G1-G5, this session maps the five close-ack sections in order: G1=State consistency, G2=Summary consistency, G3=Artifact frozen check, G4=Validator results, G5=Close verdict."
+    - id: C2
+      description: "Judge the two local freeze commits against that rubric with read-only git evidence only: commit 1 `0a8bc651e1b14617cc53f985f4658b1cf8799179`, commit 2 `c04bfcefce8e65b04fa78b662788ba1da9d6afc1`, branch `codex/a4-closeout-freeze`."
+    - id: C3
+      description: "If any gate is FAIL or PARTIAL, record the repair path without mutating git. If all gates pass, record `none needed` for repair."
+    - id: C4
+      description: "Log cosmetic-only findings separately. The commit-1 subject BOM is explicitly non-blocking and must not trigger amend/rewrite because G3 cites the existing SHA."
+    - id: C5
+      description: "State the Gate 2 publish precondition explicitly: ACK unblocks a later publish session; OBJECT blocks it. This session itself must not push, create a PR, or merge."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    The previous `2026-04-15-a4-freeze-execute` session is already converged and frozen as Gate 0.
+    The local branch under review is `codex/a4-closeout-freeze` with two new local commits on top of
+    `c6b0adc`. This session therefore performs a pure read-only judgment against the frozen A4
+    close-ack criteria and the landed Gate 0 evidence, without continuing Gate 0 or starting Gate 2.
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: |
+        Authoritative rubric source is the frozen A4 close-ack artifact:
+        `Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/close-ack.md` at `c6b0adc`.
+        Verbatim section anchors:
+        - G1 (State consistency): lines 1-11
+          - line 1: `## State consistency`
+          - lines 5-11 define the state packet/closed_reason/current_turn/max_turns/last_agent consistency check.
+        - G2 (Summary consistency): lines 13-26
+          - line 13: `## Summary consistency`
+          - lines 17-26 define decision/margins/additive/cache/blocker consistency checks.
+        - G3 (Artifact frozen check): lines 28-42
+          - line 28: `## Artifact frozen check`
+          - lines 32-40 define the prior git-history/runtime-file freeze failure.
+        - G4 (Validator results): lines 44-51
+          - line 44: `## Validator results`
+          - lines 48-51 define the required validator pass condition.
+        - G5 (Close verdict): lines 67-78
+          - line 67: `## Close verdict`
+          - lines 71-78 define the ACK/OBJECT judgment logic.
+        Supporting frozen session anchors also remain in:
+        - `summary.md` lines 9-15 (`per_cell_multiplicative`, margins, runtime unchanged)
+        - `state.json` lines 4-12 (`session_status=converged`, `current_turn=7`, `max_turns=7`, `last_agent=claude-code`, `closed_reason=...`).
+    C2:
+      status: PASS
+      evidence: |
+        Read-only git evidence:
+        - auth probe: 401 (`claude -p "ping" --output-format json --max-turns 1`)
+        - branch: `codex/a4-closeout-freeze`
+        - HEAD chain: `c04bfce -> 0a8bc65 -> c6b0adc -> b62ada1 -> f4eae41`
+        - `git diff --name-only c6b0adc -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md` returns empty, so the A4 result artifacts are still identical to the frozen `c6b0adc` versions (G2 supporting evidence).
+        - `git diff-tree --no-commit-id --name-only -r 0a8bc651e1b14617cc53f985f4658b1cf8799179` returns exactly:
+          `pipeline/chunker.py`, `pipeline/claude_cli.py`, `pipeline/config.py`, `pipeline/main.py`, `pipeline/summarizer.py`
+        - `git diff-tree --no-commit-id --name-only -r c04bfcefce8e65b04fa78b662788ba1da9d6afc1` returns exactly the 11 planned files:
+          root `Document/dialogue/state.json` plus the 10 closeout-hygiene session files, with no freeze-execute files present.
+        - Commit 1 and commit 2 therefore satisfy the scope and provenance corrections required to overturn the original frozen-check OBJECT.
+    C3:
+      status: PASS
+      evidence: |
+        No repair path is needed. The previously failing frozen-check condition in `close-ack.md`
+        lines 32-40 is now cleared by the new local commits:
+        - result artifacts are frozen at `c6b0adc`
+        - measurement anchors are frozen at commit 1 SHA `0a8bc651e1b14617cc53f985f4658b1cf8799179`
+        - hygiene/session provenance is frozen at commit 2 SHA `c04bfcefce8e65b04fa78b662788ba1da9d6afc1`
+        - Gate 0 G5 math was already peer-verified in the converged freeze-execute session.
+    C4:
+      status: PASS
+      evidence: |
+        Cosmetic-only findings:
+        - Auth oscillation remains (current probe 401), but Gate 1 uses read-only git commands only and does not depend on live Claude execution.
+        - Commit 1 subject BOM was explicitly flagged as cosmetic-only in the previous session. Re-probing with `git log --format=%s -n 1 0a8bc65 | Format-Hex` does not reproduce a blocking byte-level defect in this shell path, and in any case the prompt forbids treating it as a failure because amending the commit would destroy the G3 citation SHA.
+    C5:
+      status: PASS
+      evidence: |
+        Gate 2 publish is now unblocked in principle because this session's verdict is ACK.
+        However, this session does not execute Gate 2. Push / PR / merge remain deferred to a
+        separate dedicated publish session after peer verification.
+  issues_found: []
+  fixes_applied:
+    - "변경 불필요, PASS — this Gate 1 turn is judgment-only. No repair path is required because the local freeze commits clear the frozen close-ack failure conditions."
+
+my_work:
+  task_model:
+    goal: "Re-adjudicate the frozen A4 close-ack rubric against the new local freeze commits and issue a Gate 1 verdict of ACK or OBJECT without mutating git."
+    non_goals:
+      - "Any git write-path command"
+      - "Any edit to pipeline/*, transcribe.py, experiments/results/*, the frozen A4 session, or the closeout-hygiene session"
+      - "Any push / PR / merge / manifest production"
+    judgment: "ACK"
+  plan: |
+    1) Re-probe auth, branch, HEAD chain, and current status.
+    2) Read the frozen A4 close-ack artifact at c6b0adc with line numbers and map its five
+       section-level checks to Gates G1-G5.
+    3) Re-derive Gate 0 commit scope and artifact immutability from read-only git diffs.
+    4) Decide whether the original frozen-check OBJECT has now been cured by commit 1 + commit 2.
+    5) Write the new Gate 1 session packet/state, run validators, and hand off only peer verification.
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/turn-01.yaml"
+    summary: |
+      Gate 1 judgment concludes ACK. The frozen close-ack OBJECT in c6b0adc was driven by
+      missing git-frozen provenance for the A4 artifacts and measurement anchors. Those gaps
+      are now closed by the local branch `codex/a4-closeout-freeze`: commit 1 freezes the
+      5 measurement anchors, commit 2 freezes the closeout-hygiene session + root dialogue
+      state, and the A4 result artifacts themselves remain byte-identical to c6b0adc.
+      Gate 2 publish is therefore unblocked, but still deferred to a separate session.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        rc=1
+        stdout={"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401 ... request_id=req_011Ca4PavYepNLeYPxjf3RRz", "...":"..."}
+        stderr=
+      - "git branch --show-current -> codex/a4-closeout-freeze"
+      - "git log --oneline -5 -> c04bfce / 0a8bc65 / c6b0adc / b62ada1 / f4eae41"
+      - "git status --short -> 11 modified + 8 untracked entries on the current working tree (new Gate 1 session files not yet created at probe time)"
+      - "git ls-tree -r --name-only c6b0adc -- Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan -> confirms summary.md, named summary, close-ack.md, state.json, turn-01..turn-07"
+      - "git show c6b0adc:Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/close-ack.md | findstr /n \".*\" -> rubric lines 1-78"
+      - "git show c6b0adc:Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/summary.md | findstr /n \".*\" -> close decision and runtime unchanged lines 9-15"
+      - "git show c6b0adc:Document/dialogue/sessions/2026-04-15-phase-a4-generalization-plan/state.json -> converged session metadata"
+      - "git diff --name-only c6b0adc -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md -> empty"
+      - "git diff-tree --no-commit-id --name-only -r 0a8bc651e1b14617cc53f985f4658b1cf8799179 -> exact 5-anchor list"
+      - "git diff-tree --no-commit-id --name-only -r c04bfcefce8e65b04fa78b662788ba1da9d6afc1 -> exact 11-file hygiene/state list"
+      - "git show --stat --oneline 0a8bc651e1b14617cc53f985f4658b1cf8799179 -> 5 files"
+      - "git show --stat --oneline c04bfcefce8e65b04fa78b662788ba1da9d6afc1 -> 11 files"
+      - "git log --format=%s -n 1 0a8bc651e1b14617cc53f985f4658b1cf8799179 | Format-Hex -> no blocking byte-level issue reproduced; BOM remains cosmetic-only per prior session contract"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/turn-01.yaml"
+      - "Document/dialogue/state.json"
+  verification: |
+    This turn used read-only git evidence only. No commit, push, PR, merge, manifest, or file
+    mutation was performed outside this new DAD session's own packet/state files. The verdict is
+    based on the frozen close-ack artifact at c6b0adc plus the already-landed local freeze commits.
+  open_risks:
+    - "The local freeze branch is still unpublished. Gate 2 must push it before any remote peer can inspect the SHAs."
+    - "Auth is currently 401 again. Gate 2 publish should not assume stable Claude auth, though it does not require live model measurement."
+  confidence: high
+
+handoff:
+  next_task: |
+    Turn 2 should peer-verify this ACK verdict only. Re-read the cited close-ack.md line ranges
+    at c6b0adc, re-run the read-only commit-scope checks for `0a8bc65` and `c04bfce`, confirm
+    the A4 result artifact diffs against `c6b0adc` are empty, and decide whether the ACK stands.
+    If the ACK is upheld, close this session and hand off to a NEW publish session
+    `2026-04-15-a4-publish` that runs:
+      - `git push -u origin codex/a4-closeout-freeze`
+      - `gh pr create --base main --head codex/a4-closeout-freeze`
+      - `gh pr merge <PR#> --merge`
+    Never use `--squash`; it would destroy the G3-cited commit-1 SHA.
+  context: |
+    Gate 0 is already converged and peer-verified. This session's codex verdict is ACK because
+    the frozen close-ack OBJECT at c6b0adc was specifically about missing git-frozen provenance,
+    and that gap is now cured by the local branch `codex/a4-closeout-freeze`: commit 1 freezes
+    the 5 measurement anchors, commit 2 freezes the closeout-hygiene session/state package, and
+    the A4 result artifacts themselves remain unchanged from c6b0adc. Gate 2 publish is therefore
+    unblocked in principle, but must occur in a separate later session after Turn 2 peer-verifies
+    this ACK.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""

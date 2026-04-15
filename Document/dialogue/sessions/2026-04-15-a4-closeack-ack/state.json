@@ -1,0 +1,40 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-15-a4-closeack-ack",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Gate 1 ACK verified; Gate 2 publish session is now eligible",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "claude-code",
+  "task_summary": "Gate 1 close-ack re-adjudication against the frozen A4 close-ack rubric at c6b0adc and the new local freeze commits on codex/a4-closeout-freeze. Codex Turn 1 issued ACK after independent read-only git evidence; claude-code Turn 2 re-derived G1-G5 and upheld the ACK verdict. G5 Close verdict flips from the original OBJECT (at c6b0adc) to ACK because the G3 Artifact-frozen FAIL is now cured by commit 1 (5 measurement anchors) and commit 2 (hygiene session + root dialogue state). Gate 2 publish is eligible but deferred to a separate session; Gate 2 must use gh pr merge --merge (never --squash, never --rebase) to preserve the G3-cited commit-1 SHA.",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Rubric citation re-verified by reading close-ack.md at c6b0adc directly. G1-G5 mapping to sections at lines 1/13/28/44/67 confirmed.",
+    "C2": "G1/G2/G3/G4 re-derived independently: all PASS on live state. G5 Close verdict flips to ACK because the G3 gap that originally drove OBJECT is now cured.",
+    "C3": "No repair path needed for ACK. G3 scope narrowing is a peer-verified hygiene-session decision; logged as open risk, not a blocker.",
+    "C4": "Commit 1 subject BOM (EF BB BF) independently reconfirmed via od -c. Cosmetic only; amend forbidden because SHA is the G3 citation.",
+    "C5": "Gate 2 publish is now eligible but was NOT executed in this turn. No push / PR / merge / rebase / force-push / branch-delete / manifest performed."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-15-a4-closeack-ack/turn-02.yaml"
+  ],
+  "decisions": [
+    "Opened session 2026-04-15-a4-closeack-ack to issue a read-only ACK/OBJECT judgment against the local freeze branch codex/a4-closeout-freeze.",
+    "Gate 1 is judgment-only. Gate 0 local commits are inputs under review; Gate 2 publish remains prohibited until this session issues ACK.",
+    "Turn 1 (codex) issued ACK with verbatim rubric citations from close-ack.md at c6b0adc and independent read-only git evidence.",
+    "Turn 2 (claude-code) re-derived G1-G5 independently and upheld the ACK verdict. G3 scope narrowing to the 5 measurement anchors is peer-accepted as a hygiene-session-level operational decision and logged as an open risk for the future Gate 2 PR body.",
+    "Closed session 2026-04-15-a4-closeack-ack as converged with contract_status=accepted. Gate 2 publish is eligible and moves to a new dedicated session."
+  ],
+  "meta_improvements": [
+    "This session deliberately separates frozen-artifact judgment from freeze execution and publish, preserving SHA stability for the G3 citation path.",
+    "The frozen close-ack.md text talks about pipeline/ cleanliness broadly; the hygiene session narrowed G3 to the 5 measurement anchors. This narrowing is operational (not an edit to close-ack.md) and should be recorded in the Gate 2 PR body so future reviewers see the full context without needing to replay the hygiene session.",
+    "Commit 1 subject line begins with a UTF-8 BOM (EF BB BF). Amending the commit would break the G3 citation. The BOM should be called out in the Gate 2 PR body instead.",
+    "Auth status continues to oscillate (401 at Turn 1, 200 at Turn 2). Future sessions must re-probe at turn start rather than assume continuity.",
+    "Gate 2 publish MUST use `gh pr merge --merge`. --squash and --rebase are both forbidden because they rewrite the commit graph and would destroy the G3-cited commit-1 SHA."
+  ]
+}

@@ -1,0 +1,179 @@
+﻿type: turn
+from: codex
+turn: 2
+session_id: "2026-04-15-a4-audit-trail-policy"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth probe, live provenance checks, session-directory inventory, both worktrees, and dirty-set preservation re-verified without mutation."
+    - id: C2
+      description: "Gate 2 provenance still intact: PR #6 merged at 28ce302, commit 1 0a8bc65 and commit 2 c04bfce remain ancestors of origin/main, and the remote freeze branch stays absent."
+    - id: C3
+      description: "policy.md remains sound: options are fairly compared, repository precedent from commit 2 c04bfce is cited, the six-path staging allowlist is exact, the forbidden-list is exact, and execute-session risk controls remain strict."
+    - id: C4
+      description: "turn-01.yaml handoff and on-disk artifacts stay consistent with the policy-only decision, with no hidden git mutation and no drift into the dirty feature worktree."
+    - id: C5
+      description: "Turn 2 packet, mirrored state, and summaries record the peer-verification corrections; validators PASS; session remains converged after documentary fixes."
+  amendments:
+    - "Turn 1 baseline counts were corrected in Turn 2: Document/dialogue/sessions currently contains 11 directories total, and git status --short currently emits 24 lines because the policy session directory itself is also untracked."
+
+peer_review:
+  task_model_review:
+    status: amended
+    summary: |
+      The policy decision itself is sound and remains appropriately plan-only.
+      Claude grounded the decision in actual repository precedent: commit 2
+      c04bfce already committed five peer DAD session directories, so choosing
+      commit-to-main for the six A4 directories is a continuation of existing
+      practice rather than a preference call. The sister worktree remains the
+      correct execution surface because it is clean and on main@28ce302, while
+      the live worktree still holds unrelated feature edits on
+      codex/g-unrelated-dirty-salvage. The substantive defect was documentary,
+      not policy-level: Turn 1 undercounted both the session-directory total and
+      the current git status line count by omitting the new policy session from
+      those totals.
+  checkpoint_results:
+    C1:
+      status: FAIL-then-FIXED
+      evidence: |
+        Auth probe:
+          claude -p "ping" --output-format json --max-turns 1
+          -> is_error=true, result="Error: Claude AI process exited with code 1
+             authentication error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+             duration_ms=640
+        Live baseline re-check:
+          git branch --show-current -> codex/g-unrelated-dirty-salvage
+          git rev-parse --short HEAD -> c04bfce
+          git worktree list -> current c04bfce [codex/g-unrelated-dirty-salvage],
+                               sister 28ce302 [main]
+          git -C C:/github/auto-caption-generator-main status --short -> clean
+          git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 28ce302
+          Get-ChildItem Document/dialogue/sessions | Select-Object -ExpandProperty Name
+            -> 11 directories total, not 10
+          git status --short | Measure-Object -Line -> 24, not 23
+        Turn 2 fixes the count mismatch in the session summary and named summary.
+    C2:
+      status: PASS
+      evidence: |
+        gh pr view 6 --json state,mergedAt,mergeCommit
+          -> state=MERGED, mergedAt=2026-04-15T08:19:25Z,
+             mergeCommit=28ce302a3041ef197607384a23c884abd47e9197
+        git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0
+        git merge-base --is-ancestor c04bfce origin/main -> exit 0
+        git ls-remote origin codex/a4-closeout-freeze -> empty
+        git log --oneline origin/main -5
+          -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1
+    C3:
+      status: PASS
+      evidence: |
+        policy.md still presents three options with fair pros/cons, cites commit 2
+        c04bfce as repository precedent, defines an exact six-path allowlist under
+        Document/dialogue/sessions/2026-04-15-a4-*, excludes root
+        Document/dialogue/state.json plus pipeline/*, experiments/*, .gitignore,
+        README.md, and prompts/*, and requires sister-worktree execution with no
+        squash, no rebase, no force push, and no amend.
+    C4:
+      status: PASS
+      evidence: |
+        turn-01.yaml uses only allowed checkpoint statuses. files_modified /
+        files_created match the on-disk session artifacts. handoff.next_task keeps
+        the execute session as a separate follow-up and preserves the same seven-step
+        plan, allowlist, forbidden-list, and no-mutation-in-Turn-1 claim. No
+        contradiction was found between turn-01.yaml and policy.md.
+    C5:
+      status: FAIL-then-FIXED
+      evidence: |
+        Documentary errors corrected in Turn 2:
+          - "10 dirs" -> "11 dirs total"
+          - "23 status lines" -> "24 status lines"
+        Validators rerun after Turn 2 packet/state/summary updates and exited 0.
+  issues_found:
+    - "Turn 1 C1/evidence and summaries undercounted the live session-directory inventory. Get-ChildItem Document/dialogue/sessions currently returns 11 directories, not 10."
+    - "Turn 1 C1/evidence and summaries undercounted git status --short. The current baseline is 24 lines total, not 23, because the audit-trail-policy session directory itself is also untracked."
+    - "Turn 1 auth probe succeeded only for that turn. Codex Turn 2 re-probe returned 401, so auth health must be treated as non-durable and rechecked per session."
+  fixes_applied:
+    - "Appended a Codex Turn 2 peer-verification section to summary.md correcting the 11-directory and 24-line baseline counts."
+    - "Appended the same corrections to the named summary and updated its turn count to 2."
+    - "Updated the mirrored state.json files to reflect Codex Turn 2 peer verification while keeping the session converged."
+
+my_work:
+  task_model:
+    goal: "Peer-verify the policy-only Turn 1 packet and durable policy artifact for 2026-04-15-a4-audit-trail-policy, correct any documentary defects, and keep the session converged only if the policy remains sound."
+    non_goals:
+      - "opening a new session"
+      - "staging, committing, or executing the audit-trail plan"
+      - "touching G-UNRELATED-DIRTY on codex/g-unrelated-dirty-salvage"
+      - "mutating the sister worktree"
+      - "rewriting commit 1 0a8bc65 or commit 2 c04bfce"
+  changes:
+    files_modified:
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/state.json"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/2026-04-15-2026-04-15-a4-audit-trail-policy-summary.md"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-02.yaml"
+    remote_refs_mutated: []
+    local_refs_mutated: []
+    summary: |
+      Read-heavy peer verification only. Re-checked Gate 2 provenance, session
+      inventory, both worktrees, the dirty-set preservation signal, policy.md,
+      and turn-01.yaml. The policy decision remains sound. Only documentary count
+      errors were fixed in the session summaries and mirrored state.
+  self_iterations: 1
+  evidence:
+    commands:
+      - |
+        claude -p "ping" --output-format json --max-turns 1
+        -> is_error=true, result="Error: Claude AI process exited with code 1 authentication error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}", duration_ms=640
+      - "git fetch origin -> success"
+      - "gh pr view 6 --json state,mergedAt,mergeCommit -> MERGED, 2026-04-15T08:19:25Z, 28ce302a3041ef197607384a23c884abd47e9197"
+      - "git merge-base --is-ancestor 0a8bc65 origin/main -> exit 0"
+      - "git merge-base --is-ancestor c04bfce origin/main -> exit 0"
+      - "git ls-remote origin codex/a4-closeout-freeze -> empty"
+      - "git log --oneline origin/main -5 -> 28ce302 / 506411b / c04bfce / 0a8bc65 / 7dceeb1"
+      - "git ls-tree -r --name-only origin/main -- Document/dialogue/sessions/ -> 5 tracked peer session directories"
+      - "Get-ChildItem Document/dialogue/sessions | Select-Object -ExpandProperty Name -> 11 directories total"
+      - "git status --short Document/dialogue/sessions/ -> 6 untracked directories (5 A4 execution-history dirs + this policy dir)"
+      - "git branch --show-current -> codex/g-unrelated-dirty-salvage"
+      - "git rev-parse --short HEAD -> c04bfce"
+      - "git worktree list -> current c04bfce [codex/g-unrelated-dirty-salvage], sister 28ce302 [main]"
+      - "git -C C:/github/auto-caption-generator-main status --short -> clean"
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> 28ce302"
+      - "git status --short | Measure-Object -Line -> 24"
+      - "git rev-parse codex/g-unrelated-dirty-salvage -> c04bfcefce8e65b04fa78b662788ba1da9d6afc1"
+      - "git log --oneline codex/g-unrelated-dirty-salvage -3 -> c04bfce / 0a8bc65 / c6b0adc"
+      - "git cherry origin/main codex/g-unrelated-dirty-salvage -> empty"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> exit 0"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> exit 0"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/policy.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/summary.md"
+      - "Document/dialogue/sessions/2026-04-15-a4-audit-trail-policy/2026-04-15-2026-04-15-a4-audit-trail-policy-summary.md"
+  verification: |
+    The policy remains sound and safely separated from the dirty feature work.
+    Repository precedent, allowlist scope, forbidden-list scope, and execute-session
+    risk controls all hold up under live re-check. No git mutation occurred in this
+    turn. The only fixes were documentary corrections to baseline counts.
+  open_risks:
+    - "Execute session 2026-04-15-a4-audit-trail-execute must still re-check that the sister worktree is clean and on main@28ce302 or later before staging."
+    - "If additional Turn 2+ packets are added to any of the six session directories before the execute session runs, the execute session must decide and document the snapshot cutoff explicitly."
+  confidence: high
+
+handoff:
+  next_task: |
+    No new policy session is required. When ready to execute, open
+    2026-04-15-a4-audit-trail-execute from the clean sister worktree and follow
+    the allowlist/forbidden-list plan already recorded in policy.md and turn-01.yaml.
+  context: |
+    Codex Turn 2 re-verified the policy and corrected documentary count errors
+    only. The session remains converged. The live worktree still carries unrelated
+    feature edits and must not be used for the audit-trail commit.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Policy remains sound after live Codex re-verification. Only documentary baseline counts required correction; provenance, worktree separation, allowlist scope, and validators all passed."
