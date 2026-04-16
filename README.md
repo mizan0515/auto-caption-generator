@@ -316,6 +316,25 @@ Get-Content output/logs/pipeline.log -Wait -Tail 50
 
 ---
 
+## DAD 운영 원칙
+
+이 저장소는 Codex/Claude Code 협업용 DAD(Dual-Agent Dialogue) 문서를 포함하지만,
+운영 원칙은 **문서 관리보다 제품 진전 우선**입니다.
+
+- DAD는 측정, 버그 수정, smoke, 설정 판단처럼 실제 사용성에 직결되는 작업에 우선 사용합니다.
+- 기본 단위는 **한 세션 = 실제 산출 1개**입니다.
+- 다음은 지양합니다:
+  - peer-verify only 세션
+  - wording correction only 세션
+  - closure seal only 세션
+  - state/summary 동기화가 본체인 세션
+- 문서 정합성 수정은 가능하면 현재 작업 턴 안에서 같이 처리합니다.
+- 별도 peer-verify는 remote-visible mutation, runtime/config decision, high-risk measurement처럼 다시 읽는 비용이 정당화되는 경우에만 사용합니다.
+
+즉, DAD는 계속 사용할 수 있지만, **DaD 관리 자체가 본체가 되면 비효율**입니다.
+
+---
+
 ## 프로젝트 구조
 
 ```

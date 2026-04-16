@@ -62,6 +62,14 @@ Git 규칙:
 
 시스템 문서 drift 발견 시 같은 턴에서 닫거나 다음 작업 첫 항목으로 명시한다.
 
+추가 운영 원칙:
+
+- DAD는 실제 제품 산출을 만드는 데 우선 사용한다. 측정, 수정, smoke, config 판단이 본체여야 한다.
+- **한 세션 = 실제 산출 1개**를 기본값으로 둔다.
+- peer-verify only, wording-fix only, closure-seal only 턴은 기본적으로 피한다.
+- documentary drift는 가능하면 현재 턴에서 같이 닫고, 메타 정리만을 위해 새 세션을 열지 않는다.
+- 별도 peer-verify는 remote-visible mutation, runtime/config decision, high-risk measurement 같은 경우에만 정당화된다.
+
 ## Claude Code Handoff Rules
 
 모든 Claude Code 프롬프트는 다음을 포함해야 한다:
