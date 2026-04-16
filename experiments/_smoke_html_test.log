@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "C:\github\auto-caption-generator-main\experiments\test_html_render.py", line 12, in <module>
+    with open(MD_PATH, "r", encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: "C:\\github\\auto-caption-generator-main\\output\\12702452_20260412_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. \u0669(●'\u25bf'●)\u06f6.md"

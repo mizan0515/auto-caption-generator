@@ -1,0 +1,99 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-auto-publish-hook-implement"
+timestamp: "2026-04-16T23:00:00+09:00"
+
+scope: |
+  자동 퍼블리시 훅의 runtime wiring 구현.
+  VOD 처리 성공 후 publish site rebuild 가 자동 실행되고,
+  partial output 에서는 publish 가 차단되며,
+  multi-streamer metadata identity 가 유지된다.
+
+contract:
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e, merge-base OK"
+    C2: "Hook insertion -- process_vod() 의 두 성공 경로에서 _try_auto_publish 호출, 에러 경로에서는 미호출"
+    C3: "Safety gates -- missing output 시 publish 차단, incomplete triple 거부, autorebuild=false 시 스킵"
+    C4: "Multi-streamer preserve -- two-streamer synthetic 에서 streamer identity 보존된 채 rebuild"
+    C5: "Backward compat + validators -- 기존 output rebuild OK, settings_ui import OK, DAD/Doc validators PASS"
+
+peer_review:
+  verdict: "N/A (Turn 1)"
+  project_analysis: |
+    이전 두 세션(web-publish-mvp, multi-streamer-runtime-implement)이 publish view layer 와
+    runtime multi-streamer support 를 완성했다. 그러나 VOD 처리 후 site rebuild 는 여전히
+    수동(python -m publish.hook)이었다. 이번 세션은 그 마지막 gap 을 닫아
+    "처리 성공 -> 자동 퍼블리시" 를 runtime 에 연결한다.
+
+my_work:
+  summary: |
+    1. pipeline/config.py: publish_autorebuild (default True), publish_site_dir 추가.
+    2. publish/hook.py: auto_publish_after_vod() 진입점 + _verify_output_files() safety gate.
+       rebuild_site_safe() 는 output 전체 검증 후 build_site() 호출. 이중 try/except.
+    3. pipeline/main.py: _try_auto_publish() helper + process_vod() 두 성공 경로에 삽입.
+       에러 경로에는 미삽입 (AST 검증). state 에 publish_status 기록.
+    4. docs: auto-publish-hook-plan.md 갱신, backlog P4 상태 갱신, README 자동 퍼블리시 항목 추가.
+
+  evidence:
+    commands:
+      - "python -c 'import py_compile; ...' -- syntax check on config/main/hook"
+      - "Test 1: auto_publish_after_vod success (1 VOD, site rebuilt)"
+      - "Test 2: autorebuild disabled -> None"
+      - "Test 3: missing output files -> None (no partial publish)"
+      - "Test 4: empty output dir rejected"
+      - "Test 5: incomplete triple (md missing) rejected"
+      - "Test 6: existing real output rebuild OK (1 VOD, 1 streamer)"
+      - "Test 7: multi-streamer synthetic (2 VODs, 2 streamers, identity preserved)"
+      - "AST verification: _try_auto_publish NOT in except handler"
+      - "powershell -File tools/Validate-DadPacket.ps1 -- PASS"
+      - "powershell -File tools/Validate-Documents.ps1 -- PASS"
+
+  changes:
+    - file: "pipeline/config.py"
+      action: "modified"
+      detail: "Added publish_autorebuild (default True) and publish_site_dir to DEFAULT_CONFIG."
+
+    - file: "publish/hook.py"
+      action: "modified"
+      detail: "Added auto_publish_after_vod(), _verify_output_files(). Enhanced rebuild_site_safe() with output verification."
+
+    - file: "pipeline/main.py"
+      action: "modified"
+      detail: "Added _try_auto_publish(). Inserted into both process_vod() success paths."
+
+    - file: "docs/auto-publish-hook-plan.md"
+      action: "modified"
+      detail: "Updated from plan to implementation status."
+
+    - file: "docs/multi-streamer-web-publish-backlog.md"
+      action: "modified"
+      detail: "P4 status -> hook 구현 완료."
+
+    - file: "README.md"
+      action: "modified"
+      detail: "Added auto-publish section."
+
+  open_risks:
+    - "실제 Cloudflare Pages 배포 미실행 -- site/ 가 로컬 빌드만 확인됨."
+    - "daemon 장기 운영에서 매 VOD 마다 full rebuild 가 빈번할 수 있음 -- 증분 빌드 미구현."
+    - "GUI settings_ui 에 publish_autorebuild 항목 미노출 -- config JSON 직접 편집 필요."
+    - "wrangler CLI 자동 업로드 미구현 -- 사용자가 수동으로 site/ 를 업로드해야 함."
+
+  decisions:
+    - "publish_autorebuild 기본값을 True 로 설정 -- 사용자가 명시적으로 원하는 동작이므로."
+    - "process_vod 의 두 성공 경로 모두에 hook 삽입 -- 빈 SRT 케이스도 최소 리포트가 생성되므로."
+    - "state 에 publish_status 를 기록 -- 운영 중 publish 성공/실패 구분 가능."
+    - "_try_auto_publish + rebuild_site_safe 이중 try/except -- pipeline 안정성 최우선."
+
+handoff:
+  next_agent: "codex"
+  next_task: "Peer-verify Turn 1 C1-C5."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Auto-publish hook 가 runtime 에 연결되고, 7개 테스트 + AST 검증 + validators PASS. 실제 hosted deploy 와 증분 빌드는 후속 슬라이스."
+  context: |
+    auto-publish hook 이 runtime 에 연결되었다. process_vod() 성공 시
+    auto_publish_after_vod() 가 호출되어 site/ 를 재빌드한다.
+    safety gates 로 partial output 차단, 이중 exception isolation,
+    state 에 publish_status 기록. 7개 테스트 + AST 검증 + validators PASS.

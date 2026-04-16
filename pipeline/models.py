@@ -14,6 +14,7 @@ class VODInfo:
     publish_date: str
     thumbnail_url: str = ""
     category: str = ""
+    streamer_id: str = ""  # "channel-{hex}" 또는 "name-{slug}". 빈 문자열이면 런타임에 derive.
 
 
 @dataclass

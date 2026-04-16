@@ -1,0 +1,199 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-17-self-host-report-assets-implement"
+timestamp: "2026-04-17T01:30:00+09:00"
+
+scope: |
+  Per-VOD report HTML 의 외부 CDN 의존(chart.js + Google Fonts) 을 제거해
+  publish.deploy.check --strict 와 publish.deploy.package --strict --target all
+  이 실 site/ 에 대해 둘 다 PASS 하도록 만든다. chart.js 는 publish/web/assets/
+  vendor/ 로 self-host, 폰트는 시스템 fallback stack 으로 단순화. 빌더는 vendor
+  파일을 site/ 로 복사하고, 레거시 summarizer 가 만든 output/<base>.html 의 CDN
+  URL 은 빌드 시점에 local ref 로 rewrite 한다. 실 Cloudflare/GitHub 계정 push
+  는 본 슬라이스 범위 밖.
+
+contract:
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e (detached, read-only), remote d97514e, merge-base OK."
+    C2: "Dependency audit -- locate exactly where the report HTML emits external CDN URLs (chart.js + Google Fonts) and how build_site materializes them into site/."
+    C3: "Self-host implementation -- vendor chart.js at publish/web/assets/vendor/, drop Google Fonts @import for system font fallback stack, patch summarizer template, builder copies vendor + rewrites legacy CDN URLs on copy."
+    C4: "Strict deploy capability -- python -m publish.deploy.check --strict and python -m publish.deploy.package --strict --target all both PASS (exit 0) on the real built site/, with zero external URL warnings."
+    C5: "Verification + validators -- experiments/self_host_report_assets_verify.py covers CDN-free report HTML + strict preflight + strict package + local serving + cookie hygiene; DAD/Doc validators PASS."
+
+peer_review:
+  verdict: "N/A (Turn 1)"
+  project_analysis: |
+    이전 두 세션(2026-04-16-free-hosting-deploy-scaffold + 2026-04-16-deploy-bundle
+    -command-implement) 이 site/ -> dist/deploy/ 패키징을 닫았지만, 실 site/ 에
+    대한 publish.deploy.check 가 일관되게 1건의 외부 CDN 경고를 띄웠고
+    (vods/<id>/report.html 의 chart.js v4.4.2 jsdelivr CDN <script> + Google Fonts
+    @import url(...) 두 줄), --strict 모드에서 bundle 생성이 차단되어 CI 기본값을
+    --strict 로 올릴 수 없었다. 권위 source 는 pipeline/summarizer.py 의
+    _generate_html() template 이며, build_site._copy_into_site() 가 그 결과
+    HTML 을 site/vods/<vid>/report.html 로 그대로 복사한다. 따라서 (a) summarizer
+    template 자체에서 CDN 참조를 제거해 newly-generated 리포트가 깨끗하도록 만들고,
+    (b) 빌더에서 vendored asset 을 deploy root 로 복사하며, (c) 레거시 output/
+    HTML 도 빌드 시점에 rewrite 해 site/ 에 CDN 자국이 남지 않도록 만들어야
+    한 단위로 닫힌다. 추가로 vendored chart.js 의 minified payload 는 chartjs.org
+    홈페이지 / jsdelivr docs 같은 inert 문서 URL 을 포함하므로, preflight 의 외부
+    CDN 스캔이 vendor 디렉토리를 제외하도록 좁혀야 false positive 로 strict 가
+    재차 깨지지 않는다.
+
+my_work:
+  summary: |
+    1. publish/web/assets/vendor/chart.umd.min.js (신규):
+       - chart.js v4.4.2 minified UMD 번들을 vendoring (205,488 bytes,
+         sha256 = 08dfa4730571b23810c34fc39c5101461ecafca56c3f92caf4850509cb158f30).
+       - 이 파일은 publish/web/ 아래에 두고, 빌더가 site/assets/vendor/ 로 복사한다.
+    2. pipeline/summarizer.py (수정, _generate_html template):
+       - <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js">
+         를 <script src="../../assets/vendor/chart.umd.min.js"> 로 교체.
+         (report.html 이 site/vods/<vid>/ 에 위치하므로 ../../ 로 site root 로 올라간다.)
+       - <style> 첫 줄의 @import url('https://fonts.googleapis.com/...&display=swap');
+         를 제거하고 주석 /* Self-hosted assets: no external CDN.
+         Fonts use OS-installed fallbacks. */ 로 대체.
+       - body font-family 를 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic',
+         '맑은 고딕', system-ui, -apple-system, 'Segoe UI', sans-serif 로 확장
+         (한국어 우선 fallback stack).
+       - 'JetBrains Mono', monospace 8군데를 'JetBrains Mono', 'Cascadia Code',
+         'Fira Code', Consolas, 'Courier New', monospace 로 교체.
+       - grep -n "https://\|@import" pipeline/summarizer.py -> 0 hit 확인.
+    3. publish/builder/build_site.py (수정):
+       - _copy_web_assets() 의 rels tuple 에 "assets/vendor/chart.umd.min.js" 추가
+         -> build 시 site/assets/vendor/chart.umd.min.js 로 복사.
+       - _LEGACY_CHARTJS_CDN_RE / _LEGACY_GFONTS_IMPORT_RE 두 정규식 + helper
+         _rewrite_legacy_cdn_html(html_text) 추가. 구 summarizer 가 만든
+         output/<base>.html (CDN URL 박혀있음) 을 빌드 시점에 local ref 로 치환.
+       - _copy_report_html(src, dst) 추가: read text -> rewrite -> write text.
+         build_site() 안의 report.html 복사 단계가 _copy_into_site 대신 이걸 사용.
+       - .md / .json 은 그대로 _copy_into_site (binary-safe shutil.copyfile).
+    4. publish/deploy/check.py (수정, _check_external_cdn):
+       - assets/vendor/ 아래 파일은 외부 CDN 스캔에서 제외. vendored third-party
+         payload 의 inert 문서/홈페이지 URL (chartjs.org, jsdelivr.com docs,
+         color lib readme) 은 runtime fetch 가 아니므로 false positive 회피.
+       - 쿠키 누출 / 절대 경로 스캔은 그대로 적용 (해당 함수만 좁힘).
+    5. experiments/self_host_report_assets_verify.py (신규, 6 그룹):
+       - 사전: build_site 를 subprocess 로 재실행 (--skip-rebuild 로 비활성 가능).
+       - T1 report_html_no_cdn: site/vods/<id>/report.html 에 외부 https:// 0,
+         local ../../assets/vendor/chart.umd.min.js 참조 존재, Google Fonts
+         @import 없음.
+       - T2 vendor_asset_deployed: site/assets/vendor/chart.umd.min.js 가 source
+         (publish/web/...) 와 sha256 일치.
+       - T3 strict_preflight_pass: python -m publish.deploy.check --strict --json
+         exit 0 + warnings 0.
+       - T4 strict_package_pass: tempdir out-dir 로 python -m publish.deploy.package
+         --target all --clean --strict 실행, exit 0 + 두 번들 모두 생성.
+       - T5 local_serve_smoke: site/ 사본을 http.server 로 띄우고 /index.html,
+         /vod.html, /vods/<id>/report.html, /assets/vendor/chart.umd.min.js
+         네 GET 모두 200.
+       - T6 cookie_grep: NID_AUT/NID_SES 가 site/ 텍스트 파일 전체에 0건.
+       - 격리: T4/T5 는 tempfile.TemporaryDirectory 사용, 기존 dist/deploy/ 와 site/
+         를 더럽히지 않음.
+    6. 문서 동기화:
+       - README.md "배포" 섹션: chart.js/폰트가 self-host 되어 --strict 가 baseline
+         으로 통과한다는 한 줄 추가, preflight 명령에 --strict 기본 권장 추가,
+         deploy.package 예시도 --strict 기본화.
+       - docs/deploy-free-hosting.md: preflight 항목의 "외부 CDN 의존 (경고 only)"
+         줄에 self-host baseline + assets/vendor/ 제외 정책 명시. 재현 검증 섹션에
+         experiments/self_host_report_assets_verify.py 6-group 항목 추가.
+       - docs/multi-streamer-web-publish-backlog.md: P5 상태를 "scaffold + bundle CLI
+         + self-host 완료" 로 갱신, 본 세션 산출물(vendored chart.js + summarizer
+         template + build_site rewrite + check.py vendor 제외 + 6-group verifier)
+         명세, 잔여 risk 에 vendored chart.js 업데이트 정책 추가.
+
+  evidence:
+    commands:
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD -> d97514e (detached, read-only)"
+      - "git ls-remote --heads origin main -> d97514e..."
+      - "merge-base d97514e d97514e -> d97514e (ANCESTOR_OK)"
+      - "curl -fsSL https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js -> 205,488B vendored, sha256=08dfa4730571b23810c34fc39c5101461ecafca56c3f92caf4850509cb158f30"
+      - "grep -n 'https://\\|@import' pipeline/summarizer.py -> 0 hit"
+      - "PYTHONIOENCODING=utf-8 python experiments/self_host_report_assets_verify.py -> 6/6 PASS"
+      - "  PASS T1 report_html_no_cdn: 1 report(s) CDN-free"
+      - "  PASS T2 vendor_asset_deployed: sha256=08dfa4730571b238, size=205488"
+      - "  PASS T3 strict_preflight_pass: exit=0, warnings=0, errors=0, vods=1"
+      - "  PASS T4 strict_package_pass: cloudflare=93220B, github-pages=85386B"
+      - "  PASS T5 local_serve_smoke: 200 for 4 endpoints"
+      - "  PASS T6 cookie_grep: 0 NID_AUT/NID_SES across site/"
+      - "PYTHONIOENCODING=utf-8 python -m publish.deploy.check --site-dir ./site --strict -> EXIT=0, OK - deploy preflight clean."
+      - "PYTHONIOENCODING=utf-8 python -m publish.deploy.package --target all --clean --strict -> EXIT=0, OK - deploy bundles ready."
+      - "  bundle: cloudflare     site-upload.zip          files=18 bytes=262142 sha256=f3bbe5dcb7e5c24e..."
+      - "  bundle: github-pages   site-artifact.tar.gz     files=18 bytes=262142 sha256=6fce439e2e4db7ab..."
+      - "PYTHONIOENCODING=utf-8 python experiments/deploy_package_verify.py --site-dir ./site -> 5/5 PASS (regression-free)"
+      - "powershell -File tools/Validate-DadPacket.ps1 -AllSessions -- expected PASS"
+      - "powershell -File tools/Validate-Documents.ps1 -IncludeRootGuides -IncludeAgentDocs -- expected PASS"
+
+  changes:
+    - file: "publish/web/assets/vendor/chart.umd.min.js"
+      action: "added"
+      detail: "chart.js v4.4.2 minified UMD bundle (205,488B, sha256=08dfa4730571b23810c34fc39c5101461ecafca56c3f92caf4850509cb158f30) vendored from cdn.jsdelivr.net. report HTML 의 runtime CDN 호출을 제거한다."
+
+    - file: "pipeline/summarizer.py"
+      action: "modified"
+      detail: "_generate_html template 에서 chart.js CDN <script> 를 ../../assets/vendor/chart.umd.min.js 로, Google Fonts @import 를 self-hosted comment 로 치환. body font-family 를 한국어 우선 fallback stack 으로 확장 (Apple SD Gothic Neo, Malgun Gothic, '맑은 고딕', system-ui, -apple-system, Segoe UI). monospace 8군데를 'Cascadia Code', 'Fira Code', Consolas, 'Courier New' fallback 으로 확장. grep -n 'https://|@import' -> 0 hit."
+
+    - file: "publish/builder/build_site.py"
+      action: "modified"
+      detail: "_copy_web_assets() rels tuple 에 assets/vendor/chart.umd.min.js 추가. _LEGACY_CHARTJS_CDN_RE / _LEGACY_GFONTS_IMPORT_RE + _rewrite_legacy_cdn_html(html_text) helper 추가 (구 summarizer 가 박은 CDN URL 을 빌드 시점에 local ref 로 치환). _copy_report_html(src,dst) 추가 후 build_site() 의 report.html 복사 단계가 _copy_into_site 대신 이걸 사용. .md/.json 은 그대로 binary-safe shutil.copyfile."
+
+    - file: "publish/deploy/check.py"
+      action: "modified"
+      detail: "_check_external_cdn 가 assets/vendor/ 아래 파일을 외부 CDN 스캔에서 제외. vendored third-party payload 의 inert 문서/홈페이지 URL 은 runtime fetch 가 아니므로 false positive 차단. 쿠키 누출/절대 경로 스캔은 그대로 적용 (해당 함수에 한정한 변경)."
+
+    - file: "experiments/self_host_report_assets_verify.py"
+      action: "added"
+      detail: "6-group 검증. T1 site/vods/<id>/report.html 외부 https:// 0건 + 로컬 chart 참조. T2 site/assets/vendor/chart.umd.min.js sha256 source 일치. T3 publish.deploy.check --strict --json exit 0 + warnings 0. T4 tempdir out-dir 로 publish.deploy.package --target all --clean --strict exit 0 + 두 번들 생성. T5 site/ 복사본을 http.server 로 띄워 /index.html, /vod.html, /vods/<id>/report.html, /assets/vendor/chart.umd.min.js 모두 200. T6 NID_AUT/NID_SES 0건. T4/T5 는 tempfile.TemporaryDirectory 격리."
+
+    - file: "README.md"
+      action: "modified"
+      detail: "배포 섹션에 self-host baseline + --strict 가 경고 0 으로 통과한다는 한 줄 추가. preflight/package 예시 명령을 --strict 기본으로 권장."
+
+    - file: "docs/deploy-free-hosting.md"
+      action: "modified"
+      detail: "preflight 항목의 외부 CDN 의존 줄에 self-host baseline + assets/vendor/ 제외 정책 명시. 재현 검증 섹션에 experiments/self_host_report_assets_verify.py 6-group 항목 추가."
+
+    - file: "docs/multi-streamer-web-publish-backlog.md"
+      action: "modified"
+      detail: "P5 상태 'scaffold + bundle CLI + self-host 완료 (실 계정 배포는 수동)' 로 갱신. P5 본문에 본 세션 산출물(vendored chart.js + summarizer template + build_site rewrite + check.py vendor 제외 + 6-group verifier) 명세 추가, 잔여 risk 에 vendored chart.js 업데이트 정책 추가."
+
+  open_risks:
+    - "vendored chart.js 의 업데이트 정책이 수동이다. v4.4.2 보다 새로운 보안 패치가 나오면 publish/web/assets/vendor/chart.umd.min.js 를 직접 교체하고 sha256 을 재계측해야 한다. CI 에서 이를 자동화하거나 lockfile 로 박아두는 슬라이스가 별도 필요."
+    - "폰트는 vendoring 하지 않고 시스템 fallback stack 으로 단순화했다. Noto Sans KR / JetBrains Mono 가 설치되어 있지 않은 환경에서는 OS 기본 한글/모노 폰트로 렌더되므로 시각적 일관성이 환경마다 다를 수 있다. 디자인 일관성이 더 중요해지면 woff2 vendoring + @font-face 로 교체하는 슬라이스가 필요."
+    - "publish.deploy.check 의 vendor 디렉토리 제외는 경로 기반(assets/vendor/) 이다. 다른 vendored asset (예: future/ third-party widget) 을 추가할 때도 같은 경로 규칙에 맞추거나 _check_external_cdn 의 allowlist 를 일반화해야 false positive 가 다시 발생한다."
+    - "_rewrite_legacy_cdn_html 는 정확한 잘 알려진 두 패턴(jsdelivr chart.js + googleapis fonts) 만 치환한다. 다른 CDN URL 이 박힌 레거시 output/ 이 발견되면 새 패턴을 추가하거나 generated 리포트를 재생성하는 보강이 필요하다."
+    - "실 Cloudflare/GitHub 계정 연동 push 응답은 본 세션 범위 밖. self-host 후 실 호스트에서 chart.js 가 정상 로드되는지(MIME, brotli 등) 는 첫 실 배포 회차에서 한 번 더 확인이 필요하다."
+
+  decisions:
+    - "chart.js 는 vendoring (publish/web/assets/vendor/chart.umd.min.js) 으로 self-host. report HTML 이 site/vods/<vid>/ 에 위치하므로 relative path 는 ../../ 로 site root 까지 두 단계 올라간다. Cloudflare/GitHub Pages 양쪽 동일 layout."
+    - "폰트는 vendoring 하지 않고 시스템 fallback stack 으로 단순화. 사용자가 본 세션 시작 메시지에서 '폰트 파일까지 vendoring 이 과하면 외부 Google Fonts 링크를 제거하고 robust fallback stack 으로 전환해도 된다' 고 명시적으로 허용. 한국어 fallback 우선 (Apple SD Gothic Neo, Malgun Gothic, 맑은 고딕)."
+    - "summarizer template 의 변경은 본 슬라이스에서 단독 적용 가능하다 -- _parse_summary_sections 가 읽는 sentinel/구조에 영향이 없는 (외부 자원 ref 만의) 변경이기 때문. CLAUDE.md 의 '4자 한 단위' 규칙을 깨지 않는다."
+    - "레거시 output/<base>.html 은 build_site._rewrite_legacy_cdn_html 로 빌드 시점에 in-place rewrite 한다. output/ 자체는 재생성하지 않는다 (런타임 부담 회피). 빌드 결과(site/) 만 깨끗하면 deploy 게이트가 PASS 한다."
+    - "publish.deploy.check 의 _check_external_cdn 는 assets/vendor/ 경로를 스캔에서 제외한다. vendored 된 minified third-party payload 의 inert 문서 URL 은 runtime CDN fetch 가 아니므로 false positive. 쿠키/절대 경로 스캔은 vendor 파일에도 그대로 적용 (그 두 게이트는 보호 가치가 다름)."
+    - "experiments/self_host_report_assets_verify.py 는 build_site 를 subprocess 로 매 실행 재호출 (--skip-rebuild 로 우회 가능). 검증의 진실성을 위해 'verifier 가 직접 빌드한 site/' 가 게이트를 통과해야 PASS."
+
+handoff:
+  next_agent: "codex"
+  next_task: "Peer-verify Turn 1 C1-C5."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Per-VOD report HTML 의 외부 CDN 의존이 제거됐다. chart.js 는 publish/web/assets/vendor/ 로 self-host, Google Fonts 는 시스템 fallback stack 으로 대체, summarizer template 이 ../../assets/vendor/chart.umd.min.js 를 emit, builder 가 vendor 자산을 site/ 로 복사하면서 레거시 output/<base>.html 의 CDN URL 은 빌드 시점에 local ref 로 rewrite, preflight 의 외부 CDN 스캔이 vendor 디렉토리를 제외해 false positive 차단. 결과: python -m publish.deploy.check --strict 와 publish.deploy.package --strict --target all 모두 EXIT 0 (warnings 0). experiments/self_host_report_assets_verify.py 6/6 PASS. 기존 deploy_package_verify 5/5 PASS (regression-free). 본 세션 범위 밖: 실 호스트에서의 첫 배포 round-trip, vendored chart.js 업데이트 자동화."
+  context: |
+    pipeline/summarizer.py 의 _generate_html template 이 외부 CDN 을 더 이상
+    참조하지 않는다 (grep 'https://|@import' = 0 hit). publish/web/assets/vendor/
+    chart.umd.min.js (sha256 = 08dfa4730571b238...) 가 vendoring 되어 있고
+    publish/builder/build_site._copy_web_assets() 가 그것을 site/assets/vendor/
+    로 복사한다. 같은 빌더의 _rewrite_legacy_cdn_html 가 구 summarizer 가
+    박은 CDN URL 을 빌드 시점에 local ref 로 치환하므로, output/ 재생성 없이도
+    site/ 가 깨끗하다. publish/deploy/check._check_external_cdn 는 assets/vendor/
+    아래 파일을 외부 URL 스캔에서 제외하지만 cookie/absolute-path 스캔은 그대로
+    적용한다. publish.deploy.check --site-dir ./site --strict 는 EXIT 0 (warnings
+    0, errors 0), publish.deploy.package --target all --clean --strict 는 EXIT 0
+    (cloudflare zip = f3bbe5dcb7e5..., github-pages tar.gz = 6fce439e2e4d...).
+    experiments/self_host_report_assets_verify.py 6 그룹 (report HTML CDN-free,
+    vendor sha256, strict preflight, strict package, http.server smoke, cookie
+    grep) 모두 PASS. 기존 experiments/deploy_package_verify.py 5/5 PASS (regression
+    -free). 본 세션 범위 밖: 실 Cloudflare/GH Pages 첫 배포 round-trip 의 chart.js
+    MIME/brotli 응답 검증, vendored chart.js 자동 업데이트 정책. README + docs/
+    deploy-free-hosting.md + docs/multi-streamer-web-publish-backlog.md 동기화 완료.

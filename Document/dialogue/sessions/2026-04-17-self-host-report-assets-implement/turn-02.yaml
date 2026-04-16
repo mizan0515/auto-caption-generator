@@ -1,0 +1,163 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-17-self-host-report-assets-implement"
+timestamp: "2026-04-17T03:47:24.3663711+09:00"
+
+contract:
+  status: "accepted"
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e (detached, read-only), remote d97514e, merge-base OK."
+    C2: "Dependency audit -- zero external CDN refs remain in pipeline/summarizer.py and built site/vods/*/report.html; builder/check wiring still matches the self-host contract."
+    C3: "Self-host implementation -- vendored chart.js sha256/size match, rebuild emits ../../assets/vendor/chart.umd.min.js only, legacy CDN poison is rewritten away, vendor-scoped external URL exclusion is narrow, cookie scan still covers vendor/."
+    C4: "Strict deploy capability -- publish.deploy.check --strict and publish.deploy.package --target all --clean --strict both exit 0; both bundles exist, are cookie-clean, and are byte-idempotent across reruns."
+    C5: "Verification + validators -- both verifier suites pass, independent local http.server smoke returns 200 for 4 endpoints, and both DAD/document validators pass."
+  amendments: []
+
+peer_review:
+  verdict: "PASS"
+  task_model_review:
+    status: "aligned"
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups: []
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: "PASS"
+      evidence:
+        - command: "git rev-parse --short HEAD (sister)"
+          observed: "d97514e"
+        - command: "git branch --show-current (sister)"
+          observed: "main"
+        - command: "git status --short --branch (sister)"
+          observed: "## main...origin/main"
+        - command: "git rev-parse --short HEAD (live)"
+          observed: "d97514e"
+        - command: "git branch --show-current (live)"
+          observed: "<empty>; detached HEAD"
+        - command: "git status --short --branch (live)"
+          observed: "## HEAD (no branch)"
+        - command: "git ls-remote --heads origin main"
+          observed: "d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main"
+        - command: "git merge-base d97514e49212d10b6ef8403b829f2612651a452c d97514e49212d10b6ef8403b829f2612651a452c"
+          observed: "d97514e49212d10b6ef8403b829f2612651a452c"
+    C2:
+      status: "PASS"
+      evidence:
+        - command: "rg -n -e 'https?://|@import' pipeline/summarizer.py"
+          observed: "exit 1, 0 hits"
+        - command: "Get-ChildItem site/vods -Recurse -Filter report.html | Select-String -Pattern 'https?://|@import'"
+          observed: "0 hits"
+        - command: "rg -n 'assets/vendor/chart\\.umd\\.min\\.js|_rewrite_legacy_cdn_html|_copy_report_html' publish/builder/build_site.py"
+          observed: "vendor asset rel present; _rewrite_legacy_cdn_html and _copy_report_html defined; build_site() calls _copy_report_html"
+        - command: "rg -n '_check_external_cdn|vendor_dir|COOKIE LEAK|absolute path' publish/deploy/check.py"
+          observed: "_check_external_cdn skips assets/vendor only; cookie leak and absolute path checks still present"
+    C3:
+      status: "PASS"
+      evidence:
+        - command: "Get-FileHash publish/web/assets/vendor/chart.umd.min.js -Algorithm SHA256; Get-Item ... Length"
+          observed: "sha256=08dfa4730571b23810c34fc39c5101461ecafca56c3f92caf4850509cb158f30, size=205488"
+        - command: "python -m publish.builder.build_site"
+          observed: "vod_count=1, streamer_count=1, assets_copied includes assets/vendor/chart.umd.min.js"
+        - command: "Inspect rebuilt site/vods/11688000/report.html"
+          observed: "contains ../../assets/vendor/chart.umd.min.js; contains no cdn.jsdelivr.net, fonts.googleapis.com, or @import url("
+        - command: "Poisoned legacy output tempdir -> python -m publish.builder.build_site --output-dir <tmp>/output --site-dir <tmp>/site"
+          observed: "rewritten report.html still contains local chart path only; poisoned jsdelivr/google-font refs removed"
+        - command: "Vendor scoping probe: site/assets/vendor/_probe.js then python -m publish.deploy.check --site-dir ./site --strict --json"
+          observed: "exit 0, warnings 0"
+        - command: "Top-level scoping probe: site/assets/_top_probe.js then python -m publish.deploy.check --site-dir ./site --strict --json"
+          observed: "exit 2, warning includes assets\\\\_top_probe.js -> https://evil.example.com/payload.js"
+        - command: "Cookie coverage probe: site/assets/vendor/_probe.js='NID_AUT' then python -m publish.deploy.check --site-dir ./site"
+          observed: "exit 1, COOKIE LEAK includes assets\\\\vendor\\\\_probe.js"
+    C4:
+      status: "PASS"
+      evidence:
+        - command: "python -m publish.deploy.check --site-dir ./site --strict"
+          observed: "exit 0, OK - deploy preflight clean."
+        - command: "python -m publish.deploy.package --target all --clean --strict"
+          observed: "exit 0, cloudflare/site-upload.zip sha256=f3bbe5dcb7e5c24e7033032728c4d3704d8f73a5fa0eaae1a15522159878e690; github-pages/site-artifact.tar.gz sha256=6fce439e2e4db7abccefece9aa2fbd10e4473ffeb48341ffa170ecbc27e84d27; manifest.json and checksums.txt present"
+        - command: "Expand-Archive/tar extract both bundles and Select-String 'NID_AUT|NID_SES'"
+          observed: "0 hits across both archives"
+        - command: "python -m publish.deploy.package --target all --clean --strict --out-dir <tmp>/run1 and run2"
+          observed: "both exits 0; cloudflare and github-pages bundle sha256 values match exactly across runs"
+    C5:
+      status: "PASS"
+      evidence:
+        - command: "PYTHONIOENCODING=utf-8 python experiments/self_host_report_assets_verify.py"
+          observed: "SUMMARY: 6/6 groups PASS"
+        - command: "PYTHONIOENCODING=utf-8 python experiments/deploy_package_verify.py --site-dir ./site"
+          observed: "deploy_package_verify: 5/5 passed, 0 failed"
+        - command: "Independent temp site copy + python -m http.server + GET /index.html /vod.html /vods/11688000/report.html /assets/vendor/chart.umd.min.js"
+          observed: "all four endpoints returned 200"
+        - command: "powershell -File tools/Validate-DadPacket.ps1 -AllSessions"
+          observed: "DAD packet/state validation passed for all scanned sessions."
+        - command: "powershell -File tools/Validate-Documents.ps1 -IncludeRootGuides -IncludeAgentDocs"
+          observed: "Document validation passed for 75 files."
+  issues_found: []
+  fixes_applied: []
+
+my_work:
+  summary: "no changes"
+  task_model:
+    objective: "Independently rerun C1-C5 against the sister worktree and distrust Turn 1 evidence until reproduced."
+    constraints:
+      - "All writes stay in C:/github/auto-caption-generator-main."
+      - "Do not mutate C:/github/auto-caption-generator."
+      - "Do not regenerate output/ with the AI summarizer."
+      - "If any checkpoint fails, fix in place and rerun the full chain."
+  plan: "Replayed auth, dependency audit, adversarial self-host probes, strict deploy/package runs, verifier suites, local http smoke, and both validators before writing the Turn 2 packet."
+  changes: []
+  self_iterations: 1
+  evidence:
+    commands:
+      - "git rev-parse --short HEAD -> sister d97514e / live d97514e"
+      - "git branch --show-current -> sister main / live detached"
+      - "git ls-remote --heads origin main -> d97514e49212d10b6ef8403b829f2612651a452c"
+      - "rg -n -e 'https?://|@import' pipeline/summarizer.py -> exit 1 (0 hits)"
+      - "Get-ChildItem site/vods -Recurse -Filter report.html | Select-String -Pattern 'https?://|@import' -> 0 hits"
+      - "Get-FileHash publish/web/assets/vendor/chart.umd.min.js -> 08dfa4730571b23810c34fc39c5101461ecafca56c3f92caf4850509cb158f30"
+      - "python -m publish.builder.build_site -> assets_copied includes assets/vendor/chart.umd.min.js"
+      - "poisoned legacy temp build -> local chart path retained; jsdelivr/google-font refs removed"
+      - "vendor/top-level probe pair -> vendor exit 0, top-level exit 2"
+      - "cookie-on-vendor probe -> exit 1, COOKIE LEAK includes assets\\\\vendor\\\\_probe.js"
+      - "python -m publish.deploy.check --site-dir ./site --strict -> exit 0"
+      - "python -m publish.deploy.package --target all --clean --strict -> exit 0"
+      - "archive cookie grep -> 0 hits across both bundles"
+      - "idempotent packaging rerun -> cloudflare sha256 f3bbe5dcb7e5c24e7033032728c4d3704d8f73a5fa0eaae1a15522159878e690 both runs; github-pages sha256 6fce439e2e4db7abccefece9aa2fbd10e4473ffeb48341ffa170ecbc27e84d27 both runs"
+      - "PYTHONIOENCODING=utf-8 python experiments/self_host_report_assets_verify.py -> 6/6 PASS"
+      - "PYTHONIOENCODING=utf-8 python experiments/deploy_package_verify.py --site-dir ./site -> 5/5 PASS"
+      - "independent http.server smoke -> 200 for 4 endpoints"
+      - "powershell -File tools/Validate-DadPacket.ps1 -AllSessions -> PASS"
+      - "powershell -File tools/Validate-Documents.ps1 -IncludeRootGuides -IncludeAgentDocs -> PASS"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-17-self-host-report-assets-implement/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-17-self-host-report-assets-implement/state.json"
+      - "Document/dialogue/state.json"
+      - "Document/dialogue/sessions/2026-04-17-self-host-report-assets-implement/summary.md"
+      - "Document/dialogue/sessions/2026-04-17-self-host-report-assets-implement/2026-04-17-2026-04-17-self-host-report-assets-implement-summary.md"
+  verification: "C1-C5 all reproduced PASS on the sister worktree with no fixes required."
+  open_risks:
+    - "Vendored chart.js updates remain manual. A future security patch still requires replacing publish/web/assets/vendor/chart.umd.min.js and re-measuring its sha256."
+    - "Fonts are still not vendored. Hosts missing the preferred Korean or monospace fonts will fall through to OS-installed alternatives, so typography can vary by environment."
+    - "The external-CDN exclusion is path-based (assets/vendor/). If future vendored assets land elsewhere, the allowlist logic will need to expand deliberately."
+    - "_rewrite_legacy_cdn_html only rewrites the two known legacy CDN patterns (jsdelivr chart.js and Google Fonts). A different baked-in CDN URL in an old output/*.html file would still surface as a warning."
+    - "Real Cloudflare Pages or GitHub Pages upload was intentionally out of scope. First real host upload still needs a smoke check for MIME/caching behavior."
+  confidence: "high"
+
+handoff:
+  next_agent: "user"
+  next_task: "Close the session unless you want a new slice for first real host-upload smoke."
+  context: |
+    Turn 2 independently reran C1-C5 against the sister worktree and did not
+    rely on Turn 1 evidence. The poisoned legacy HTML probe proved the builder
+    strips the old jsdelivr/google-font references on copy, the vendor-scope
+    probe showed external URL scanning is excluded only under assets/vendor/,
+    the cookie probe showed vendor files are still scanned for NID_AUT/NID_SES,
+    strict preflight/package both exited 0, both archives were cookie-clean,
+    and the two bundle hashes were stable across reruns. No defects were found,
+    so no code or doc changes were needed beyond recording this Turn 2 packet.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "C1-C5 all passed on an independent rerun with no fixes, so the session converged and the contract is accepted."

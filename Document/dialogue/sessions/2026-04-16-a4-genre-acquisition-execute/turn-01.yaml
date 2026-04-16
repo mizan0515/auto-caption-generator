@@ -1,0 +1,168 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-a4-genre-acquisition-execute"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth probe PASS. Sister main@d97514e baseline reproduced. Live detached d97514e baseline reproduced. Remote only refs/heads/main at d97514e49...; preflight predecessor Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-02.yaml re-read (Codex peer-seal)."
+    - id: C2
+      description: "Step 0 cookie probe PASS. content.network.NetworkManager.get_video_info(12702452, cookies) returned video_id present, in_key present, vodStatus=ABR_HLS, adult=False. Metadata title/category/duration surfaced. Cookie field values never echoed to logs."
+    - id: C3
+      description: "Step 1 non-game acquisition PASS. Enumerated target channel VODs into 15 category buckets. Picked VOD 11688000 (category '동계 올림픽', duration 9463s) as the non-game axis candidate because the only other non-game categories are one '음악/노래' (27452s) and three 'talk' VODs of which the shortest is 5713s. Downloaded via pipeline.downloader.download_vod_144p to sister work/11688000/; extracted first 1800s wav via ffmpeg; transcribed via experiments/_a4_transcribe_wav.py (Whisper large-v3-turbo on CUDA). SRT produced with 250 entries. Live work/ untouched."
+    - id: C4
+      description: "Step 2 W2/W3 de-duplication PASS. ffmpeg -ss 1800 -t 1800 extracted a second 30-minute wav of VOD 12702452 into sister work/12702452/ at clip1800s-offset1800s; Whisper transcribed to SRT (364 entries). Cell is distinct from W1 (t=0 clip1800s) because audio offset broke the t=0 invariant that produced W2=W3 numeric identity. Data-integrity finding logged: VOD 12702452's Chzzk category is '더 게임 오브 라이프 포 닌텐도 스위치' (a Nintendo Switch life-simulation game), not 'talk'. A4 W1/W2/W3 genre label 'talk' is therefore a methodology error; the entire A4 genre axis to date has been 'game' (single-genre)."
+    - id: C5
+      description: "Measurement on two new cells via experiments/a4_measure_genre.py. New artifacts experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json and the companion .md are NEW files; the existing 2026-04-15_phase-a4_raw.json and 2026-04-15_phase-a4_generalization.md were not overwritten. Runtime chunk_max_tokens default untouched. pipeline_config.json untouched. pipeline code untouched. Sister Validate-Documents + Validate-DadPacket PASS on the new session packet."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Why this execute session was the right next step after preflight seal.
+
+    The 2026-04-16-a4-expansion-preflight session (claude-code Turn 1 + codex
+    Turn 2) converged on three concrete blockers that any A4-to-runtime
+    promotion must clear: cookie validity was unverified, W2 was numerically
+    identical to W3 because both share VOD 12702452 plus t=0 plus the
+    0-1799s chat_log window, and the genre axis had only one label ('talk')
+    in coverage. Preflight explicitly authorized this execute slice, with
+    Step 0 cookie probe as a hard gate, Step 1 non-talk acquisition, and
+    Step 2 offset resample, while deferring full-pipeline smoke to a
+    sequential separate session.
+
+    This turn executes exactly that authorization and surfaces one
+    unexpected methodology finding that the preflight could not see without
+    a probe: VOD 12702452 is categorized on Chzzk as a Nintendo Switch
+    life-simulation game, not 'talk'. A4 Turn 5 classified W1/W2/W3 as
+    'talk' by content judgement, but the upstream platform metadata calls
+    it 'game'. That means the 'talk' axis in A4 has zero Chzzk-category
+    coverage, and W5 (11688000, Chzzk category '동계 올림픽') is the first
+    cell whose Chzzk category is not the same as W1-W4. The correct
+    reading of the genre axis therefore depends on whether future
+    promotion rules count 'genre' by Chzzk category or by content
+    judgement. This is a decision for the next session's contract, not
+    for this turn's measurement.
+
+    No pipeline/config/result-file/git-ref mutation occurred. Only new
+    files were created in work/ (sister only), experiments/ (2 scratch
+    scripts plus 1 cells JSON), experiments/results/ (2 NEW files for
+    this acquisition), and Document/dialogue/sessions/<this-session>/.
+
+  open_questions:
+    - "Should the next session re-classify A4 W1/W2/W3 genre as 'game' (Chzzk category) and treat W5 as the first genuinely non-game cell, or keep the 'talk' label by content judgement and treat W5 as second-axis reinforcement?"
+    - "Should 11688000 chat_log be downloaded via Chzzk VOD chat API in the next session so W5 is not no-chat?"
+    - "Should W4 (offset resample of 12702452) also have a chat_log filtered from the existing 12702452_chat.log, given the log only covers 0-1799s and offset 1800-3599s is outside that window?"
+
+  checkpoint_decisions:
+    C1:
+      verdict: pending_codex
+      evidence: "Auth probe recorded. Sister and live baselines reproduced as per preflight Turn 2 seal."
+    C2:
+      verdict: pending_codex
+      evidence: "NetworkManager.get_video_info(12702452, cookies) returned non-empty video_id, in_key, vodStatus=ABR_HLS, adult=False, duration=20552s. Cookie values never printed."
+    C3:
+      verdict: pending_codex
+      evidence: "11688000 downloaded to sister/work/11688000/ (199613799 bytes). First 1800s wav extracted. Whisper SRT has 250 entries. Live work/ inode unchanged."
+    C4:
+      verdict: pending_codex
+      evidence: "Offset 1800s wav extracted from live 12702452 144p mp4 into sister/work/12702452/. Whisper SRT has 364 entries. This cell is distinct from W2 (same-VOD t=0) because the offset broke the t=0 equivalence that produced W2=W3 in A4."
+    C5:
+      verdict: pending_codex
+      evidence: "NEW raw file 2026-04-16_phase-a4_genre-acquisition_raw.json at 12034 bytes, companion .md at 6.3 KiB. W4 cell insufficient_data=true (2/4 valid chunks due to cold/warm consistency retry collapse). W5 cell n_valid_chunks=3 (all valid). Global decision=per_cell_multiplicative, covered_cell_count=1, axis_coverage_ok=false, dispersion_ok=true, template_hash=4d732b40fa470862 (unchanged from A4 Turn 5). median_additive_overhead 7912-7913 in no-chat cells, consistent with A2 template-bound overhead. Existing 2026-04-15 A4 artifacts byte-identical. Runtime config untouched."
+
+my_work:
+  task_model:
+    goal: "Execute the preflight-authorized A4 follow-up: cookie probe, non-game acquisition, offset resample, and measurement, without any pipeline/config/result rewrite and without any full-pipeline smoke."
+    non_goals:
+      - "any chunk_max_tokens runtime-default promotion"
+      - "any pipeline code edit"
+      - "any pipeline_config.json change"
+      - "any overwrite of 2026-04-15 A4 result files"
+      - "any full-pipeline end-to-end smoke run"
+      - "any cleanup of the accepted 8+4 live validator residue"
+      - "any live work/ mutation"
+  steps_executed:
+    - "Step 0: NetworkManager.get_video_info probe on VOD 12702452 -> PASS"
+    - "VOD enumeration via experiments/_a4_vod_enum.py -> 60 VODs across 15 categories"
+    - "Step 1 download: VOD 11688000 via pipeline.downloader.download_vod_144p to sister work/"
+    - "Step 1 extract: ffmpeg first 1800s -> 11688000_clip1800s.wav"
+    - "Step 1 transcribe: experiments/_a4_transcribe_wav.py -> 11688000_clip1800s.srt (250 entries)"
+    - "Step 2 extract: ffmpeg -ss 1800 -t 1800 from live 12702452 144p mp4 -> sister/work/12702452/12702452_offset1800s_clip1800s.wav"
+    - "Step 2 transcribe: experiments/_a4_transcribe_wav.py -> 12702452_offset1800s_clip1800s.srt (364 entries)"
+    - "Measurement: experiments/a4_measure_genre.py over 2 new cells (W4 offset, W5 olympics), writing NEW experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json + companion .md"
+  files_modified: []
+  files_created:
+    - "work/11688000/11688000_..._144p.mp4"
+    - "work/11688000/11688000_clip1800s.wav"
+    - "work/11688000/11688000_clip1800s.srt"
+    - "work/11688000/11688000_chat_empty.log"
+    - "work/12702452/12702452_offset1800s_clip1800s.wav"
+    - "work/12702452/12702452_offset1800s_clip1800s.srt"
+    - "work/12702452/12702452_chat_offset1800s_empty.log"
+    - "experiments/_a4_vod_enum.py"
+    - "experiments/_a4_dl_nontalk.py"
+    - "experiments/_a4_cells_genre.json"
+    - "experiments/a4_measure_genre.py"
+    - "experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json"
+    - "experiments/results/2026-04-16_phase-a4_genre-acquisition.md"
+    - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/turn-01.yaml"
+    - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/state.json"
+    - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/summary.md"
+    - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/2026-04-16-2026-04-16-a4-genre-acquisition-execute-summary.md"
+    - "Document/dialogue/state.json (sister root mirror)"
+  self_iterations: 1
+  evidence:
+    commands:
+      - "PYTHONIOENCODING=utf-8 python experiments/_a4_vod_enum.py -> 60 VODs across 15 Chzzk categories"
+      - "Step 0 probe via inline python -c: NetworkManager.get_video_info(12702452, cookies) -> vodStatus=ABR_HLS, adult=False, duration=20552s, title present, category='더 게임 오브 라이프 포 닌텐도 스위치'"
+      - "PYTHONIOENCODING=utf-8 python experiments/_a4_dl_nontalk.py -> 11688000 download path confirmed, final size 199613799 bytes"
+      - "ffmpeg -y -i <src> -t 1800 -ar 16000 -ac 1 -c:a pcm_s16le <out> -> 11688000_clip1800s.wav 57600078 bytes"
+      - "PYTHONIOENCODING=utf-8 python experiments/_a4_transcribe_wav.py <wav> <srt> -> 11688000_clip1800s.srt 14300 bytes, 250 entries"
+      - "ffmpeg -y -ss 1800 -i <12702452 144p mp4> -t 1800 -ar 16000 -ac 1 -c:a pcm_s16le <out> -> 12702452_offset1800s_clip1800s.wav 57600078 bytes"
+      - "PYTHONIOENCODING=utf-8 python experiments/_a4_transcribe_wav.py <wav> <srt> -> 12702452_offset1800s_clip1800s.srt, 364 entries"
+      - "PYTHONIOENCODING=utf-8 python -X utf8 experiments/a4_measure_genre.py -> writes 2026-04-16_phase-a4_genre-acquisition_raw.json + prints global summary"
+      - "git symbolic-ref --short -q HEAD (live) -> exit 1 (detached d97514e)"
+      - "git rev-parse --short HEAD (live) -> d97514e"
+      - "git branch --show-current (sister) -> main"
+      - "git rev-parse --short HEAD (sister) -> d97514e"
+      - "git ls-remote --heads origin -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main"
+      - "Sister Validate-Documents -> PASS (55 pre-existing + session additions)"
+      - "Sister Validate-DadPacket -> PASS on new packet"
+  open_risks:
+    - "Chat_log coverage: 11688000 has no chat_log (new VOD) and 12702452 chat_log only covers 0-1799s. Both new cells were measured with empty chat_log files. User_ratio on these cells is therefore a no-chat variant and is not directly comparable to A4 W1/W2/W3 which used chat context."
+    - "Genre label ambiguity: Chzzk categorizes 12702452 as a Nintendo Switch life-simulation game and 11688000 as '동계 올림픽'. A4 W1/W2/W3 were labeled 'talk' by content judgement. Until the promotion contract chooses one labeling, axis_coverage_ok cannot be decided."
+    - "W4 insufficient_data=true. Chunks 2 and 3 failed cold/warm consistency on both initial and retry pairs because retry_cold received cache_creation_input_tokens=0 after warm populated the cache, collapsing retry_user_attributable to 2. This is a cold/warm protocol limitation at high call density, not a methodology invalidation. Re-measurement with a longer inter-pair idle gap would likely recover W4."
+    - "Global promotion still blocked: covered_cell_count is 1 from this turn (only W5 valid), plus W1/W2/W3 from A4 Turn 5 gives 4 at best. A fifth valid cell is needed."
+    - "Full-pipeline end-to-end smoke has still never been executed on current defaults (progress_report section 2.8)."
+  confidence: medium
+
+handoff:
+  next_task: |
+    Open 2026-04-16-a4-end-to-end-smoke next. The preflight's sister split
+    ladder remains valid: acquisition converged in this session; smoke
+    must be a separate session because it exercises the full
+    pipeline (monitor -> download -> chat -> transcribe -> summarize ->
+    html) and cannot retry gracefully if chat download, Whisper, or
+    Claude CLI call fails mid-run.
+  context: |
+    Two new cells (W4 offset-1800s of VOD 12702452, W5 first-1800s of
+    VOD 11688000) are now measured and landed in a NEW raw JSON plus
+    companion .md. Existing 2026-04-15 A4 artifacts are byte-identical.
+
+    The dominant finding of this turn is not a number. It is a label:
+    VOD 12702452 is Chzzk-category 'Nintendo Switch life-simulation game',
+    not 'talk'. A4 W1/W2/W3 genre labels were content-judgement 'talk'
+    but Chzzk-category 'game'. The next contract must decide which
+    labeling wins for axis_coverage_ok accounting before any further
+    promotion claim is made.
+
+    Runtime default chunk_max_tokens remains None. No pipeline config
+    change was made.
+  questions:
+    - "Next session contract: Chzzk-category vs content-judgement for genre axis labeling. Pick one."
+    - "Should 11688000 chat_log be pulled via the Chzzk VOD chat API as a precondition to re-measuring W5 with chat?"
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Step 0 probe PASS. Step 1 non-game acquisition + transcription landed in sister work/ only. Step 2 offset resample + transcription landed in sister work/ only. Measurement wrote NEW raw + md artifacts without overwriting 2026-04-15 A4 files. No pipeline/config/git-ref mutation. Ready for Codex peer-verify."

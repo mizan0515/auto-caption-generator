@@ -16,6 +16,9 @@ output/
 work/
 pipeline_config.json
 
+# 정적 사이트 빌더 산출물 (publish/builder/build_site.py)
+site/
+
 # 아카이브 (이전 프로젝트)
 _archive/
 

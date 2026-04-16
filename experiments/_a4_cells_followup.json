@@ -1,0 +1,38 @@
+[
+  {
+    "sample_id": "W4f-offset1800s-12702452-chat",
+    "srt_path": "C:\\github\\auto-caption-generator-main\\work\\12702452\\12702452_offset1800s_clip1800s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator-main\\work\\12702452\\12702452_chat_offset1800s.log",
+    "length_min": 30,
+    "genre": "game",
+    "platform_category": "\ub354 \uac8c\uc784 \uc624\ube0c \ub77c\uc774\ud504 \ud3ec \ub2cc\ud150\ub3c4 \uc2a4\uc704\uce58",
+    "content_judgement": "talk",
+    "density_tier": "high",
+    "chat_density_msgs_per_min": 81.52,
+    "chat_coverage": "full",
+    "video_no": "12702452",
+    "title": "A4-W4f-offset1800s-12702452-chat",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "\ud0ec\ud0ec",
+    "duration_sec": 1800,
+    "publish_date": "2026-04-14"
+  },
+  {
+    "sample_id": "W5f-11688000-30min-chat",
+    "srt_path": "C:\\github\\auto-caption-generator-main\\work\\11688000\\11688000_clip1800s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator-main\\work\\11688000\\11688000_chat.log",
+    "length_min": 30,
+    "genre": "olympics",
+    "platform_category": "\ub3d9\uacc4 \uc62c\ub9bc\ud53d",
+    "content_judgement": "olympics",
+    "density_tier": "medium",
+    "chat_density_msgs_per_min": 51.48,
+    "chat_coverage": "full",
+    "video_no": "11688000",
+    "title": "A4-W5f-11688000-30min-chat",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "\ud0ec\ud0ec",
+    "duration_sec": 1800,
+    "publish_date": "2026-02-07"
+  }
+]

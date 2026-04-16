@@ -1,0 +1,16 @@
+{
+  "W5": {
+    "status": "OK",
+    "count": 1544,
+    "coverage_sec": 1799.5,
+    "density_msgs_per_min": 51.48,
+    "out_path": "work\\11688000\\11688000_chat.log",
+    "size_bytes": 82929
+  },
+  "W4_offset": {
+    "status": "NO_CHAT",
+    "count": 0,
+    "start_ms": 1800000,
+    "end_ms": 3600000
+  }
+}

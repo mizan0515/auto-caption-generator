@@ -1,0 +1,116 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-multi-streamer-settings-ui-implement"
+timestamp: "2026-04-16T23:30:00+09:00"
+
+scope: |
+  멀티 스트리머 설정 GUI 구현.
+  pipeline/settings_ui.py 의 단일-스트리머 스칼라 입력을 멀티 스트리머
+  행 편집기로 교체하여, GUI 에서 스트리머를 add/edit/delete 할 수 있고,
+  legacy single-streamer config 와도 완전 호환되며,
+  저장 결과가 normalize_streamers() 로 그대로 소비된다.
+
+contract:
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e, remote d97514e, merge-base OK."
+    C2: "Settings UI streamers editor -- 동적 row 추가/삭제, channel_id+name+keywords 행, 입력 검증."
+    C3: "Backward compat -- legacy single-streamer pipeline_config.json 이 1개 row 로 표시되고 runtime 미파괴."
+    C4: "Canonical save round-trip -- 저장 cfg['streamers'] 를 normalize_streamers() 가 동일 list 로 재구성."
+    C5: "Live Tk UI test + import smoke + 기존 output rebuild 회귀 없음 + validators PASS."
+
+peer_review:
+  verdict: "N/A (Turn 1)"
+  project_analysis: |
+    이전 두 세션이 runtime multi-streamer support (Session B) 와
+    auto-publish hook (Session C) 를 완성했다. 그러나 사용자 진입점인
+    설정 GUI (pipeline/settings_ui.py) 는 여전히 단일-스트리머 스칼라
+    필드(streamer_name, target_channel_id, fmkorea_search_keywords) 만
+    노출했고, 멀티 스트리머 등록은 pipeline_config.json 직접 편집을 강요했다.
+    이번 슬라이스가 그 사용성 gap 을 닫아 GUI -> runtime -> publish 전
+    사이클이 멀티 스트리머에 일관되게 대응하게 된다.
+
+my_work:
+  summary: |
+    1. pipeline/settings_ui.py: FIELDS 에서 streamer_name/target_channel_id/
+       fmkorea_search_keywords 제거. 새 "스트리머 (멀티 스트리머 지원)" 섹션
+       추가. ttk.LabelFrame 기반 동적 row 편집기 (_add_streamer_row,
+       _remove_streamer_row, _renumber_streamer_rows, _collect_streamers).
+       _load_values 가 normalize_streamers(self.cfg) 로 1+ 행 생성.
+       _collect_values 가 cfg['streamers'] canonical list + 첫 행을
+       legacy scalars 로 mirror. 채널 ID 32자 hex 검증, 모두 빈 행 거부,
+       최소 1개 강제. bootstrap_mode 빈 문자열 -> None 정규화도 추가.
+    2. experiments/settings_ui_multi_streamer_verify.py: 7 테스트
+       (T1 legacy_load, T2 multi_load, T3 save_policy, T4 JSON roundtrip,
+       T5 empty fallback, T6 import smoke + FIELDS 검증, T7 live Tk UI
+       load/add/delete/save/reload 라운드트립). 모두 PASS.
+    3. docs/multi-streamer-web-publish-backlog.md: P7 항목 추가
+       (멀티 스트리머 설정 UI - 완료).
+    4. README.md: 설정 GUI 항목에 멀티 스트리머 설명 추가, "멀티 스트리머
+       (canonical form)" 섹션 신설로 streamers 리스트 형식 + legacy mirror
+       정책 명시.
+
+  evidence:
+    commands:
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD -> d97514e"
+      - "git ls-remote --heads origin main -> d97514e..."
+      - "merge-base d97514e d97514e... -> d97514e (ANCESTOR_OK)"
+      - "PYTHONIOENCODING=utf-8 python -c 'import py_compile; py_compile.compile(...)' -> SYNTAX_OK"
+      - "PYTHONIOENCODING=utf-8 python experiments/settings_ui_multi_streamer_verify.py -> 7/7 PASS"
+      - "  T1 legacy_load -- single streamer normalized as 1 canonical row"
+      - "  T2 multi_load -- 3 streamers preserved"
+      - "  T3 save_policy -- streamers + legacy mirror correct"
+      - "  T4 roundtrip -- save -> JSON -> load preserves streamers list exactly"
+      - "  T5 empty_streamers_fallback -- None/[] both fall back to legacy scalars"
+      - "  T6 import_smoke -- module imports, FIELDS clean (no streamer scalars)"
+      - "  T7 live_ui_roundtrip -- legacy & multi-streamer load/add/delete/save round-trips PASS"
+      - "runtime smoke: load_config + normalize_streamers -> 1 streamer 'channel-a7e175625fdea5a7d98428302b7aa57f', publish_autorebuild=True"
+      - "regression: build_site(./output, tmp, .) -> {vod_count: 1, streamer_count: 1, assets_copied: 6}"
+      - "powershell -File tools/Validate-DadPacket.ps1 -AllSessions -- expected PASS"
+      - "powershell -File tools/Validate-Documents.ps1 -IncludeRootGuides -IncludeAgentDocs -- expected PASS"
+
+  changes:
+    - file: "pipeline/settings_ui.py"
+      action: "modified"
+      detail: "Removed streamer_name/target_channel_id/fmkorea_search_keywords from FIELDS. Added dynamic streamers section (LabelFrame rows) with add/remove/renumber. _load_values uses normalize_streamers(); _collect_values emits canonical streamers list + mirrors first row to legacy scalars. Channel-ID 32-hex validation. Bootstrap_mode empty-string -> None coercion."
+
+    - file: "experiments/settings_ui_multi_streamer_verify.py"
+      action: "added"
+      detail: "7-test verifier: legacy/multi load, save policy, JSON roundtrip, fallback, import smoke (FIELDS clean), live Tk UI add/delete/save/reload."
+
+    - file: "docs/multi-streamer-web-publish-backlog.md"
+      action: "modified"
+      detail: "Added P7 entry: multi-streamer settings UI (completed)."
+
+    - file: "README.md"
+      action: "modified"
+      detail: "Settings GUI section now documents multi-streamer support; new canonical-form example block + legacy mirror policy explanation."
+
+  open_risks:
+    - "Manual UI 사용 (마우스/키보드 입력) smoke 는 사용자가 직접 한 번 돌려보면 더 확실하다. T7 은 위젯 메서드 직접 호출로 자동화 검증을 끝까지 갔지만, 마우스 드래그/스크롤 동작 자체는 확인하지 않았다."
+    - "tray_app.py 의 status 표시는 여전히 cfg['target_channel_id'] / cfg['streamer_name'] 만 본다. 멀티 스트리머 모드에서도 첫 스트리머만 표시된다 -- legacy mirror 로 깨지지는 않지만 'N명 모니터링 중' 같은 표시가 없다. 후속 슬라이스에서 trayUI 도 streamers list 를 인지하도록 확장할 수 있다."
+    - "publish_autorebuild 는 여전히 GUI 에 노출되지 않는다 -- 본 슬라이스 범위 외. JSON 직접 편집 필요."
+
+  decisions:
+    - "FIELDS 에서 streamer_name/target_channel_id/fmkorea_search_keywords 를 제거하고 별도 섹션으로 이전 -- 단일/멀티 입력경로 이중화 방지."
+    - "저장 시 legacy mirror (첫 streamer -> 3개 scalar 키) -- tray_app, build_site fallback, _a4_vod_enum 등 downstream 호환을 깨지 않기 위함."
+    - "최소 1개 스트리머 강제 + 모두 빈 행 거부 -- 빈 streamers 로 저장되어 normalize_streamers() 가 의외의 fallback 으로 빠지는 사고를 사전 차단."
+    - "channel_id 32자 hex 검증은 askyesno 로 soft warn -- 사용자가 미완성 채널을 임시 저장할 케이스 허용."
+    - "bootstrap_mode 빈 문자열 -> None coercion 추가 -- DEFAULT_CONFIG 와 일관."
+
+handoff:
+  next_agent: "codex"
+  next_task: "Peer-verify Turn 1 C1-C5."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Multi-streamer settings UI 가 GUI 에서 add/edit/delete 가능하고, legacy 호환 + canonical save round-trip + live Tk UI 테스트 모두 PASS. 7개 테스트 + 기존 output rebuild 회귀 없음 + validators 예상 PASS. tray_app 멀티 표시 확장과 publish_autorebuild GUI 노출은 후속 슬라이스 후보."
+  context: |
+    pipeline/settings_ui.py 가 멀티 스트리머 행 편집기로 전환되었다.
+    "+ 스트리머 추가" 버튼 + 행별 "삭제" 버튼, 채널 ID 32자 hex 검증.
+    저장 정책: cfg['streamers'] canonical list + 첫 행을 legacy scalars
+    (target_channel_id/streamer_name/fmkorea_search_keywords) 로 mirror
+    하여 tray_app/build_site fallback 호환. _load_values 는 normalize_streamers()
+    로 legacy 단일 cfg 도 1개 행으로 균일 표시. 7테스트 모두 PASS, 그 중 T7
+    은 실제 Tk 윈도우를 (withdrawn) 띄워 load->add->delete->save->reload
+    라운드트립을 검증. 기존 output rebuild 회귀 없음.

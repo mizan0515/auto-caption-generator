@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOD 요약 허브 — 스트리머 목록</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html">VOD 요약 허브</a>
+    <nav>
+      <a href="index.html">스트리머</a>
+      <a href="search.html">검색</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap main">
+  <h1 class="page-title">등록된 스트리머</h1>
+  <p class="page-sub" id="meta">로딩 중...</p>
+  <ul id="streamer-list" class="streamer-grid"></ul>
+  <div id="empty" class="empty" hidden>
+    아직 퍼블리시된 스트리머가 없다. 먼저
+    <code>python -m publish.builder.build_site</code> 을 실행하라.
+  </div>
+</main>
+
+<script src="assets/app.js"></script>
+<script>
+window.ACG.renderStreamerIndex();
+</script>
+</body>
+</html>

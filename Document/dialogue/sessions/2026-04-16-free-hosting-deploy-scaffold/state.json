@@ -1,0 +1,37 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-free-hosting-deploy-scaffold",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Turn 2 codex peer-verify reproduced C1-C5, fixed the cp949 console crash in publish.deploy.check and the non-idempotent generated_at in publish.builder.build_site, then re-ran verifier and validators to PASS.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "PASS. sister main@d97514e, live d97514e (detached, read-only), remote d97514e, merge-base OK.",
+    "C2": "PASS. publish/web/{_redirects,_headers,.nojekyll} + wrangler.toml; build_site._copy_web_assets() copies all three into site/.",
+    "C3": "PASS. .github/workflows/deploy-pages.yml is workflow_dispatch-only with checkout/.nojekyll/cookie-grep/configure-pages@v5/upload-pages-artifact@v3/deploy-pages@v4.",
+    "C4": "FAIL-then-FIXED. Rebuild idempotence was initially false because site/index.json.generated_at used datetime.now(); Turn 2 replaced it with deterministic input-derived generated_at and confirmed IDEMPOTENT_OK.",
+    "C5": "FAIL-then-FIXED. publish.deploy.check initially crashed on cp949 stdout while printing a warning; Turn 2 added console-safe output, reran preflight/verifier, and confirmed both validators PASS."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-free-hosting-deploy-scaffold/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-free-hosting-deploy-scaffold/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: Deploy meta files (_redirects, _headers, .nojekyll) live in publish/web/ and the builder copies them so Cloudflare and GitHub Pages share one site/ tree.",
+    "Turn 1: X-Frame-Options is SAMEORIGIN, not DENY, so vod.html can iframe report.html on the same origin.",
+    "Turn 1: GitHub Pages workflow is workflow_dispatch-only -- no automatic deploy on push.",
+    "Turn 1: preflight treats NID_AUT/NID_SES leaks as ERROR and treats deploy-meta absence / absolute-path mention / external CDN reference as WARNING; --strict promotes warnings to exit 2 for CI use.",
+    "Turn 1: wrangler.toml is committed at the repo root because it carries no secrets, only deployment metadata.",
+    "Turn 2: publish.deploy.check must be console-safe on default Windows encodings; CLI output now falls back to replacement writes instead of crashing.",
+    "Turn 2: deploy-root idempotence is part of the scaffold contract, so site/index.json.generated_at now derives from input records instead of wall-clock time."
+  ],
+  "meta_improvements": [
+    "Free hosting deploy scaffold replaces a single explanatory document with concrete Cloudflare+GH Pages control planes, a reusable preflight CLI, and a single 8-test verifier that closes regression gaps in build, structure, cookie hygiene, TOML/YAML metadata, and local serving in one run."
+  ]
+}

@@ -15,12 +15,24 @@ class PipelineState:
     스레드 안전한 상태 관리.
     - _lock: 인-프로세스 스레드 간 동시 접근 방지
     - 원자적 파일 쓰기: tmp → replace
+
+    상태 키 전략 (멀티 스트리머 지원):
+    - 새 VOD: composite key "{channel_id}:{video_no}" 사용
+    - 레거시 (channel_id 없음): 단순 "video_no" 키 유지
+    - 조회 시 composite key 우선, 없으면 plain video_no 로 fallback
     """
 
     def __init__(self, state_path: str):
         self._path = state_path
         self._lock = threading.Lock()
         self._data = self._load()
+
+    @staticmethod
+    def make_key(video_no: str, channel_id: Optional[str] = None) -> str:
+        """composite key 생성. channel_id 가 있으면 "{channel_id}:{video_no}"."""
+        if channel_id:
+            return f"{channel_id}:{video_no}"
+        return video_no
 
     def _load(self) -> dict:
         if os.path.exists(self._path):
@@ -57,20 +69,39 @@ class PipelineState:
                 except OSError:
                     pass
 
-    def is_processed(self, video_no: str) -> bool:
-        with self._lock:
-            return video_no in self._data["processed_vods"]
+    def _resolve_key(self, video_no: str, channel_id: Optional[str] = None) -> str:
+        """composite key 를 우선 탐색, 없으면 plain video_no 로 fallback."""
+        if channel_id:
+            composite = self.make_key(video_no, channel_id)
+            if composite in self._data["processed_vods"]:
+                return composite
+        # plain key fallback (레거시)
+        if video_no in self._data["processed_vods"]:
+            return video_no
+        # 새 항목이면 composite 사용
+        if channel_id:
+            return self.make_key(video_no, channel_id)
+        return video_no
 
-    def get_status(self, video_no: str) -> Optional[str]:
+    def is_processed(self, video_no: str, channel_id: Optional[str] = None) -> bool:
         with self._lock:
-            entry = self._data["processed_vods"].get(video_no)
+            key = self._resolve_key(video_no, channel_id)
+            return key in self._data["processed_vods"]
+
+    def get_status(self, video_no: str, channel_id: Optional[str] = None) -> Optional[str]:
+        with self._lock:
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key)
             return entry.get("status") if entry else None
 
-    def update(self, video_no: str, status: str, **kwargs) -> None:
+    def update(self, video_no: str, status: str, channel_id: Optional[str] = None, **kwargs) -> None:
         with self._lock:
             now = datetime.now(KST).isoformat()
-            entry = self._data["processed_vods"].get(video_no, {})
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key, {})
             entry["video_no"] = video_no
+            if channel_id:
+                entry["channel_id"] = channel_id
             entry["status"] = status
             entry["updated_at"] = now
             if status == "processing" and "started_at" not in entry:
@@ -78,7 +109,7 @@ class PipelineState:
             if status == "completed":
                 entry["completed_at"] = now
             entry.update(kwargs)
-            self._data["processed_vods"][video_no] = entry
+            self._data["processed_vods"][key] = entry
             self._save()
 
     def update_poll_time(self) -> None:
@@ -102,20 +133,24 @@ class PipelineState:
             self._data["stop"] = False
             self._save()
 
-    def get_failed_vods(self, max_retries: int = 3) -> list:
+    def get_failed_vods(self, max_retries: int = 3) -> list[tuple[str, Optional[str]]]:
+        """실패한 VOD 목록을 (video_no, channel_id) 튜플 리스트로 반환."""
         with self._lock:
-            failed = []
-            for vno, entry in self._data["processed_vods"].items():
+            failed: list[tuple[str, Optional[str]]] = []
+            for _key, entry in self._data["processed_vods"].items():
                 if entry.get("status") == "error":
                     retry_count = entry.get("retry_count", 0)
                     if retry_count < max_retries:
-                        failed.append(vno)
+                        vno = entry.get("video_no", _key)
+                        cid = entry.get("channel_id")
+                        failed.append((vno, cid))
             return failed
 
-    def increment_retry(self, video_no: str) -> None:
+    def increment_retry(self, video_no: str, channel_id: Optional[str] = None) -> None:
         with self._lock:
-            entry = self._data["processed_vods"].get(video_no, {})
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key, {})
             entry["retry_count"] = entry.get("retry_count", 0) + 1
             entry["status"] = "pending_retry"
-            self._data["processed_vods"][video_no] = entry
+            self._data["processed_vods"][key] = entry
             self._save()

@@ -1,0 +1,108 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-a4-acquisition-followup"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth + baseline: sister main@d97514e, live detached d97514e, remote refs/heads/main only, merge-base d97514e -> origin/main true, predecessor turn-02 re-read."
+    - id: C2
+      description: "Labeling schema fixed with platform_category authoritative and content_judgement annotation on every row/cell plus a global labeling_schema block."
+    - id: C3
+      description: "W5 chat acquisition landed sister-only, is independently reproducible through fetch_all_chats, and did not touch live work/."
+    - id: C4
+      description: "W4 offset chat acquisition landed sister-only, direct arbitrary playerMessageTime does not directly yield the desired relative offset slice, and paginate-from-t=0 plus window filter reproduces the usable window."
+    - id: C5
+      description: "Re-measurement raw JSON arithmetic is consistent, W4f/W5f metrics match Turn 1, 2026-04-15 A4 files remain HEAD-identical, and sister validators pass."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "Cross-session aggregation across {W1, W2, W3, W4f, W5f} is still deferred and should be attached to the smoke contract as Step 0."
+      - "The retry-collapse behavior in W4f chunk 1 is reproduced and documented but not fixed in this session."
+    amendments:
+      - "C4 wording corrected from 'direct seek returned NO_CHAT' to the narrower claim that arbitrary playerMessageTime does not directly yield the desired relative offset window."
+      - "C5 wording corrected to restrict HEAD byte-identity to the 2026-04-15 tracked A4 files; the prior 2026-04-16 genre-acquisition artifacts are untracked sister-only carry-forward files and are outside HEAD identity scope."
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "Sister baseline reproduced as main@d97514e. Live baseline reproduced as detached d97514e with 13 status lines. Remote exposes only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. merge-base --is-ancestor d97514e origin/main exited 0."
+    C2:
+      verdict: pass
+      evidence: "2026-04-16_phase-a4-acquisition-followup_raw.json rows[] and cells[] each carry platform_category and content_judgement. global.labeling_schema.primary=platform_category and promotion_axis_uses=platform_category. The companion md documents the same decision."
+    C3:
+      verdict: pass
+      evidence: "sister work/11688000/11688000_chat.log exists at 82929 bytes. First line begins [00:00:00]. Independent fetch_all_chats('11688000', max_duration_sec=1800) reproduced COUNT=1544, COVERAGE=1799.549, DENSITY=51.4796. live work/11688000/11688000_chat.log does not exist."
+    C4:
+      verdict: fail-then-fixed
+      evidence: "sister work/12702452/12702452_chat_offset1800s.log exists at 117235 bytes. First line begins [00:00:00], last line begins [00:29:58]. Independent fetch_all_chats('12702452', max_duration_sec=3600) then [1800000,3600000) filter reproduced WINDOW_COUNT=2444, COVERAGE=1798.9, DENSITY=81.5169. An arbitrary direct HTTP request to service/v1/videos/12702452/chats?playerMessageTime=1800000 returned a nonempty page rather than literal NO_CHAT, so Turn 1's wording was too strong and was corrected to 'does not directly yield the desired relative offset slice'."
+    C5:
+      verdict: fail-then-fixed
+      evidence: "W4f chunk 1 retry.user_attributable is literally 2. All rows satisfy user_attributable = input + cache_creation and user_ratio = user_attributable/predicted to file precision. W4f cell is n_valid_chunks=3, insufficient_data=false, median_user_ratio=2.8815, P95=3.2994, median_additive_overhead=8286.0. W5f cell is n_valid_chunks=3, insufficient_data=false, median_user_ratio=2.6337, P95=2.9456, median_additive_overhead=8242.0. 2026-04-15 A4 raw/md are HEAD-identical by git diff/hash-object/ls-tree. The prior 2026-04-16 genre-acquisition raw/md are untracked in sister, so Turn 1's HEAD-identity claim for those files was documentary overreach and was corrected."
+  issues_found:
+    - "Turn 1 overstated the W4 direct-seek result as literal NO_CHAT. The raw API request returns a nonempty page; the actual invariant is that arbitrary playerMessageTime does not directly yield the desired relative offset slice."
+    - "Turn 1 stated that the prior 2026-04-16 genre-acquisition raw/md were byte-identical to HEAD. Those files are untracked sister-only carry-forward artifacts, so a HEAD-based identity claim does not apply."
+  fixes_applied:
+    - "Updated turn-01.yaml, session/root state.json, and both summaries to use the narrower C4 wording."
+    - "Updated turn-01.yaml, session/root state.json, the session summaries, and the follow-up result md to restrict HEAD byte-identity claims to the tracked 2026-04-15 A4 files."
+
+my_work:
+  task_model:
+    goal: "Peer-verify the acquisition-followup execute session without opening smoke, touching live work/, or mutating pipeline/config/results outside this session's documentary surface."
+    non_goals:
+      - "open 2026-04-16-a4-end-to-end-smoke"
+      - "promote chunk_max_tokens"
+      - "edit pipeline code or pipeline_config.json"
+      - "mutate git refs or push"
+      - "touch live work/"
+  plan: "Reproduce baselines, rerun both chat probes independently, sanity-check the new raw JSON arithmetic and schema, verify prior A4 tracked-file immutability, scan for cookie leakage, rerun sister validators, then fix any documentary overclaim inside this session only."
+  changes:
+    files_modified:
+      - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/state.json"
+      - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/2026-04-16-2026-04-16-a4-acquisition-followup-summary.md"
+      - "Document/dialogue/state.json"
+      - "experiments/results/2026-04-16_phase-a4-acquisition-followup.md"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/turn-02.yaml"
+    summary: "Peer verification reproduced the measurement results and sister validators. Two documentary overclaims in C4/C5 were corrected in-place; no execution-scope mutation beyond current-session docs occurred."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "git branch --show-current; git rev-parse --short HEAD; git status --short; git ls-remote --heads origin; git merge-base --is-ancestor d97514e origin/main (sister) -> main, d97514e, expected residue, main only, exit 0"
+      - "git symbolic-ref --short -q HEAD; git rev-parse --short HEAD; git status --short | Measure-Object -Line (live) -> detached, d97514e, 13"
+      - "python -c from pipeline.chat_collector import fetch_all_chats ... fetch_all_chats('11688000', max_duration_sec=1800) -> COUNT=1544, COVERAGE=1799.549, DENSITY=51.4796"
+      - "python -c from pipeline.chat_collector import fetch_all_chats ... fetch_all_chats('12702452', max_duration_sec=3600) + [1800000,3600000) filter -> WINDOW_COUNT=2444, COVERAGE=1798.9, DENSITY=81.5169"
+      - "python requests GET https://api.chzzk.naver.com/service/v1/videos/12702452/chats?playerMessageTime=1800000 -> STATUS=200 with a nonempty page, confirming arbitrary direct seek does not directly yield the desired offset slice"
+      - "Get-Content work/11688000/11688000_chat.log -TotalCount 1; Get-Content work/12702452/12702452_chat_offset1800s.log -TotalCount 1; last line check -> [00:00:00] first timestamps and [00:29:58] last timestamp for the offset log"
+      - "python over 2026-04-16_phase-a4-acquisition-followup_raw.json -> all UA_OK, all RATIO_OK to file precision, W4F_CHUNK1_RETRY_UA=2"
+      - "git diff --exit-code HEAD -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json experiments/results/2026-04-16_phase-a4_genre-acquisition.md -> exit 0; hash-object + ls-tree HEAD confirms only the 2026-04-15 tracked files have HEAD blobs"
+      - "Select-String exact-secret scan across packet/state/summaries/scripts/new artifacts -> NO_COOKIE_LEAK_HITS"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS (59 files)"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+    artifacts:
+      - "experiments/results/2026-04-16_phase-a4-acquisition-followup_raw.json"
+      - "experiments/results/2026-04-16_phase-a4-acquisition-followup.md"
+      - "work/11688000/11688000_chat.log"
+      - "work/12702452/12702452_chat_offset1800s.log"
+  verification: "All requested reproductions succeeded except for two wording-level claims in Turn 1. Those were corrected in-place. No pipeline/config/git-ref/remote/live-work mutation was introduced during peer verification."
+  open_risks:
+    - "Cross-session aggregation across {W1, W2, W3, W4f, W5f} still has not been run. This is now the only remaining measurement bookkeeping step before smoke."
+    - "The within-chunk retry-collapse behavior remains an experiments-hygiene issue but no longer blocks opening smoke."
+    - "The accepted live validator residue outside sister remains out of scope and unchanged."
+  confidence: high
+
+handoff:
+  next_task: "Open 2026-04-16-a4-end-to-end-smoke next, but attach cross-session aggregation as Step 0 in that contract. Step 0 should merge {W1, W2, W3, W4f, W5f} cell summaries into one evaluate_global pass before the actual smoke run starts."
+  context: "This acquisition-followup session closed the measurement blockers: labeling schema is fixed, W5 chat exists, W4 offset chat exists, and both cells re-measured valid with chat. The only remaining measurement bookkeeping is a deterministic cross-session aggregation over existing artifacts. That can ride at the top of the smoke contract rather than forcing another standalone acquisition session."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "All five checkpoints are either pass or fail-then-fixed. The remaining cross-session aggregation is deterministic bookkeeping over existing artifacts and can be attached to the smoke contract as Step 0; no further acquisition session is required."

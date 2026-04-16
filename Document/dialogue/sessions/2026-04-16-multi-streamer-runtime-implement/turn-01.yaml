@@ -1,0 +1,98 @@
+type: turn
+session_id: "2026-04-16-multi-streamer-runtime-implement"
+turn: 1
+from: claude-code
+timestamp: "2026-04-16T22:00:00+09:00"
+
+scope: |
+  멀티 스트리머 runtime 지원의 첫 vertical slice 구현.
+  pipeline_config → monitor → state → main → summarizer → publish builder 전 레이어에
+  multi-streamer awareness 를 삽입한다. 레거시 단일 스트리머 config 완전 호환.
+
+contract:
+  checkpoints:
+    C1: "Auth probe — sister main@d97514e, live d97514e, merge-base OK"
+    C2: "Config normalization — normalize_streamers() 가 legacy cfg → 단일 항목 리스트, multi cfg → N항목 리스트를 반환"
+    C3: "State composite key — PipelineState.make_key() 가 '{channel_id}:{video_no}' composite key 생성, plain key fallback"
+    C4: "Metadata identity — generate_reports() 출력 JSON 에 channel_id, streamer_id, platform, thumbnail_url 포함"
+    C5: "Multi-streamer daemon — run_daemon(), run_once() 가 normalize_streamers() 결과를 순회하며 각 channel 폴링"
+    C6: "Publish builder metadata-first — _build_vod_record() 가 meta.channel_id → config fallback 순으로 권위 적용"
+    C7: "Backward compat — settings_ui imports OK, 기존 output 빌더 1 VOD 1 streamer 재현"
+    C8: "Two-streamer synthetic test — 2 VODs / 2 streamers / 2 search entries 생성 확인"
+
+peer_review:
+  verdict: "N/A (Turn 1)"
+  notes: "첫 턴이므로 peer review 대상 없음."
+
+my_work:
+  summary: |
+    pipeline 6개 파일에 multi-streamer awareness 삽입 완료.
+    config.py: normalize_streamers() + derive_streamer_id() 추가.
+    models.py: VODInfo.streamer_id 필드 추가.
+    state.py: composite key + backward-compat plain key.
+    monitor.py: parse_vod_info 에 streamer_id, state 호출에 channel_id 전달.
+    main.py: run_daemon/run_once 가 스트리머 목록 순회.
+    summarizer.py: metadata JSON 에 identity 필드 추가.
+    publish builder: metadata channel_id 를 1차 권위로 사용.
+
+  verification:
+    C1: "PASS. git rev-parse HEAD = d97514e."
+    C2: "PASS. legacy → 1항목, multi → 2항목."
+    C3: "PASS. composite key insert/lookup, plain fallback."
+    C4: "PASS. metadata에 channel_id, streamer_id, platform, thumbnail_url."
+    C5: "PASS. run_daemon/run_once iterate streamers."
+    C6: "PASS. meta.channel_id 우선, config fallback."
+    C7: "PASS. settings_ui imports OK. 기존 빌드 1 VOD / 1 streamer."
+    C8: "PASS. synthetic 2 VODs / 2 streamers / 2 search entries."
+
+  changes:
+    - file: "pipeline/config.py"
+      action: "modified"
+      detail: "Added streamers key, normalize_streamers(), derive_streamer_id()."
+
+    - file: "pipeline/models.py"
+      action: "modified"
+      detail: "Added streamer_id field to VODInfo."
+
+    - file: "pipeline/state.py"
+      action: "modified"
+      detail: "Added composite key support with plain fallback."
+
+    - file: "pipeline/monitor.py"
+      action: "modified"
+      detail: "parse_vod_info sets streamer_id, state calls pass channel_id."
+
+    - file: "pipeline/main.py"
+      action: "modified"
+      detail: "run_daemon/run_once iterate over normalize_streamers(). All state.update pass channel_id."
+
+    - file: "pipeline/summarizer.py"
+      action: "modified"
+      detail: "generate_reports metadata JSON includes identity fields."
+
+    - file: "publish/builder/build_site.py"
+      action: "modified"
+      detail: "_build_vod_record uses meta.channel_id as primary."
+
+    - file: "docs/publish-schema.md"
+      action: "modified"
+      detail: "Updated derivation table for channel_id/streamer_id."
+
+    - file: "docs/multi-streamer-web-publish-backlog.md"
+      action: "modified"
+      detail: "P0 status → 완료."
+
+  decisions:
+    - "streamers 리스트가 None 이면 legacy 필드로 단일 항목 자동 생성."
+    - "PipelineState composite key '{channel_id}:{video_no}'. plain fallback 유지."
+    - "metadata JSON 에 channel_id, streamer_id, platform, thumbnail_url 직접 기록."
+    - "settings_ui 미변경 — 멀티 스트리머 GUI 는 후속 슬라이스."
+
+handoff:
+  next_agent: "codex"
+  next_task: "Peer-verify Turn 1 C1-C8."
+  context: |
+    runtime pipeline 6개 파일에 multi-streamer awareness 삽입.
+    normalize_streamers() 가 legacy/multi config 통일.
+    PipelineState composite key 로 cross-streamer 충돌 방지.
+    generate_reports() 가 metadata 에 identity 직접 기록.

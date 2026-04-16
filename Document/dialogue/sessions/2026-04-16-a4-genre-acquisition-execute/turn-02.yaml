@@ -1,0 +1,102 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-a4-genre-acquisition-execute"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth + baseline: sister main@d97514e, live detached d97514e, remote refs/heads/main only, preflight predecessor re-read."
+    - id: C2
+      description: "Step 0 cookie probe reproduces get_video_info(12702452, cookies) with video_id present, in_key present, vodStatus=ABR_HLS, adult=False, duration=20552, category='더 게임 오브 라이프 포 닌텐도 스위치', and no cookie leak."
+    - id: C3
+      description: "Step 1 non-talk acquisition produced sister-only work/11688000 assets with the recorded sizes and did not mutate live work/."
+    - id: C4
+      description: "Step 2 offset resample produced sister-only 12702452 offset assets, broke the W2=W3 t=0 duplication, and the category-mislabel finding is grounded in live Chzzk metadata."
+    - id: C5
+      description: "New 2026-04-16 A4 genre-acquisition raw/md artifacts are present, 2026-04-15 A4 files remain byte-identical to HEAD, math is consistent to file precision, and sister validators pass."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "Do not open the smoke session until a separate acquisition/measurement follow-up resolves the labeling schema and the W4/W5 chat-coverage gap."
+    amendments: []
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "Sister is main@d97514e with the expected working-tree residue. Live is detached at d97514e with 13 status lines. Remote exposes only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c."
+    C2:
+      verdict: pass
+      evidence: "Independent inline Python probe against content.network.NetworkManager.get_video_info('12702452', cookies) reproduced HAS_VIDEO_ID=True, HAS_IN_KEY=True, VOD_STATUS=ABR_HLS, ADULT=False, META_DURATION=20552, META_CATEGORY='더 게임 오브 라이프 포 닌텐도 스위치'. Exact cookie substrings were scanned across the session packet/summaries and experiment scripts/results with no hits."
+    C3:
+      verdict: pass
+      evidence: "Sister work/11688000 contains the downloaded 144p mp4 at 199613799 bytes, clip1800s wav at 57600078 bytes, clip1800s srt at 14300 bytes, and empty chat log. Live work/ has no work/11688000 directory and no new 11688000 files."
+    C4:
+      verdict: pass
+      evidence: "Sister work/12702452 contains 12702452_offset1800s_clip1800s.wav at 57600078 bytes, companion srt at 26114 bytes, and offset empty chat log. Live work/12702452 contains no offset1800s files. The same probe that verified C2 also showed videoCategoryValue='더 게임 오브 라이프 포 닌텐도 스위치', confirming the A4 talk label was a methodology error."
+    C5:
+      verdict: pass
+      evidence: "git diff --exit-code HEAD -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md returned exit 0, and git hash-object matched git ls-tree HEAD for both files. The new raw JSON reports W4 insufficient_data=true, W5 n_valid_chunks=3, median_user_ratio=4.1179, P95=4.6886, additive_overhead=7912.0, covered_cell_count=1, axis_coverage_ok=false, dispersion_ok=true, decision=per_cell_multiplicative, template_hash=4d732b40fa470862. Sister Validate-Documents and Validate-DadPacket both passed."
+  issues_found:
+    - "Turn 2 named summary initially wrapped refs/heads/main in backticks, which Validate-Documents treated as a missing local reference."
+  fixes_applied:
+    - "Removed backticks around refs/heads/main in the named summary and re-ran Validate-Documents to PASS."
+
+my_work:
+  task_model:
+    goal: "Peer-verify the execute session without mutating pipeline/config/results/ref state, and decide whether the session can be sealed and what must happen before smoke."
+    non_goals:
+      - "open the smoke session"
+      - "promote chunk_max_tokens"
+      - "touch live work/"
+      - "push or mutate remote refs"
+  plan: "Reproduce baseline, rerun the Step 0 probe, verify Step 1/2 artifacts, confirm old A4 files are unchanged, scan for cookie leaks, validate raw JSON arithmetic, rerun sister validators, then answer the open questions and seal or stop."
+  changes:
+    files_modified:
+      - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/2026-04-16-2026-04-16-a4-genre-acquisition-execute-summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/state.json"
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/turn-02.yaml"
+    summary: "Peer verification passed all five checkpoints. No execution-scope drift was found, so the session is sealed. The next work is a separate acquisition/measurement follow-up before any end-to-end smoke."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "git branch --show-current; git rev-parse --short HEAD; git status --short (sister) -> main, d97514e, expected residue"
+      - "git symbolic-ref --short -q HEAD; git rev-parse --short HEAD; git status --short | Measure-Object -Line (live) -> detached, d97514e, 13"
+      - "git ls-remote --heads origin -> main only at d97514e49212d10b6ef8403b829f2612651a452c"
+      - "inline python using content.network.NetworkManager.get_video_info('12702452', cookies from live pipeline_config.json) -> video_id/in_key present, vodStatus=ABR_HLS, adult=False, duration=20552, category='더 게임 오브 라이프 포 닌텐도 스위치'"
+      - "Select-String exact-secret scan across session packet/summaries and related experiment scripts/results -> NO_COOKIE_LEAK_HITS"
+      - "Get-ChildItem sister work/11688000 and work/12702452 offset files -> sizes match Turn 1"
+      - "Test-Path live work/11688000 + Get-ChildItem live work/12702452 offset filter -> no live mutation"
+      - "git diff --exit-code HEAD -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md -> exit 0"
+      - "git hash-object + git ls-tree HEAD for the two 2026-04-15 A4 files -> identical blobs"
+      - "inline python over 2026-04-16_phase-a4_genre-acquisition_raw.json -> user_attributable equals input + cache_creation for all rows; user_ratio matches user_attributable/predicted to file precision"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS (57 files)"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+    artifacts:
+      - "experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json"
+      - "experiments/results/2026-04-16_phase-a4_genre-acquisition.md"
+      - "work/11688000/"
+      - "work/12702452/12702452_offset1800s_*"
+  verification: "All requested reproductions passed. The only normalization applied during review is interpretive: raw JSON user_ratio values are serialized to four decimals, so arithmetic is verified to file precision rather than exact binary float equality."
+  open_risks:
+    - "Labeling schema is still unresolved. Recommendation: store both platform_category (authoritative, from Chzzk metadata) and content_judgement (optional note), and use platform_category for axis_coverage_ok and promotion gating."
+    - "11688000 was measured with no chat log. Pulling VOD chat for W5 belongs in a separate acquisition/measurement session, not the smoke session."
+    - "W4 should be re-measured in the same separate acquisition/measurement session, with either a valid offset-specific chat source or an explicit no-chat protocol plus a longer inter-pair idle gap to avoid retry-collapse."
+    - "End-to-end smoke remains pending and should stay deferred until the acquisition/measurement follow-up converges."
+  confidence: high
+
+handoff:
+  next_task: "Open a separate acquisition/measurement follow-up before smoke. Resolve the labeling schema (platform_category primary, content_judgement secondary), pull W5 chat if available, and re-measure W4 under a corrected protocol. Only after that should 2026-04-16-a4-end-to-end-smoke open."
+  context: "This execute session succeeded and is peer-verified. The remaining uncertainty is methodological, not operational: the platform-category versus content-judgement label split, the no-chat status of W5, and the insufficient W4 cell. Those are acquisition/measurement follow-up items, not smoke items."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Codex independently reproduced baseline, probe, acquisition artifacts, byte-identity of the 2026-04-15 A4 files, cookie non-leak, raw-JSON arithmetic, and sister validator PASS. No checkpoint failed, so the execute session can be sealed."

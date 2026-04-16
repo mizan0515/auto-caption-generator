@@ -1,0 +1,35 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-multi-streamer-settings-ui-implement",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Turn 2 Codex peer-verify reproduced C1-C5 directly. The settings UI slice was valid overall, but channel_id validation initially accepted non-hex 32-char strings; Turn 2 fixed that defect in place and sealed the session.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "PASS. sister main@d97514e, live d97514e, remote d97514e, merge-base OK.",
+    "C2": "PASS after fix. Dynamic row add/delete and streamer field editing work. channel_id validation now checks real 32-hex form.",
+    "C3": "PASS. Legacy single-streamer config loads as one row and remains backward-compatible through legacy mirror fields.",
+    "C4": "PASS. Saved cfg['streamers'] round-trips through normalize_streamers() to the same canonical list.",
+    "C5": "PASS. Live Tk UI verification, settings_ui import smoke, output rebuild regression check, and both validators passed."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-multi-streamer-settings-ui-implement/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-multi-streamer-settings-ui-implement/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: Streamer scalar inputs were moved out of FIELDS into a dedicated multi-streamer section.",
+    "Turn 1: Saved config keeps a canonical streamers list and mirrors the first streamer into legacy scalar fields for downstream compatibility.",
+    "Turn 1: Empty streamer rows are blocked at save time so normalize_streamers() fallback is not silently triggered by a blank UI.",
+    "Turn 2: channel_id validation was tightened from length-only to real 32-hex checking."
+  ],
+  "meta_improvements": [
+    "Legacy scalar mirrors preserve tray/build/runtime fallback compatibility while the UI moves to canonical multi-streamer editing.",
+    "Real 32-hex validation closes a practical misconfiguration gap that the first implementation still allowed."
+  ]
+}

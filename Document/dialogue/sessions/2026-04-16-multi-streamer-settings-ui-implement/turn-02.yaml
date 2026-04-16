@@ -1,0 +1,87 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-multi-streamer-settings-ui-implement"
+
+contract:
+  status: accepted
+  checkpoints:
+    C1: "Auth probe: sister main@d97514e, live d97514e, remote d97514e, merge-base OK."
+    C2: "Settings UI streamers editor: dynamic row add/delete, channel_id+name+keywords fields, and actual channel_id validation."
+    C3: "Backward compatibility: legacy single-streamer config loads as one row and downstream runtime consumers keep working via mirrored scalar fields."
+    C4: "Canonical save round-trip: cfg['streamers'] is saved canonically and normalize_streamers() reconstructs the same list."
+    C5: "Live Tk UI test, settings_ui import smoke, output rebuild regression check, and both validators PASS."
+
+peer_review:
+  task_model_review:
+    status: amended
+    summary: "The settings UI slice was mostly correct, but Turn 1 overstated channel_id validation. The implementation only checked length==32, so non-hex 32-char strings passed. That defect was fixed in place. Session/root closeout drift was also fixed."
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "sister git rev-parse --short HEAD = d97514e, live git rev-parse --short HEAD = d97514e, origin/main = d97514e49212d10b6ef8403b829f2612651a452c, and git merge-base HEAD <remote_sha> returned the same ancestor."
+    C2:
+      verdict: fail-then-fixed
+      evidence: "pipeline/settings_ui.py had the dynamic multi-streamer editor and required methods, but channel_id validation only checked len()==32. A replay with 'g'*32 showed BADHEX_RESULT_IS_NONE False before the fix. Turn 2 added SettingsWindow._is_valid_channel_id() using a 32-hex regex and re-ran the simulation: BADHEX_BLOCKED=True, ASKYESNO_CALLED=1."
+    C3:
+      verdict: pass
+      evidence: "Legacy scalar fields are removed from FIELDS and mirrored from the first streamer during save. normalize_streamers(load_config()) on the current config returned '1 a7e17562'. Downstream scalar consumers remain in tray_app.py, pipeline/main.py fallback paths, and publish/builder/build_site.py fallback paths."
+    C4:
+      verdict: pass
+      evidence: "experiments/settings_ui_multi_streamer_verify.py passed 7/7, including save policy and canonical round-trip. cfg['streamers'] round-trips through normalize_streamers() unchanged."
+    C5:
+      verdict: pass
+      evidence: "The verification script's live Tk round-trip passed. settings_ui import smoke passed. Existing output rebuild still returned vod_count=1 and streamer_count=1. Validate-DadPacket.ps1 and Validate-Documents.ps1 both passed."
+  issues_found:
+    - file: "C:/github/auto-caption-generator-main/pipeline/settings_ui.py"
+      detail: "Turn 1 claimed '32자 hex 검사' but _collect_values() only enforced channel_id length==32. Non-hex 32-char strings were accepted."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-settings-ui-implement/state.json"
+      detail: "Turn 1 requested closure but left session_status=active, contract_status=proposed, current_turn=1, and no turn-02 packet reference."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/state.json"
+      detail: "Root dialogue state mirrored the same closeout drift as the session state."
+  fixes_applied:
+    - file: "C:/github/auto-caption-generator-main/pipeline/settings_ui.py"
+      detail: "Added real 32-hex validation helper and wired _collect_values() to validate full hex format rather than length only."
+    - file: "C:/github/auto-caption-generator-main/experiments/settings_ui_multi_streamer_verify.py"
+      detail: "Extended import smoke to assert that valid 32-hex channel IDs pass and non-hex 32-char values fail."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-settings-ui-implement/state.json"
+      detail: "Updated session closeout metadata to current_turn=2, last_agent=codex, session_status=converged, contract_status=accepted, and added turn-02.yaml."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/state.json"
+      detail: "Synced the root dialogue state to the peer-verified converged session state."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-settings-ui-implement/2026-04-16-2026-04-16-multi-streamer-settings-ui-implement-summary.md"
+      detail: "Appended the Turn 2 peer-verify verdict and the input-validation correction."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-settings-ui-implement/summary.md"
+      detail: "Added session summary.md required by DAD closeout conventions."
+
+my_work:
+  evidence:
+    commands:
+      - "git rev-parse --short HEAD"
+      - "git ls-remote --heads origin main"
+      - "git merge-base HEAD <remote_sha>"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD"
+      - "rg -n 'streamer_name|target_channel_id|fmkorea_search_keywords|streamers_container|_on_add_streamer|_add_streamer_row|_remove_streamer_row|_renumber_streamer_rows|_clear_streamer_rows|_collect_streamers|normalize_streamers|bootstrap_mode' pipeline/settings_ui.py"
+      - "$env:PYTHONIOENCODING='utf-8'; python experiments/settings_ui_multi_streamer_verify.py"
+      - "python -c \"from pipeline.config import load_config, normalize_streamers; s=normalize_streamers(load_config()); print(len(s), s[0]['channel_id'][:8])\""
+      - "python -c \"from publish.builder.build_site import build_site; from pathlib import Path; import tempfile; out=Path(tempfile.mkdtemp()); print(build_site(Path('./output'), out, Path('.')))\""
+      - "python -X utf8 - <patched _config_path save round-trip probe>"
+      - "python -X utf8 - <empty one-row simulation>"
+      - "python -X utf8 - <bad hex simulation>"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+  verification: |
+    C1, C3, C4, and C5 reproduced directly. C2 initially failed because the
+    implementation only enforced 32-character length, not 32-hex format.
+    That input-validation gap was fixed in place and re-verified. The session
+    was then sealed by syncing session/root closeout metadata.
+  open_risks:
+    - "tray_app.py still surfaces only the first mirrored streamer in status text. Runtime compatibility is preserved, but true multi-streamer tray UX remains a later slice."
+    - "publish_autorebuild and publish_site_dir are still not exposed in the settings UI."
+    - "The first-slice UI is verified through reproducible helper tests and a withdrawn Tk round-trip, but not through a manual operator UX pass."
+
+handoff:
+  next_task: ""
+  context: "Turn 2 peer-verify confirmed the multi-streamer settings UI first slice after fixing channel_id validation. No further DAD session is required for this slice."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "C1-C5 are now satisfied directly. The only implementation defect was the non-hex 32-char channel_id acceptance, which Turn 2 fixed in place along with session/root closeout metadata."

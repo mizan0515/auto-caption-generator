@@ -1,0 +1,163 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-a4-end-to-end-smoke"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Auth probe PASS. Sister main@d97514e clean of unexpected diff. Live detached d97514e with 13 status lines (accepted residue). Remote only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. merge-base --is-ancestor d97514e origin/main = true. Predecessor session 2026-04-16-a4-acquisition-followup turn-02 (Codex peer-verify) re-read."
+    - id: C2
+      description: "Step 0 cross-session aggregation ran deterministically over the three existing raw JSONs (2026-04-15 A4, 2026-04-16 genre-acquisition, 2026-04-16 acquisition-followup) via a single evaluate_global pass. New non-overwriting artifacts written: 2026-04-16_phase-a4_cross-session-aggregation_raw.json and .md. platform_category is named authoritative axis label. Aggregated global decision=per_cell_multiplicative. covered_cell_count=3 (W4f, W5f, W5-olympics-nochat), covered_density_tiers=3, covered_platform_category_count=2, dispersion_ok=false. Promotion gate FAIL."
+    - id: C3
+      description: "Full-pipeline smoke: python -m pipeline.main --process 11688000 --limit-duration 1800 completed in the sister worktree. All stages PASS: VOD info fetch via NetworkManager+cookies, existing-file download short-circuit, clip to 1800s, chat collection (1600->1544), fmkorea scrape (20 posts), highlight analysis (6 peaks), Whisper transcription (large-v3-turbo on CUDA), char-based chunking at 150000/45s, Claude summarization within 300s timeout, md+html+metadata written to sister ./output, and output/pipeline_state.json records processed_vods[11688000].status=completed at 05:23:58."
+    - id: C4
+      description: "Smoke output verification PASS. Artifacts exist for work/{mp4,chat.log,srt,clip_mp4}, output/{md,html,metadata}. pipeline.summarizer._parse_summary_sections on smoke md extracts title, 5 hashtags, 13 timeline entries, 5 highlights, 2 editor-notes items. pipeline.summarizer._generate_html renders 20676 chars with valid DOCTYPE when called with the smoke md, metadata-backed highlights, and parsed smoke chats. experiments/test_parser.py and experiments/test_html_render.py were not used directly because they hardcode VOD 12702452 output paths that do not exist in sister; the inline runner against the smoke output exercises the same 4-file summarizer unit."
+    - id: C5
+      description: "No prohibited mutation. pipeline_config.json sister copy is byte-identical to live and remains gitignored. No pipeline code edit. No pipeline_config.json write. No chunk_max_tokens default promotion. No overwrite of 2026-04-15 A4 tracked raw/md. No overwrite of prior 2026-04-16 untracked carry-forward raw/md. No live worktree write (smoke ran from sister cwd). No git ref mutation. No remote push. No Chzzk cookie leak. Sister Validate-Documents and Validate-DadPacket PASS."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Why Step 0 precedes the smoke body.
+
+    Codex Turn 2 of 2026-04-16-a4-acquisition-followup sealed the
+    acquisition-followup session by independently reproducing chat
+    acquisition for W5 and W4 offset, the re-measurement arithmetic,
+    the schema fix, the cookie non-leak, and the sister validators.
+    That seal explicitly moved cross-session aggregation out of the
+    acquisition-track and into the smoke contract as Step 0:
+
+      "Open 2026-04-16-a4-end-to-end-smoke next, but attach
+       cross-session aggregation as Step 0 in that contract."
+
+    Step 0 is deterministic bookkeeping over three existing raw JSONs.
+    It is not another acquisition round. Running it at the top of this
+    contract lets the smoke body answer two independent questions in
+    one session: (a) is A4 promotion ready as of the current raw
+    set? and (b) does the end-to-end pipeline still run clean on
+    current defaults?
+
+    Step 0 surfaced a documentary overclaim from the prior session.
+    The acquisition-followup seal said "{W1, W2, W3, W4f, W5f} = 5
+    valid cells if aggregated." The honest evaluate_global output is
+    covered_cell_count=3. W1/W2/W3 are all insufficient_data=true in
+    the committed 2026-04-15 A4 raw JSON (every chunk shows the
+    cache-warm retry-collapse: initial pair also cache-hot, so
+    user_attributable ~= 2 and user_ratio ~= 0.0003 on all 12 rows).
+    Pooling the no-chat W5 cell (P95=4.69) with the chat-fed cells
+    (P95 ~= 3.0) now also violates dispersion. A4 promotion stays
+    deferred, with the next required work being re-measurement of
+    W1/W2/W3 under a protocol that survives the 5-minute prompt-cache
+    TTL.
+
+    Smoke body rationale: VOD 11688000 was picked because the 144p
+    mp4 is already present in sister work/ (short-circuits download
+    but still exercises the cookies-gated NetworkManager
+    get_video_info path), because its chat is cookieless, and
+    because the cell (W5f) is already characterized so smoke-output
+    interpretation is anchored against known-good measurement.
+
+    The smoke invocation uses python -m pipeline.main --process
+    11688000 --limit-duration 1800. That is the canonical runtime
+    entry point. Running it from the sister cwd lands outputs under
+    sister ./output and sister ./work (per the relative paths in
+    pipeline_config.json) and keeps the live worktree untouched.
+
+  open_questions:
+    - "Should the dispersion policy, once W5-olympics-nochat is confirmed an outlier under chat-pooled evaluation, drop the nochat cell from the pooled dispersion check, or formalize a two-tier band (chat vs no-chat)? This needs to be decided before any further A4 axis work."
+    - "Is it acceptable to extend experiments/test_parser.py and experiments/test_html_render.py to take md path via argv[1], so future smokes can reuse them without hand-editing a committed path? (Considered out of scope for this session.)"
+
+  checkpoint_decisions:
+    C1:
+      verdict: pending_codex
+      evidence: "Auth probe recorded. Sister main@d97514e and live detached d97514e reproduced. Remote only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. merge-base --is-ancestor exit 0. Predecessor Codex seal re-read."
+    C2:
+      verdict: pending_codex
+      evidence: "experiments/a4_aggregate_cross_session.py writes experiments/results/2026-04-16_phase-a4_cross-session-aggregation_raw.json and .md. platform_category explicitly named authoritative axis label. covered_cell_count=3, covered_density_tiers=3, covered_platform_category_count=2, dispersion_ok=false. Prior seal's 5-cell framing is downgraded to 3 with evidence."
+    C3:
+      verdict: pending_codex
+      evidence: "python -m pipeline.main --process 11688000 --limit-duration 1800 exit 0. output/pipeline_state.json shows processed_vods[11688000].status=completed with completed_at=2026-04-16T05:23:58. md=8673B, html=25604B, metadata=886B. Whisper stdout progress-bar noise landed as one 158KB line but did not fail the run."
+    C4:
+      verdict: pending_codex
+      evidence: "Inline summarizer-unit runner over the smoke md parses 13 timeline entries, 5 highlights, 2 editor-notes items; _generate_html(summary_md, vod, highlights, chats, community_posts=[]) renders 20676 chars with DOCTYPE. test_parser.py and test_html_render.py were NOT used because they hardcode VOD 12702452 output paths which do not exist in sister."
+    C5:
+      verdict: pending_codex
+      evidence: "sister pipeline_config.json is a gitignored copy of live; git check-ignore PASS; bytes equal to live. No pipeline code edit. No chunk_max_tokens promotion. 2026-04-15 A4 raw/md are HEAD-identical. Prior 2026-04-16 genre-acquisition and acquisition-followup raw/md remain sister-only untracked carry-forward. No live worktree write. No git ref mutation. No remote push. No Chzzk cookie substring appears in packet, state, summaries, aggregation script, aggregation output, or smoke result md."
+
+my_work:
+  task_model:
+    goal: "Open the A4 end-to-end smoke session. Run cross-session aggregation as Step 0, then run a full-pipeline single-VOD smoke against VOD 11688000 with --limit-duration 1800, verify all artifacts, and report honest A4 promotion readiness without any runtime-default mutation."
+    non_goals:
+      - "promote chunk_max_tokens"
+      - "edit pipeline code"
+      - "edit pipeline_config.json on either worktree"
+      - "overwrite 2026-04-15 A4 tracked raw/md"
+      - "overwrite prior 2026-04-16 untracked carry-forward raw/md"
+      - "write into live worktree ./output or ./work"
+      - "mutate git refs"
+      - "push to remote"
+      - "re-measure W1/W2/W3 (that belongs to a separate follow-up)"
+      - "open further DAD session beyond this smoke"
+  plan: "C1 baseline -> C2 Step 0 aggregation runner + new raw/md -> C3 full-pipeline smoke from sister -> C4 artifact + summarizer-unit regression -> C5 safety invariants + sister validators + end-of-turn state update."
+  changes:
+    files_created:
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/state.json"
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/2026-04-16-2026-04-16-a4-end-to-end-smoke-summary.md"
+      - "experiments/a4_aggregate_cross_session.py"
+      - "experiments/results/2026-04-16_phase-a4_cross-session-aggregation_raw.json"
+      - "experiments/results/2026-04-16_phase-a4_cross-session-aggregation.md"
+      - "experiments/results/2026-04-16_phase-a4_end-to-end-smoke.md"
+      - "experiments/_a4_smoke_run.log"
+      - "output/11688000_20260210_... .md (sister-only smoke output)"
+      - "output/11688000_20260210_... .html (sister-only smoke output)"
+      - "output/11688000_20260210_..._metadata.json (sister-only smoke output)"
+      - "output/pipeline_state.json (sister)"
+      - "pipeline_config.json (sister copy of live, gitignored)"
+    files_modified:
+      - "Document/dialogue/state.json (session pointer mirror update)"
+      - "work/11688000/11688000_chat.log (re-fetched by smoke; content reproduces the acquisition-followup pull)"
+    summary: "Step 0 aggregation and a full-pipeline smoke against VOD 11688000 both ran without runtime-default mutation. Step 0 surfaced an honest downgrade of the prior seal's 5-cell claim to 3 valid cells and a dispersion fail, so A4 promotion stays deferred. Smoke succeeded end-to-end; summarizer-unit parses the md into 13 timeline entries and renders 20676-char html when called with the smoke chats and metadata-backed highlights."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "claude -p 'ping' --output-format json --max-turns 1 -> pong"
+      - "git -C C:/github/auto-caption-generator-main branch --show-current -> main"
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator symbolic-ref --short -q HEAD -> detached"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator status --short | wc -l -> 13"
+      - "git ls-remote --heads origin -> refs/heads/main only at d97514e49212d10b6ef8403b829f2612651a452c"
+      - "git merge-base --is-ancestor d97514e origin/main -> exit 0"
+      - "python experiments/a4_aggregate_cross_session.py -> Wrote raw.json + .md; global.covered_cell_count=3, decision=per_cell_multiplicative, dispersion_failures=['W5-11688000-30min-olympics-nochat']; promotion_readiness.ready=false"
+      - "cp C:/github/auto-caption-generator/pipeline_config.json C:/github/auto-caption-generator-main/pipeline_config.json -> sister copy gitignored (git check-ignore PASS)"
+      - "python -m pipeline.main --process 11688000 --limit-duration 1800 -> exit 0; output/pipeline_state.json processed_vods[11688000].status=completed completed_at=2026-04-16T05:23:58; md=8673B, html=25604B, metadata=886B"
+      - "inline python over output md + metadata + smoke chat log: _parse_summary_sections -> 13 timeline entries, 5 highlights, 2 editor-notes items; _generate_html(summary_md, vod, highlights, chats, community_posts=[]) -> 20676 chars with DOCTYPE"
+      - "git check-ignore pipeline_config.json -> pipeline_config.json (gitignored)"
+    artifacts:
+      - "experiments/a4_aggregate_cross_session.py"
+      - "experiments/results/2026-04-16_phase-a4_cross-session-aggregation_raw.json"
+      - "experiments/results/2026-04-16_phase-a4_cross-session-aggregation.md"
+      - "experiments/results/2026-04-16_phase-a4_end-to-end-smoke.md"
+      - "output/11688000_20260210_....md"
+      - "output/11688000_20260210_....html"
+      - "output/11688000_20260210_..._metadata.json"
+  verification: "All checkpoints PASS. Honest Step 0 finding was that covered_cell_count is 3, not 5 as the prior seal implied, and that pooling the no-chat W5 cell breaks dispersion. The smoke body itself succeeded end-to-end on current runtime defaults with no config mutation."
+  open_risks:
+    - "W1/W2/W3 need to be re-measured under a retry protocol that is robust against the 5-minute prompt-cache TTL (initial pair was also cache-hot in the committed 2026-04-15 A4 raw JSON, collapsing user_attributable to 2 on every chunk). Until they are, cross-session aggregation cannot reach covered_cell_count>=5."
+    - "Dispersion pooling now fails because W5-olympics-nochat P95=4.6886 is an outlier against chat-fed P95~=3.0. The next session should decide whether to drop the nochat cell from the pooled dispersion check or to keep it and formally document a two-tier dispersion band (chat vs no-chat)."
+    - "Smoke run pipes a 158-KB single-line Whisper/Silero progress bar to stdout, which made the run log unreadable via normal tools. Not a pipeline defect, but an experiments-hygiene gap -- future pipeline-smoke runners should redirect tqdm progress to stderr or discard it."
+    - "chunk_max_tokens promotion remains deferred. Current live pipeline_config.json uses chunk_max_chars=150000 with chunk_max_tokens unset; the smoke validates that the char-based fallback path still produces a well-formed summary."
+    - "The committed experiments/test_parser.py and experiments/test_html_render.py hardcode VOD 12702452 output paths. Inline runner covered the same surface for this smoke, but the committed scripts should eventually take the md path as argv[1] so they are usable against any smoke output."
+  confidence: high
+
+handoff:
+  next_task: "Codex Turn 2: peer-verify 2026-04-16-a4-end-to-end-smoke Turn 1. Independently reproduce (1) the baseline + remote + ancestor, (2) experiments/a4_aggregate_cross_session.py numbers, (3) the full-pipeline smoke completion markers in output/pipeline_state.json + the three output files, (4) the inline summarizer-unit regression against the smoke md, (5) no chunk_max_tokens promotion / no pipeline_config.json mutation / no live worktree write / no Chzzk cookie leak across packet-state-summaries-new artifacts / sister validators PASS. Correct any wording-level overclaim in-place and seal. Do NOT open further DAD session in Turn 2."
+  context: "Step 0 cross-session aggregation corrected a documentary overclaim from the prior acquisition-followup seal: covered_cell_count=3, not 5, and pooled dispersion now fails because W5-olympics-nochat P95 is an outlier against chat-fed P95. The smoke body itself succeeded end-to-end on current runtime defaults. No chunk_max_tokens promotion. A4 promotion stays deferred pending a separate re-measurement session for W1/W2/W3 under a cache-TTL-aware retry protocol."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Smoke run produced all expected artifacts and the summarizer-unit regression is green. Step 0 aggregation is deterministic bookkeeping and its output is a faithful evaluate_global pass. No prohibited mutation occurred. The remaining measurement work (W1/W2/W3 re-measurement, dispersion policy) is clearly outside this session's scope."
