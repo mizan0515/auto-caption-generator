@@ -90,9 +90,27 @@ stale 가능성:
 
 - **세션 우선 모드**: hybrid (대다수 작업), supervised (DAD 인프라/계약 변경 시), autonomous (소규모 버그픽스)
 - **세션 슬라이스**: 짧은 session-scoped slice 우선. 한 작업 = 한 세션 권장. 목표/검증 표면 바뀌면 새 세션
+- **제품 우선 원칙**: DAD는 실제 제품 진전(측정, 수정, 실행, smoke, config 판단)에 우선 사용한다. 운영 메타작업은 부수 처리여야 한다.
+- **한 세션 = 실제 산출 1개**: 기본 단위는 측정 결과 1개, 버그 수정 1개, smoke 1개 같은 concrete output이다. state/summary 정리만을 위한 세션 개설은 지양한다.
+- **관리성 턴 최소화**: wording correction, closure seal, 이미 닫힌 사실의 재확인만을 위한 턴은 기본 금지에 가깝게 다룬다. 같은 턴에서 닫을 수 있는 documentary drift는 그 턴 안에서 끝낸다.
+- **peer-verify 제한 사용**: remote-visible mutation, runtime/config decision, high-risk measurement처럼 실제 리스크가 큰 경우에만 별도 peer-verify 턴을 둔다. 저위험 문구/메타 정리는 실행 턴 안에서 같이 닫는다.
 - **세션 종료 전 필수 validator**: `tools/Validate-Documents.ps1`, `tools/Validate-DadPacket.ps1` (live 세션 있을 때)
 - **부트스트랩 점검**: `pipeline_config.json` 존재 여부, ffmpeg/claude CLI PATH, GPU 가용성
 - **summary 갱신**: 세션 종료 시 `Document/dialogue/sessions/{session-id}/summary.md` 작성. 운영 의미 있는 결정은 `experiments/results/`에도 사본 (운영 보고서 흐름)
+
+운영 경고:
+
+- DAD를 DAD 관리 자체에 쓰기 시작하면 토큰과 시간이 빠르게 샌다.
+- 아래는 **나쁜 DAD 패턴**으로 취급한다:
+  - 실행 세션 뒤에 peer-verify only, wording-fix only, final-seal only 세션을 연쇄로 여는 것
+  - 이미 `converged`인 사실을 반복 확인하는 것
+  - state/summary 동기화가 본체가 되는 세션
+- 아래는 **좋은 DAD 패턴**으로 권장한다:
+  - W1/W2/W3 재측정
+  - 실사용 smoke
+  - summarizer/parser 버그 수정
+  - 다운로드/채팅 수집 실패 원인 수정
+  - UI/트레이 사용성 개선
 
 ## Git Rules
 

@@ -10,6 +10,8 @@ Codex와 Claude Code가 대칭 턴으로 협업하는 프로토콜.
 4. Live files first: repository reality beats stale memory.
 5. Schema discipline: packets and state must validate.
 6. System-doc sync: if DAD infra, validators, commands, prompt templates, or agent contracts change, sync the related docs in the same task or make that the first next task.
+7. Product-first sessions: prefer DAD for measurement, implementation, smoke, and fix work that changes real product state or decision quality.
+8. Minimize management-only turns: do not split work into peer-verify-only, wording-fix-only, or closure-seal-only turns unless risk is genuinely high.
 
 ## Turn Flow
 
@@ -84,6 +86,9 @@ Root `state.json` tracks the currently active session only. When a new session i
 
 - 목표, 검증 표면, 작업 소유 범위가 크게 바뀌면 하나의 긴 umbrella session보다 짧은 session-scoped slice를 우선한다.
 - 새 세션이 현재 세션을 대체하면 이전 세션을 그냥 방치하지 말고 `superseded` 또는 다른 종료 상태로 명시적으로 닫는다.
+- 기본 단위는 **한 세션 = 실제 산출 1개**다. 예: 측정 결과 1개, smoke 1개, 버그 수정 1개.
+- state/summary 동기화나 wording correction만을 위한 독립 세션은 원칙적으로 만들지 않는다. 같은 턴에서 닫을 수 있으면 같은 턴에서 닫는다.
+- 별도 peer-verify 턴은 remote-visible mutation, runtime/config decision, high-risk measurement처럼 결과를 다시 읽는 비용이 정당화되는 경우에만 사용한다.
 
 Expected contents per session directory:
 
@@ -152,6 +157,19 @@ Minimum moments to run validation:
 1. after saving a turn packet
 2. before recording `suggest_done: true`
 3. before resuming a recovered session
+
+## Efficiency Policy
+
+- DAD는 제품 개발 프레임워크이지 문서 운영 프레임워크가 아니다.
+- 다음 패턴은 지양한다:
+  - `실행 -> peer verify -> wording fix -> closure seal` 식의 4단 분해
+  - 이미 닫힌 사실을 새 세션에서 다시 봉인하는 것
+  - 실행 없는 validator 잡음 정리에 세션 전체를 쓰는 것
+- 다음 패턴을 권장한다:
+  - `측정 + 집계`
+  - `수정 + 검증`
+  - `smoke + 실패 단계 수정`
+- documentary drift는 기본적으로 현재 턴에서 같이 수정한다. drift만 남았다는 이유로 다음 세션을 자동 생성하지 않는다.
 
 ## Prompt References
 

@@ -53,6 +53,14 @@
 6. 필수 핸드오프 포맷으로 Codex 프롬프트 출력
 7. 시스템 문서 drift 잔존 시 같은 턴에 닫거나 다음 작업 첫 항목으로 명시
 
+추가 운영 원칙:
+
+- DAD는 제품 작업용으로 사용한다. 측정, 코드 수정, smoke, config 판단처럼 실제 사용성에 영향을 주는 작업이 우선이다.
+- **한 세션 = 실제 산출 1개**를 기본 운영 단위로 둔다.
+- peer-verify only, wording correction only, final seal only 세션/턴은 기본적으로 만들지 않는다.
+- state/summary 동기화는 실행 턴의 부속 작업으로 끝내고, 메타 정리만을 이유로 새 세션을 열지 않는다.
+- 별도 peer-verify는 remote-visible mutation, runtime/config decision, high-risk measurement에 한정해 사용한다.
+
 ## Codex Handoff Rules
 
 모든 Codex 프롬프트는 다음을 포함해야 한다:
