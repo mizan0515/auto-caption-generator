@@ -1,0 +1,39 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-a4-acquisition-followup",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Codex Turn 2 peer-verified the acquisition-followup session. W5 and W4 offset chat acquisition, schema fixation, re-measurement arithmetic, cookie non-leak, and sister validator PASS all reproduced. Two documentary overclaims in Turn 1 were corrected in-place: the W4 direct-seek wording and the HEAD-identity scope for the untracked 2026-04-16 genre-acquisition artifacts. Smoke may open next with cross-session aggregation attached as Step 0.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Auth probe PASS. Sister main@d97514e, live detached d97514e, remote only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. merge-base --is-ancestor d97514e origin/main = true. Predecessor Codex turn-02 seal re-read.",
+    "C2": "Labeling schema fixed. platform_category authoritative (from Chzzk videoCategoryValue), content_judgement optional annotation. promotion_axis_uses=platform_category. Every row/cell in new raw JSON carries both fields. Global labeling_schema block present.",
+    "C3": "W5 (11688000) chat acquisition PASS. 1544 messages, coverage 1799.5s, density 51.48 msgs/min (medium tier). Saved to sister work/11688000/11688000_chat.log (82929 bytes). Chzzk chat API is cookieless. Live work/ untouched.",
+    "C4": "W4 offset (12702452 @1800-3600s) chat acquisition PASS via paginate-from-t=0 + window-filter. 2444 messages, coverage 1798.9s, density 81.52 msgs/min (high tier). Saved to sister work/12702452/12702452_chat_offset1800s.log (117235 bytes) with rebased [00:00, 30:00) timestamps. An arbitrary playerMessageTime=1800000 request does not directly yield the desired relative offset window. Live 12702452_chat.log remained untouched.",
+    "C5": "Re-measurement PASS. W4f median_user_ratio=2.8815 P95=3.2994 additive=8286 n_valid=3/4 (chunk 1 retry-collapse reproduced). W5f median_user_ratio=2.6337 P95=2.9456 additive=8242 n_valid=3/3. Global decision=per_cell_multiplicative covered_cell_count=2. template_hash=4d732b40fa470862 unchanged. 2026-04-15 A4 tracked files remain byte-identical to HEAD. The prior 2026-04-16 genre-acquisition raw/md are sister-only untracked carry-forward artifacts, so HEAD byte-identity does not apply. Sister Validate-Documents PASS. Sister Validate-DadPacket PASS."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: Labeling schema fixed at two fields. platform_category (Chzzk videoCategoryValue) is authoritative and is what axis_coverage_ok / promotion gating evaluates. content_judgement is an optional annotation for human readability and is not used for promotion math.",
+    "Turn 1: Chzzk chats API is cookieless. W5 chat acquired directly via pipeline.chat_collector.fetch_all_chats. W4 offset required paginate-from-t=0 plus window-filter because the API does not honor arbitrary playerMessageTime seek values.",
+    "Turn 1: Both cells now have chat (W4f 81.52 msgs/min high; W5f 51.48 msgs/min medium). Both cells insufficient_data=false on re-measure. W4f chunk 1 reproduced the within-chunk retry-collapse pattern (cache populated by initial warm before 5s retry sleep), but 3 other chunks passed on first pair so the cell still landed valid.",
+    "Turn 1: Global decision stays per_cell_multiplicative. covered_cell_count=2 within this session. Cross-session aggregation across {W1, W2, W3, W4f, W5f} = 5 valid cells if executed, but is deferred to either the smoke contract or a tiny follow-up Turn 2.",
+    "Turn 2: Peer verification accepted the execution thesis and corrected two wording-level overclaims. Next work is not another acquisition session: attach the deterministic cross-session aggregation step to the smoke contract as Step 0, then run the end-to-end smoke."
+  ],
+  "meta_improvements": [
+    "Chzzk chats API seek semantics: only nextPlayerMessageTime from a prior page reliably yields the desired relative offset slice. An arbitrary playerMessageTime request can return a page, but not the requested relative window. Record this in any future offset-pull helper.",
+    "Chat-acquisition feasibility should be part of the execute session's preflight, not discovered as a no-chat gap afterward. The 'W5 is no-chat' framing from the prior session was a data-absence artifact, not a property of the VOD.",
+    "experiments/a4_measure.py within-chunk retry uses time.sleep(5). With the Anthropic prompt cache 5-minute TTL, the initial warm call populates the cache before retry_cold fires, collapsing retry_user_attributable to 2. A MIN_RETRY_IDLE_SEC ~330-360s guard or a prefix-perturbation trick would fix this.",
+    "cross-session aggregation across sessions needs an explicit runner. evaluate_global in a4_measure.py currently takes per-session cell summaries. A small experiments/ script that reads two or more raw JSONs and feeds their cells into one evaluate_global call would close the 'covered_cell_count>=5 cross-session' gate.",
+    "Documentary claims about HEAD byte-identity must distinguish tracked files from untracked sister-only carry-forward artifacts. The latter can be preserved and carried forward, but HEAD identity is undefined."
+  ]
+}

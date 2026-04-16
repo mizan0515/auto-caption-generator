@@ -1,0 +1,36 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-auto-publish-hook-implement",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Turn 2 Codex peer-verify reproduced C1-C5 directly. The auto-publish hook implementation was valid as claimed; only session/root closeout metadata drift from Turn 1 was fixed in place.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "PASS. sister main@d97514e, live d97514e, merge-base OK.",
+    "C2": "PASS. _try_auto_publish in both success paths, not in error path (AST verified).",
+    "C3": "PASS. 5 safety gate tests passed.",
+    "C4": "PASS. two-streamer synthetic: 2 VODs, 2 streamers, identity preserved.",
+    "C5": "PASS. existing output rebuild OK, settings_ui import OK, validators PASS."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: publish_autorebuild default True.",
+    "Turn 1: Hook in both success paths of process_vod().",
+    "Turn 1: state records publish_status.",
+    "Turn 1: Double try/except isolation.",
+    "Turn 2: Runtime hook insertion and safety gates passed as claimed. The only correction needed was to seal the session/root state consistently with the completed slice."
+  ],
+  "meta_improvements": [
+    "auto-publish closes the manual gap between pipeline output and web site.",
+    "Safety gates prevent partial publish from corrupted output."
+  ]
+}

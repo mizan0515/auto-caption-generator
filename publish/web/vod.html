@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOD 요약 — VOD 요약 허브</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html">VOD 요약 허브</a>
+    <nav>
+      <a href="index.html">스트리머</a>
+      <a href="search.html">검색</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap main">
+  <a class="backlink" id="backlink" href="index.html">← 스트리머 목록</a>
+  <h1 class="page-title" id="vod-title">로딩 중...</h1>
+  <p class="page-sub" id="vod-meta"></p>
+
+  <div class="report-frame-wrap">
+    <iframe id="report-frame" class="report-frame" title="요약 리포트"></iframe>
+  </div>
+
+  <div id="empty" class="empty" hidden>해당 VOD 데이터를 찾을 수 없다.</div>
+</main>
+
+<script src="assets/app.js"></script>
+<script>
+window.ACG.renderVodDetail();
+</script>
+</body>
+</html>

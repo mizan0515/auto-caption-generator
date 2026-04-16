@@ -1,0 +1,38 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-a4-genre-acquisition-execute",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Codex Turn 2 peer-verified all five checkpoints for the A4 genre-acquisition execute session. Step 0 probe, Step 1 sister-only non-talk acquisition, Step 2 sister-only offset resample, 2026-04-15 A4 file byte-identity, cookie non-leak, raw JSON arithmetic, and sister validators all reproduced. Next work is a separate acquisition/measurement follow-up before any end-to-end smoke.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Auth probe PASS. Sister main@d97514e reproduced. Live detached d97514e. Remote only refs/heads/main at d97514e49... Preflight predecessor turn-02 (codex seal) re-read.",
+    "C2": "Step 0 cookie probe PASS via content.network.NetworkManager.get_video_info(12702452, cookies). vodStatus=ABR_HLS, adult=False, video_id present, in_key present, duration=20552s. Cookie values never echoed.",
+    "C3": "Step 1 non-game acquisition PASS. Enumerated 60 channel VODs across 15 Chzzk categories. Selected VOD 11688000 (category '동계 올림픽', 9463s). Downloaded via pipeline.downloader.download_vod_144p to sister/work/11688000/ (199613799 bytes). ffmpeg first-1800s wav extracted (57600078 bytes). Whisper large-v3-turbo on CUDA produced SRT with 250 entries. Live work/ untouched.",
+    "C4": "Step 2 W2/W3 de-duplication PASS. ffmpeg -ss 1800 -t 1800 from live 12702452 144p mp4 into sister/work/12702452/12702452_offset1800s_clip1800s.wav (57600078 bytes). Whisper SRT has 364 entries. Cell distinct from W2 because t=0 equivalence is broken. Data-integrity finding: Chzzk category for 12702452 is '더 게임 오브 라이프 포 닌텐도 스위치' (Nintendo Switch life-sim game), not 'talk'. A4 W1/W2/W3 were misclassified by content judgement; the A4 genre axis to date has been single-Chzzk-category 'game'.",
+    "C5": "Measurement via experiments/a4_measure_genre.py writes NEW experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json and companion .md. Existing 2026-04-15 A4 files byte-identical. pipeline_config.json untouched. pipeline code untouched. chunk_max_tokens runtime default stays None. Sister Validate-Documents + Validate-DadPacket PASS on new packet."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-a4-genre-acquisition-execute/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: Executed preflight-authorized ladder Step 0 cookie probe first; PASS unlocked Step 1. Step 1 chose VOD 11688000 (Winter Olympics) over the 'talk' category (smallest talk VOD 5713s < 1800s usable with margin) or 'music' (27452s too long to fully download in-turn) as the cleanest non-game axis VOD on the current channel.",
+    "Turn 1: For Step 2 the offset was 1800s because any offset >= 1800s breaks t=0 equivalence; 1800 exactly produces a clean [1800, 3600) window that is a non-overlapping sibling of W1's [0, 1800).",
+    "Turn 1: Both new cells were measured with empty chat_log because 11688000 has no chat history collected yet and 12702452's existing chat_log only covers 0-1799s (outside the offset window). This creates a no-chat variant that is documented but not a blocker.",
+    "Turn 1: Data-integrity finding recorded: VOD 12702452's Chzzk category is Nintendo Switch life-simulation game, not talk. A4 Turn 5's 'talk' genre label was content-judgement, not platform metadata. The next session must choose which labeling schema governs axis_coverage_ok.",
+    "Turn 2: Peer verification accepted all five checkpoints. For future A4 promotion accounting, use a two-field schema: platform_category as the authoritative axis label and content_judgement as an optional annotation. Both W5 chat acquisition and W4 re-measurement belong in a separate acquisition/measurement follow-up session, not the smoke session."
+  ],
+  "meta_improvements": [
+    "Pre-acquisition channel enumeration should be added to the preflight checklist so the next preflight can pick the best-coverage non-duplicate VOD before the execute session opens. This session did the enumeration in-turn, which worked but leaves preflight blind to actual candidate set.",
+    "Chzzk category should be recorded at acquisition time as a first-class cell attribute separate from content-judgement genre. A4 conflated them, which produced the W1/W2/W3 'talk' misclassification.",
+    "Chat-log coverage should be an explicit cell-level attribute (full / partial / none) so future promotion rules can distinguish chat-fed measurements from no-chat variants instead of silently pooling them.",
+    "Smoke should stay purely end-to-end. Measurement rescue work such as W5 chat acquisition and W4 retry protocol correction should not be bundled into the smoke session because it muddies the pass/fail surface."
+  ]
+}

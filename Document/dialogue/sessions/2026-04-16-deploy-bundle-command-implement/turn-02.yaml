@@ -1,0 +1,84 @@
+﻿type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-deploy-bundle-command-implement"
+timestamp: "2026-04-17T00:40:00+09:00"
+contract:
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e, remote main d97514e..., merge-base OK."
+    C2: "Deploy flow audit -- bundle CLI lives after build/preflight and before any hosted upload step."
+    C3: "Bundle CLI implementation -- publish.deploy.package supports target selection, preflight gating, strict mode, rebuild, clean, and json output."
+    C4: "Bundle artifact format -- cloudflare zip + github-pages tar.gz stay deterministic and reject cookie-tainted input/archive bytes."
+    C5: "Verification + validators -- verifier PASS, real bundle generation PASS, cookie/strict adversarial probes PASS, both validators PASS."
+peer_review:
+  verdict: "PASS after inline fixes"
+  project_analysis: |
+    Claude Turn 1's deploy bundle slice was materially correct, but two concrete
+    defects blocked an honest seal. First, the cookie gate relied on word-boundary
+    regexes, so an escaped JSON string containing NID_SES could bypass both
+    preflight and archive rescans. Second, builder exceptions could leave
+    *.tmp bundle artifacts behind, which violated the claimed atomic-write
+    contract. Both defects were fixed inline in this turn and then re-verified.
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "sister HEAD d97514e, live HEAD d97514e, remote main d97514e49212d10b6ef8403b829f2612651a452c, merge-base ancestor OK"
+    C2:
+      verdict: pass
+      evidence: "publish/deploy/package.py still packages only after preflight/build surface audit; no hosted upload logic was added"
+    C3:
+      verdict: pass
+      evidence: "real python -m publish.deploy.package --target all --clean succeeded; verifier still reports 5/5 PASS"
+    C4:
+      verdict: fail-then-fixed
+      evidence: "escaped JSON token line1\\nNID_SES\\nline2 initially bypassed cookie detection and allowed archive creation; COOKIE_PATTERNS were relaxed to direct token matching and the same probe now aborts with ARCHIVE_COUNT 0"
+    C5:
+      verdict: fail-then-fixed
+      evidence: "monkeypatched builder exception initially left site-upload.zip.tmp; package() now cleans temp/final artifacts on builder failure, then verifier, real bundling, and both validators passed"
+  issues_found:
+    - file: "C:/github/auto-caption-generator-main/publish/deploy/check.py"
+      detail: "COOKIE_PATTERNS used word-boundary regexes, which missed escaped JSON fragments such as \"line1\\nNID_SES\\nline2\" in text files and archive entries."
+    - file: "C:/github/auto-caption-generator-main/publish/deploy/package.py"
+      detail: "If a bundle builder raised after writing *.tmp, the package layer propagated the exception and left the temp archive behind, so atomic-write cleanup was incomplete."
+  fixes_applied:
+    - file: "C:/github/auto-caption-generator-main/publish/deploy/check.py"
+      detail: "Changed cookie detection from word-boundary regexes to direct token matching for NID_AUT/NID_SES so escaped JSON strings are caught in both preflight and archive rescans."
+    - file: "C:/github/auto-caption-generator-main/publish/deploy/package.py"
+      detail: "Added _cleanup_bundle_paths() and wrapped bundle builders / package target loop so temp and final bundle files are removed on builder failure or post-build cookie-hit aborts."
+    - file: "C:/github/auto-caption-generator-main/experiments/deploy_package_verify.py"
+      detail: "Strengthened T4 to poison the copied site with both a plain NID_AUT token and an escaped JSON-string NID_SES token while preserving the 5/5 verifier contract."
+my_work:
+  summary: |
+    I re-ran the baseline, verifier, real package generation, archive layout
+    introspection, cookie-injection probes, warning-only strict gate, manifest
+    determinism, and both validators. Two concrete defects surfaced: escaped
+    JSON cookie tokens were not blocked, and temp bundle files lingered on
+    builder exceptions. I fixed both, reran the relevant adversarial probes,
+    confirmed real bundling still produces the same deterministic hashes, and
+    then sealed the session.
+  evidence:
+    commands:
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator-main ls-remote --heads origin main -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main"
+      - "git -C C:/github/auto-caption-generator-main merge-base HEAD d97514e49212d10b6ef8403b829f2612651a452c -> d97514e49212d10b6ef8403b829f2612651a452c"
+      - "PYTHONIOENCODING=utf-8 python experiments/deploy_package_verify.py --site-dir ./site -> 5/5 PASS"
+      - "PYTHONIOENCODING=utf-8 python -m publish.deploy.package --target all --clean -> OK - deploy bundles ready. cloudflare sha256=0aad8fb92554789c..., github-pages sha256=0574f7d507b1809a..."
+      - "python archive introspection -> 17 publish-root entries in both zip and tar.gz; deterministic ZipInfo/TarInfo metadata preserved"
+      - "synthetic escaped NID_SES injection in copied site/search-index.json -> EXIT 1, preflight errors=1, ARCHIVE_COUNT 0"
+      - "synthetic missing _headers site copy -> non-strict EXIT 0 with 2 archives, strict EXIT 1 with 0 archives"
+      - "monkeypatched builder failure in package() -> aborted_reason set, TMP_EXISTS False, FINAL_EXISTS False"
+      - "manifest.json sha256 compared across two runs -> MANIFEST_IDENTICAL True"
+      - "python -m publish.deploy.check --site-dir ./site -> OK with warnings (external CDN only)"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+      - "powershell -Command \"& { . './tools/Validate-Documents.ps1' -Root . -IncludeRootGuides -IncludeAgentDocs }\" -> Document validation passed for 73 files"
+decisions:
+  - "Keep Cloudflare Pages zip and GitHub Pages tar.gz as separate first-class targets; the bundle command remains strictly pre-upload and does not attempt a real deploy."
+  - "Treat NID_AUT/NID_SES as toxic substrings anywhere in text payloads; word-boundary matching is insufficient for escaped JSON leak cases."
+  - "Atomic bundle writes include failure cleanup: no stale *.tmp or final archive may survive a builder exception."
+handoff:
+  next_agent: null
+  next_task: null
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "All C1-C5 checks reproduced after fixing two concrete defects: escaped JSON cookie leaks now block bundle generation, and bundle tmp files are cleaned on builder failure. Verifier, real bundling, and both validators all pass."

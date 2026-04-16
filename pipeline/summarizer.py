@@ -335,9 +335,13 @@ def generate_reports(
         "video_no": vod_info.video_no,
         "title": vod_info.title,
         "channel": vod_info.channel_name,
+        "channel_id": vod_info.channel_id,
+        "streamer_id": vod_info.streamer_id,
+        "platform": "chzzk",
         "duration": vod_info.duration,
         "publish_date": vod_info.publish_date,
         "category": vod_info.category,
+        "thumbnail_url": vod_info.thumbnail_url or None,
         "total_chats": len(chats),
         "highlight_count": len(highlights),
         "highlights": [
@@ -618,9 +622,9 @@ def _generate_html(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_html_escape(vod_info.title)} — 방송 분석 리포트</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="../../assets/vendor/chart.umd.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  /* Self-hosted assets: no external CDN. Fonts use OS-installed fallbacks. */
   :root {{
     --bg:          #1a1b26;
     --surface:     #24283b;
@@ -640,7 +644,7 @@ def _generate_html(
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html, body {{ background: var(--bg); color: var(--text); }}
-  body {{ font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; line-height: 1.7; font-size: 15px; }}
+  body {{ font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', system-ui, -apple-system, 'Segoe UI', sans-serif; min-height: 100vh; line-height: 1.7; font-size: 15px; }}
 
   /* Centered Layout */
   .bleed-inner {{ max-width: 960px; margin: 0 auto; padding: 0 40px; }}
@@ -650,10 +654,10 @@ def _generate_html(
     background: radial-gradient(ellipse at top left, rgba(122,162,247,0.08), transparent 60%), var(--bg);
   }}
   header .bleed-inner {{ padding: 36px 40px 28px; }}
-  header .crumb {{ font-family: 'JetBrains Mono', monospace; color: var(--muted); font-size: 12px;
+  header .crumb {{ font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace; color: var(--muted); font-size: 12px;
                    letter-spacing: 0.5px; margin-bottom: 10px; }}
   header h1 {{ font-size: 26px; font-weight: 700; color: var(--text-strong); line-height: 1.35; letter-spacing: -0.3px; }}
-  header .meta {{ color: var(--muted); margin-top: 10px; font-size: 13px; font-family: 'JetBrains Mono', monospace; }}
+  header .meta {{ color: var(--muted); margin-top: 10px; font-size: 13px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace; }}
   header .meta span + span::before {{ content: "·"; margin: 0 10px; color: var(--faint); }}
 
   .hero {{ background: var(--surface); border-bottom: 1px solid var(--border); }}
@@ -663,7 +667,7 @@ def _generate_html(
     display: inline-block; padding: 6px 14px;
     background: rgba(158,206,106,0.12); color: var(--accent);
     border: 1px solid rgba(158,206,106,0.28); border-radius: 999px;
-    font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
   }}
   .quote {{
     font-size: 17px; color: var(--text-strong); font-weight: 500; line-height: 1.55;
@@ -676,7 +680,7 @@ def _generate_html(
   .stat {{ background: var(--surface); padding: 18px 24px; }}
   .stat-label {{ font-size: 11px; color: var(--muted); text-transform: uppercase;
                  letter-spacing: 1.2px; margin-bottom: 6px; }}
-  .stat-value {{ font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--text-strong); }}
+  .stat-value {{ font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace; color: var(--text-strong); }}
   .stat-value.accent {{ color: var(--tc); }}
 
   .main {{ padding-top: 32px; padding-bottom: 60px; display: flex; flex-direction: column; gap: 28px; }}
@@ -702,7 +706,7 @@ def _generate_html(
                           box-shadow: inset 3px 0 0 var(--mood-hot); }}
   .t-head {{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }}
   .tc {{
-    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace; font-size: 12px; font-weight: 600;
     color: var(--tc); background: rgba(122,162,247,0.12);
     padding: 3px 9px; border-radius: 4px; letter-spacing: 0.3px;
   }}
@@ -712,7 +716,7 @@ def _generate_html(
   .t-evidence {{
     margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-soft);
     color: var(--faint); font-size: 12px; line-height: 1.55;
-    font-family: 'JetBrains Mono', monospace; display: none;
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace; display: none;
   }}
   .t-item[data-open="1"] .t-evidence {{ display: block; }}
 
@@ -727,7 +731,7 @@ def _generate_html(
   .hl {{ display: flex; gap: 16px; padding: 16px 20px; background: var(--surface-2);
          border-radius: 8px; counter-increment: hl; }}
   .hl::before {{
-    content: counter(hl); font-family: 'JetBrains Mono', monospace;
+    content: counter(hl); font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
     font-size: 22px; font-weight: 700; color: var(--accent-warm); min-width: 28px;
   }}
   .hl-body {{ flex: 1; }}
@@ -738,7 +742,7 @@ def _generate_html(
   .notes p {{ margin-bottom: 14px; }}
   .notes p:last-child {{ margin-bottom: 0; }}
   .notes strong {{ color: var(--text-strong); font-weight: 600; }}
-  code {{ font-family: 'JetBrains Mono', monospace; font-size: 0.92em;
+  code {{ font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace; font-size: 0.92em;
           background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: var(--accent); }}
 
   ::-webkit-scrollbar {{ width: 10px; height: 10px; }}

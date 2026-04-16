@@ -58,7 +58,8 @@ winget install Gyan.FFmpeg
 python -m pipeline.settings_ui
 ```
 
-스트리머 이름, 채널 ID, 검색 키워드, 쿠키 등을 GUI에서 편집할 수 있습니다.
+스트리머, 검색 키워드, 쿠키 등을 GUI에서 편집할 수 있습니다.
+**멀티 스트리머** 를 지원하며, 상단 "스트리머" 섹션에서 여러 채널을 동시에 추가/수정/삭제할 수 있습니다. 첫 번째 스트리머는 legacy 단일-스트리머 필드(`target_channel_id`, `streamer_name`)로도 자동 동기화되어 기존 운영과 호환됩니다.
 
 ### 방법 2: 설정 파일 직접 편집
 
@@ -66,7 +67,7 @@ python -m pipeline.settings_ui
 
 ```jsonc
 {
-  "target_channel_id": "a7e175625fdea5a7d98428302b7aa57f",  // 채널 ID (32자리)
+  "target_channel_id": "a7e175625fdea5a7d98428302b7aa57f",  // 채널 ID (32자리, legacy 단일 모드)
   "streamer_name": "탬탬",                                    // 표시용 이름
   "poll_interval_sec": 300,                                   // 폴링 간격 (초)
   "download_resolution": 144,                                 // 다운로드 해상도
@@ -78,6 +79,39 @@ python -m pipeline.settings_ui
   }
 }
 ```
+
+#### 멀티 스트리머 (canonical form)
+
+여러 스트리머를 동시에 모니터링하려면 `streamers` 리스트를 사용합니다.
+설정 GUI 의 "스트리머" 섹션이 이 형식을 그대로 읽고/씁니다.
+
+```jsonc
+{
+  "streamers": [
+    {
+      "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+      "name": "탬탬",
+      "search_keywords": ["탬탬버린", "탬탬"]
+    },
+    {
+      "channel_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "스트리머B",
+      "search_keywords": ["B키워드"]
+    }
+  ],
+  // 첫 스트리머는 legacy 호환을 위해 아래에도 자동 mirror 됩니다 (GUI 저장 시):
+  "target_channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+  "streamer_name": "탬탬",
+  "fmkorea_search_keywords": ["탬탬버린", "탬탬"],
+
+  "poll_interval_sec": 300,
+  "cookies": { "NID_AUT": "", "NID_SES": "" }
+}
+```
+
+`streamers` 가 비어 있거나 없으면 legacy `target_channel_id` / `streamer_name` 만으로
+한 명의 스트리머를 처리하는 단일 모드로 동작합니다 (`pipeline.config.normalize_streamers()` 가
+양쪽 형식을 모두 정규화합니다).
 
 ### 방법 3: CLI 쿠키 설정
 
@@ -152,6 +186,98 @@ output/
   ├── 스트리머_방송제목.html         # HTML 리포트 (브라우저로 열기)
   └── 스트리머_방송제목_metadata.json # 메타데이터
 ```
+
+---
+
+## 웹 퍼블리시 (멀티 스트리머 MVP)
+
+`output/` 의 리포트를 정적 사이트로 묶어 무료 호스팅에 올릴 수 있다.
+자세한 스키마·백로그·배포 경로는 다음 문서 참조:
+
+- [`docs/multi-streamer-web-publish-backlog.md`](docs/multi-streamer-web-publish-backlog.md) — 제품 백로그(P0~P6).
+- [`docs/publish-schema.md`](docs/publish-schema.md) — publish-view 스키마와 파생 규칙.
+- [`docs/deploy-free-hosting.md`](docs/deploy-free-hosting.md) — Cloudflare Pages(1순위) / GitHub Pages.
+- [`docs/auto-publish-hook-plan.md`](docs/auto-publish-hook-plan.md) — 자동 퍼블리시 훅 구현 상태.
+
+### 자동 퍼블리시
+
+VOD 처리가 성공하면 `site/` 가 자동으로 재빌드된다 (기본 활성).
+비활성화: `pipeline_config.json` 에서 `"publish_autorebuild": false`.
+
+### 빌드 (수동)
+
+```bash
+# output/ 을 읽어 site/ 정적 트리를 생성
+python -m publish.builder.build_site
+
+# 또는 예외를 흡수하는 얕은 훅 래퍼로 호출
+python -m publish.hook
+```
+
+생성되는 트리 개요:
+
+```
+site/
+├── index.html        streamer.html  vod.html  search.html
+├── assets/app.{css,js}
+├── index.json        streamers.json              # 전역 목록
+├── streamers/<streamer_id>/index.json            # 스트리머별 VOD 목록
+├── vods/<video_no>/{index.json, report.html, report.md, metadata.json}
+└── search-index.json                             # 클라이언트-사이드 검색용
+```
+
+### 로컬 확인
+
+```bash
+python -m http.server --directory site 8000
+# 브라우저에서 http://localhost:8000/ 접속
+```
+
+### 배포
+
+빌드된 `site/` 디렉토리를 무료 정적 호스팅에 올린다. 빌더가 deploy meta
+파일(`_redirects`, `_headers`, `.nojekyll`) 을 함께 emit 하므로 추가 설정 없이
+Cloudflare Pages / GitHub Pages 양쪽으로 같은 `site/` 트리를 그대로 쓴다.
+리포트 HTML 의 chart.js 와 폰트는 `assets/vendor/` 에 self-host 되므로
+`--strict` 가 경고 0 으로 통과한다 (외부 CDN 의존 없음).
+
+```bash
+# 1. 빌드 (output/ → site/)
+python -m publish.builder.build_site
+
+# 2. 배포 전 preflight 검증 (구조 + 쿠키 누출 + 외부 CDN 스캔)
+python -m publish.deploy.check --site-dir ./site --strict
+#   --strict: 경고를 실패로 승격 (CI 용; 본 저장소는 strict 통과 baseline)
+#   --json:   기계 판독용 JSON 출력
+
+# 3. 업로드용 deploy bundle 생성 (preflight 자동 실행, 실패 시 패키지 미생성)
+python -m publish.deploy.package --target all --strict
+#   --target cloudflare    : dist/deploy/cloudflare/site-upload.zip 만 생성
+#   --target github-pages  : dist/deploy/github-pages/site-artifact.tar.gz 만 생성
+#   --target all           : 두 타겟 모두 (기본)
+#   --strict               : preflight 경고도 차단 사유로 승격
+#   --rebuild              : 패키징 전에 build_site 를 다시 돌림
+#   --clean                : 기존 --out-dir 를 지우고 다시 작성
+#   --json                 : 결과를 JSON 으로 출력
+# 산출물: dist/deploy/{cloudflare/site-upload.zip, github-pages/site-artifact.tar.gz,
+#         manifest.json, checksums.txt}. 같은 site/ 입력에 대해 byte-identical.
+```
+
+옵션 A — **Cloudflare Pages** (권장, 1순위)
+
+- Direct Upload: `site/` 폴더를 dashboard 에 drag-and-drop.
+- Direct Upload (zip): `dist/deploy/cloudflare/site-upload.zip` 을 dashboard 에 업로드.
+- Wrangler CLI: `wrangler pages deploy site` (`wrangler.toml` 이 repo 루트에 포함됨).
+
+옵션 B — **GitHub Pages** (fallback)
+
+- `.github/workflows/deploy-pages.yml` 가 manual-trigger 전용 scaffold 로 포함됨.
+- `Actions` 탭 → `Deploy site to GitHub Pages` → `Run workflow`.
+- 사전 조건: workflow checkout 시점에 `site/` 가 ref 상에 존재해야 한다.
+  본 저장소는 `site/` 가 gitignored 이므로, 별도 publish 브랜치에 commit
+  하거나 `.gitignore` 의 site 제외를 풀어야 한다 (워크플로우 헤더 주석 참조).
+
+자세한 옵션·체크리스트·왜 Cloudflare 가 1순위인지: [`docs/deploy-free-hosting.md`](docs/deploy-free-hosting.md).
 
 ---
 

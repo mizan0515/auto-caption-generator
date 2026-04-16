@@ -1,0 +1,13 @@
+{
+  "vod": "12702452",
+  "total_fetched_le_3600s": 4729,
+  "last_normalized_ms": 3598979,
+  "window_1800_3600_count": 2444,
+  "status": "OK",
+  "window_first_ms": 1800088,
+  "window_last_ms": 3598979,
+  "window_coverage_sec": 1798.9,
+  "window_density_msgs_per_min": 81.52,
+  "out_path": "work\\12702452\\12702452_chat_offset1800s.log",
+  "size_bytes": 117235
+}

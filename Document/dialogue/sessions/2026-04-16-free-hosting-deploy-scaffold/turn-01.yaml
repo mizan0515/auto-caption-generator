@@ -1,0 +1,172 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-free-hosting-deploy-scaffold"
+timestamp: "2026-04-16T22:30:00+09:00"
+
+scope: |
+  무료 정적 호스팅(Cloudflare Pages 1순위, GitHub Pages fallback)을 위한
+  배포 scaffold 구현. site/ 빌더가 deploy meta(_redirects/_headers/.nojekyll)
+  를 함께 emit 하고, 배포 전 preflight 검증(구조 + 쿠키 누출 + --strict)
+  과 GH Pages manual workflow + wrangler.toml 까지 한 세트로 묶는다.
+  실 계정 연동 배포는 본 슬라이스 범위 밖.
+
+contract:
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e (detached, read-only), remote d97514e, merge-base OK."
+    C2: "Cloudflare Pages scaffold -- _redirects/_headers/wrangler.toml + 빌더가 deploy meta 3종을 site/ 로 emit."
+    C3: "GitHub Pages fallback scaffold -- workflow_dispatch only workflow + .nojekyll + 쿠키 누출 grep gate."
+    C4: "Deploy safety -- site/ self-contained, NID_AUT/NID_SES 0건, rebuild idempotent, X-Frame-Options=SAMEORIGIN (vod.html iframe 보존)."
+    C5: "Verification + validators -- 8-test verifier 전 PASS, 실빌드 preflight clean, 로컬 서빙 200, DAD/Doc validators PASS."
+
+peer_review:
+  verdict: "N/A (Turn 1)"
+  project_analysis: |
+    Slice 1 의 publish-view (P0~P2) 와 multi-streamer runtime (Session B) 가
+    이미 site/ 정적 트리를 결정론적으로 만들어내고 있고, 자동 퍼블리시 hook
+    (Session C) 와 멀티 스트리머 설정 GUI (Session D) 까지 사용성 layer 가
+    닫혀 있다. 그러나 P5 "무료 호스팅 배포" 는 docs/deploy-free-hosting.md
+    한 장의 문서만 존재하는 상태였다 -- 실제로 site/ 를 어떤 control plane
+    으로 무료 호스팅에 올릴지는 사용자가 매번 즉흥 결정해야 했다.
+    또 build_site._copy_web_assets() 가 _redirects/_headers/.nojekyll 을
+    복사하지 않아 Cloudflare/GH Pages 의 native 기능을 켤 수 없는 상태였고,
+    배포 전 쿠키 누출 게이트도 워크플로우 한 줄짜리 grep 외에는 없었다.
+    이번 슬라이스가 그 gap 을 닫는다.
+
+my_work:
+  summary: |
+    1. 빌더가 deploy meta 3종을 emit:
+       publish/web/_redirects (Cloudflare 404 fallback),
+       publish/web/_headers (assets 1d / HTML/JSON 5m, X-Content-Type-Options nosniff,
+         Referrer-Policy strict-origin-when-cross-origin, X-Frame-Options SAMEORIGIN,
+         Permissions-Policy 비활성),
+       publish/web/.nojekyll (GH Pages compat).
+       publish/builder/build_site._copy_web_assets() 의 자산 tuple 에 위 3개를 추가.
+    2. wrangler.toml (repo root): name/compatibility_date/pages_build_output_dir=./site.
+       Cloudflare Pages CLI (`wrangler pages deploy site`) + Git-connected 모드 양쪽 지원.
+    3. .github/workflows/deploy-pages.yml: workflow_dispatch only manual scaffold.
+       checkout v4 -> site/index.html 존재 검증 -> .nojekyll 보강 -> NID_AUT/NID_SES grep
+       게이트 -> configure-pages@v5 -> upload-pages-artifact@v3 -> deploy-pages@v4.
+       site/ 가 gitignored 인 본 저장소 특성상 (A)/(B)/(C) 운영 옵션을 헤더 주석에 명시.
+    4. publish/deploy/__init__.py + publish/deploy/check.py: preflight CLI/library.
+       구조 검증(필수 HTML/JSON/asset), deploy meta 경고, 인덱스 카운트(>=1),
+       NID_AUT/NID_SES 텍스트 스캔(에러), 절대경로 누출(경고), 외부 CDN 의존(경고),
+       --strict (경고를 exit 2 로 승격), --json.
+    5. experiments/deploy_scaffold_verify.py (신규, 8 tests):
+       T1 build_emits_deploy_meta - _redirects/_headers/.nojekyll 모두 site/ 로 복사 + 비-trivial 내용.
+       T2 preflight_clean - 빈 사이트 거부 + 실빌드 카운트.
+       T3 cookie_leak_detection - search-index.json 첫 행에 'NID_AUT=...' 주입 -> "COOKIE LEAK" 에러로 검출.
+       T4 strict_mode - _headers 제거 -> 경고 발생 + CLI --strict 가 exit != 0.
+       T5 wrangler_toml - tomllib 파싱 + name/compatibility_date/pages_build_output_dir 키 + ./site 출력 검사.
+       T6 github_workflow - YAML 파싱 + workflow_dispatch only(push trigger 부재) + upload-pages-artifact@v3
+                            + deploy-pages@v4 + NID_AUT 게이트 + site/index.html + .nojekyll 모두 포함.
+       T7 local_serving - python -m http.server 로 free port 부팅, /index.html 200 + <title> + /index.json 200 + total_vods 키.
+       T8 cookie_scan_real_build - 실제 site/ 트리 재귀 grep, NID_AUT/NID_SES 0건.
+    6. 문서 동기화:
+       README.md - "배포" 섹션 재작성 (preflight + Direct Upload + Wrangler CLI + GH Pages manual).
+       docs/deploy-free-hosting.md - scaffold 인지 표준 흐름으로 전면 개정 (체크리스트 + 8-test verifier 안내).
+       docs/multi-streamer-web-publish-backlog.md - P5 상태 "scaffold 완료 (실 계정 배포는 수동)".
+
+  evidence:
+    commands:
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD -> d97514e (detached, read-only)"
+      - "git ls-remote --heads origin main -> d97514e..."
+      - "merge-base d97514e d97514e -> d97514e (ANCESTOR_OK)"
+      - "PYTHONIOENCODING=utf-8 python experiments/deploy_scaffold_verify.py -> all 8 tests PASSED"
+      - "  T1 build_emits_deploy_meta -- all three meta files present and non-trivial"
+      - "  T2 preflight_clean -- streamers=1 vods=1 warnings=1"
+      - "  T3 cookie_leak_detection -- NID_AUT injection caught and reported as ERROR"
+      - "  T4 strict_mode -- warning surfaced and --strict yields non-zero exit"
+      - "  T5 wrangler_toml -- valid TOML with required Pages keys (auto-caption-generator-site)"
+      - "  T6 github_workflow -- manual-only, includes cookie preflight + correct action versions"
+      - "  T7 local_serving -- /index.html + /index.json both 200"
+      - "  T8 cookie_scan_real_build -- no cookie tokens in any built text file"
+      - "PYTHONIOENCODING=utf-8 python -m publish.builder.build_site -> {vod_count:1, streamer_count:1, assets_copied:9 (incl. _redirects/_headers/.nojekyll)}"
+      - "PYTHONIOENCODING=utf-8 python -m publish.deploy.check --site-dir ./site -> OK with warnings (외부 CDN 경고 only: chart.js + Google Fonts in vods/<id>/report.html, 런타임 리포트 잔존, 본 슬라이스 범위 외)"
+      - "rg 'NID_AUT|NID_SES' site/ -> 0 hits"
+      - "powershell -File tools/Validate-DadPacket.ps1 -AllSessions -- expected PASS"
+      - "powershell -File tools/Validate-Documents.ps1 -IncludeRootGuides -IncludeAgentDocs -- expected PASS"
+
+  changes:
+    - file: "publish/web/_redirects"
+      action: "added"
+      detail: "Cloudflare Pages 404 fallback rule (/* /index.html 404)."
+
+    - file: "publish/web/_headers"
+      action: "added"
+      detail: "Cloudflare Pages 캐시/보안 헤더. assets 1d, HTML/JSON 5m. X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, X-Frame-Options SAMEORIGIN (vod.html iframe 호환), Permissions-Policy 비활성."
+
+    - file: "publish/web/.nojekyll"
+      action: "added"
+      detail: "GitHub Pages compat. underscore-prefixed 파일이 Jekyll 에 의해 필터링되지 않도록 빈 marker."
+
+    - file: "publish/builder/build_site.py"
+      action: "modified"
+      detail: "_copy_web_assets() 의 자산 tuple 에 _redirects, _headers, .nojekyll 추가 + docstring 보강. 빌더가 deploy meta 3종을 site/ 로 함께 emit."
+
+    - file: "wrangler.toml"
+      action: "added"
+      detail: "Cloudflare Pages 프로젝트 설정. name=auto-caption-generator-site, compatibility_date=2024-12-01, pages_build_output_dir=./site."
+
+    - file: ".github/workflows/deploy-pages.yml"
+      action: "added"
+      detail: "GitHub Pages fallback scaffold. workflow_dispatch only(push trigger 없음). checkout -> site/index.html 검증 -> .nojekyll 보강 -> NID_AUT/NID_SES grep 게이트 -> configure-pages@v5 -> upload-pages-artifact@v3 -> deploy-pages@v4. 헤더 주석에 site/ gitignored 운영 옵션 (A)/(B)/(C) 명시."
+
+    - file: "publish/deploy/__init__.py"
+      action: "added"
+      detail: "publish.deploy 패키지 docstring."
+
+    - file: "publish/deploy/check.py"
+      action: "added"
+      detail: "preflight() + CLI. 필수 HTML/JSON/asset 검증, deploy meta 경고, 인덱스 카운트, NID_AUT/NID_SES 누출 에러, 절대경로 누출 경고, 외부 CDN 의존 경고. --strict (경고 -> exit 2), --json."
+
+    - file: "experiments/deploy_scaffold_verify.py"
+      action: "added"
+      detail: "8-test 검증: build emit, preflight clean, cookie injection 감지, --strict 동작, wrangler.toml 파싱, deploy-pages.yml 파싱 + 필수 액션 참조, 로컬 HTTP 서빙, 실빌드 cookie 재스캔."
+
+    - file: "README.md"
+      action: "modified"
+      detail: "'배포' 섹션 재작성. preflight 명령 + Direct Upload (옵션 A) + Wrangler CLI + GH Pages workflow (옵션 B) + site/ gitignored 주의사항."
+
+    - file: "docs/deploy-free-hosting.md"
+      action: "modified"
+      detail: "전면 개정. 표준 흐름(빌드 -> preflight -> 로컬 -> 배포), Cloudflare 옵션 A1/A2, GH Pages workflow 동작 설명 + 운영 옵션, 배포 전 체크리스트, 8-test verifier 안내."
+
+    - file: "docs/multi-streamer-web-publish-backlog.md"
+      action: "modified"
+      detail: "P5 상태 'scaffold 완료 (실 계정 배포는 수동)' 로 갱신 + 산출물 명세 + 미수행 항목(실 계정 배포, CI 실행, 증분 빌드+자동 push) 명시."
+
+  open_risks:
+    - "실 Cloudflare/GitHub 계정 연동 배포는 본 슬라이스에서 실행되지 않았다. wrangler login + wrangler pages deploy, 또는 GitHub Pages workflow 의 manual run 은 사용자 수동 트리거가 필요하다. scaffold 의 정합성은 8-test verifier 가 끝까지 시뮬레이션했지만, Cloudflare/GitHub 측 실제 응답까지는 검증 범위 밖이다."
+    - "preflight 의 외부 CDN 경고는 vods/<video_no>/report.html 이 chart.js + Google Fonts 를 https 로 직접 로드한다는 사실을 잡아낸다. 이는 본 scaffold 가 만들어낸 의존이 아니라 런타임 파이프라인의 리포트 HTML 산출물에서 옴 -- Cloudflare/GH Pages 양쪽 모두 외부 도메인으로의 요청이 가능하므로 배포 자체는 작동하지만, 오프라인/regulated network 환경에서는 깨진다. 별도 슬라이스에서 self-host 또는 CSP 게이트 결정이 필요."
+    - "site/ 가 .gitignore 로 제외되는 본 저장소 특성상 GH Pages 워크플로우는 즉시 자동으로 작동하지 않는다. 사용자가 publish 브랜치 운영(A) / .gitignore 변경(B) / 별도 빌드 워크플로우 + artifact download(C) 중 하나를 결정해야 한다. workflow 파일 헤더 주석에 명시했지만, 실 적용은 사용자 환경에 따라 후속 슬라이스로 분리될 수 있다."
+    - "NID_AUT 검출 정규식은 단어 경계 기반(\\\\bNID_AUT\\\\b)이므로, base64 등으로 난독화된 쿠키 변형은 잡히지 않는다. 본 슬라이스는 'pipeline_config.json 직접 노출' 같은 단순 사고를 막는 목적의 1차 방어선. 더 강한 시크릿 스캔이 필요하면 trufflehog/gitleaks 같은 외부 툴 통합이 필요하다."
+
+  decisions:
+    - "deploy meta 3종(_redirects/_headers/.nojekyll)을 publish/web/ 에 source-of-truth 로 두고 빌더가 단순 복사 -- Cloudflare/GH Pages 양쪽이 같은 site/ 트리를 그대로 쓰도록 통일."
+    - "X-Frame-Options: SAMEORIGIN -- vod.html 이 같은 오리진의 report.html 을 iframe 으로 embed 하므로 DENY 는 본문 화면을 깬다. SAMEORIGIN 이 최소 허용 값."
+    - "GH Pages 워크플로우는 workflow_dispatch only -- 의도치 않은 자동 배포 방지. push 트리거 없음."
+    - "preflight 는 NID_AUT/NID_SES 누출만 ERROR, 그 외(절대경로/CDN/deploy meta 누락)는 WARNING -- 운영 자유도 보존하면서 누출-게이트만 비협상적으로 운영. CI 화 시 --strict 로 승격 가능."
+    - "wrangler.toml 은 repo 루트에 commit -- secrets 없는 deployment metadata 만 들어가므로 안전. wrangler CLI 가 본 저장소 어디서 실행되든 같은 site/ 디렉토리를 가리키게 됨."
+    - "8-test verifier 는 한 번에 build+preflight+CLI+TOML+YAML+HTTP+grep 를 모두 검증 -- scaffold 의 어느 한 부분이 회귀해도 즉시 잡히도록 한 단위로 묶음. 외부 의존 없음(stdlib + tomllib + 선택적 PyYAML)."
+
+handoff:
+  next_agent: "codex"
+  next_task: "Peer-verify Turn 1 C1-C5."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "deploy scaffold(_redirects/_headers/.nojekyll + wrangler.toml + GH Pages workflow + preflight CLI)가 빌더와 통합되었고, 8-test verifier 전 PASS + 실빌드 preflight clean + 로컬 서빙 200 + 쿠키 누출 0건. 실 계정 배포는 본 세션 범위 밖(수동 트리거)이며 scaffold 의 모든 정합성은 로컬 재현 가능 검증으로 닫혔다. 후속 슬라이스 후보: 실 Cloudflare/GH Pages 1회 배포 + DNS, 증분 빌드 + wrangler 자동 push, vods/report.html 외부 CDN 의존 self-host 또는 CSP 결정."
+  context: |
+    publish/web/{_redirects,_headers,.nojekyll} 가 빌더에 의해 site/ 로 복사되고,
+    publish/deploy/check.py 가 NID_AUT/NID_SES 누출을 ERROR 로, deploy meta
+    누락을 WARNING 으로 게이트한다. wrangler.toml + .github/workflows/deploy-pages.yml
+    이 Cloudflare Pages CLI 와 GH Pages manual workflow 양쪽 진입점을 제공한다.
+    8-test 검증(experiments/deploy_scaffold_verify.py)은 build emit / preflight clean
+    / cookie injection 감지 / --strict 동작 / TOML 파싱 / YAML 파싱 + 액션 참조
+    / 로컬 HTTP 200 / 실빌드 cookie scan 까지 한 번에 시뮬레이션한다.
+    검증 결과: 8/8 PASS, build_site assets_copied=9 (3종 meta 포함), 실 site/
+    preflight = OK(외부 CDN 경고 only, 본 슬라이스 범위 외), rg NID_AUT|NID_SES site/
+    = 0 hits. 본 세션 범위 밖: 실 Cloudflare/GH Pages 계정 연동 배포, vods/report.html
+    의 외부 CDN 의존(chart.js + Google Fonts) self-host 또는 CSP 결정, 증분 빌드 +
+    자동 push 자동화. README + docs/deploy-free-hosting.md + backlog 동기화 완료.

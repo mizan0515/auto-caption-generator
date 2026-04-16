@@ -1,0 +1,90 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-free-hosting-deploy-scaffold"
+timestamp: "2026-04-16T23:55:00+09:00"
+
+contract:
+  checkpoints:
+    C1: "Auth probe -- sister main@d97514e, live d97514e, remote main d97514e..., merge-base OK."
+    C2: "Cloudflare scaffold -- _redirects/_headers/wrangler.toml plus clean-build emission of deploy meta."
+    C3: "GitHub Pages fallback -- workflow_dispatch-only workflow, least-privilege permissions, .nojekyll, and cookie grep gate."
+    C4: "Deploy safety -- zero cookie hits, SAMEORIGIN iframe compatibility, NID_AUT/NID_SES as ERROR, rebuild idempotence."
+    C5: "Verification + validators -- verifier PASS, preflight OK with CDN warning only, and both DAD/document validators PASS."
+
+peer_review:
+  verdict: "PASS after inline fixes"
+  project_analysis: |
+    Claude Turn 1's scaffold implementation was materially correct, but two
+    concrete defects blocked an honest seal. First, `python -m
+    publish.deploy.check --site-dir ./site` crashed on a default Windows cp949
+    console when warnings contained non-ASCII punctuation. Second,
+    `publish.builder.build_site` wrote a fresh wall-clock `generated_at` value
+    into `site/index.json`, so rebuilds of identical inputs were not
+    idempotent. Both defects were fixed inline in this turn and then
+    re-verified locally.
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "sister HEAD d97514e, live HEAD d97514e, remote main d97514e49212d10b6ef8403b829f2612651a452c, merge-base ancestor OK"
+    C2:
+      verdict: pass
+      evidence: "publish/web/_redirects, _headers, .nojekyll present; wrangler.toml points Pages output to ./site; clean tmp build emitted all three meta files"
+    C3:
+      verdict: pass
+      evidence: "deploy-pages.yml is workflow_dispatch-only with least-privilege permissions, cookie grep gate, configure-pages@v5, upload-pages-artifact@v3, deploy-pages@v4"
+    C4:
+      verdict: fail-then-fixed
+      evidence: "real-site rebuild was initially non-idempotent because site/index.json.generated_at used datetime.now(); fixed to deterministic input-derived timestamp and rechecked to IDEMPOTENT_OK"
+    C5:
+      verdict: fail-then-fixed
+      evidence: "publish.deploy.check CLI initially raised UnicodeEncodeError on cp949 stdout; fixed with console-safe output path, then verifier 8/8 PASS, real-site preflight exit 0, both validators PASS"
+  issues_found:
+    - file: "C:/github/auto-caption-generator-main/publish/deploy/check.py"
+      detail: "CLI output path was not console-safe on Windows cp949. Running `python -m publish.deploy.check --site-dir ./site` crashed while printing the external-CDN warning."
+    - file: "C:/github/auto-caption-generator-main/publish/builder/build_site.py"
+      detail: "`site/index.json` used `datetime.now(...)` for generated_at, so identical rebuilds changed hashes and contradicted the claimed deploy-root idempotence."
+  fixes_applied:
+    - file: "C:/github/auto-caption-generator-main/publish/deploy/check.py"
+      detail: "Rewrote the module in ASCII-safe form and added `_emit_line()` so CLI output falls back to replacement encoding instead of crashing on non-UTF-8 consoles."
+    - file: "C:/github/auto-caption-generator-main/publish/builder/build_site.py"
+      detail: "Added `_stable_generated_at(records)` and replaced wall-clock `generated_at` with a deterministic value derived from input records."
+
+my_work:
+  summary: |
+    I reproduced C1-C5 directly, including a clean tmp build, a real-site
+    build, workflow/static-file inspection, cookie-leak probes, strict-mode
+    exit code checks, and both validators. Two defects surfaced during
+    adversarial review: the deploy preflight CLI crashed on cp949 consoles, and
+    rebuild idempotence was false because `index.json` changed on every run. I
+    fixed both, reran the affected checks, and confirmed the session can now be
+    sealed honestly.
+  evidence:
+    commands:
+      - "git -C C:/github/auto-caption-generator-main rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD -> d97514e"
+      - "git -C C:/github/auto-caption-generator-main ls-remote --heads origin main -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main"
+      - "git -C C:/github/auto-caption-generator-main merge-base HEAD d97514e49212d10b6ef8403b829f2612651a452c -> d97514e49212d10b6ef8403b829f2612651a452c"
+      - "clean tmp build via build_site(...) -> _redirects/_headers/.nojekyll all emitted"
+      - "site/ deleted and rebuilt -> meta files regenerated from source, not cached state"
+      - "bash workflow-style grep gate with injected NID_AUT -> EXIT=1 (fail-closed)"
+      - "synthetic NID_SES injection through publish.deploy.check.preflight(...) -> ok=false, COOKIE LEAK error"
+      - "python -m publish.deploy.check --site-dir ./site -> exit 0 after CLI output fix"
+      - "python -m publish.deploy.check --site-dir <tmp> --strict -> EXIT=2"
+      - "python experiments/deploy_scaffold_verify.py -> all 8 tests PASSED (rerun clean after fixes)"
+      - "python -m publish.builder.build_site twice + SHA256 on key JSON files -> IDEMPOTENT_OK after stable generated_at fix"
+      - "rg 'NID_AUT|NID_SES' site/ -> 0 hits"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS"
+
+decisions:
+  - "Keep Cloudflare Pages as the primary deploy scaffold and GitHub Pages as the manual fallback."
+  - "Treat deploy preflight cookie leaks as hard errors, but leave external CDN references as warnings for this slice."
+  - "Require deterministic deploy-root output for repeated local builds; wall-clock build timestamps are not acceptable in the exported site index."
+
+handoff:
+  next_agent: null
+  next_task: null
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "All C1-C5 checks reproduced after fixing two concrete defects: console-safe preflight output and deterministic build-site generated_at. Deploy scaffold is locally verified and both validators pass."

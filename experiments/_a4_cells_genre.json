@@ -1,0 +1,32 @@
+[
+  {
+    "sample_id": "W4-offset1800s-game-nochat",
+    "srt_path": "C:\\github\\auto-caption-generator-main\\work\\12702452\\12702452_offset1800s_clip1800s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator-main\\work\\12702452\\12702452_chat_offset1800s_empty.log",
+    "length_min": 30,
+    "genre": "game",
+    "density_tier": "none",
+    "chat_density_msgs_per_min": 0.0,
+    "video_no": "12702452",
+    "title": "A4-W4-offset1800s-game-nochat",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "탬탬",
+    "duration_sec": 1800,
+    "publish_date": "2026-04-14"
+  },
+  {
+    "sample_id": "W5-11688000-30min-olympics-nochat",
+    "srt_path": "C:\\github\\auto-caption-generator-main\\work\\11688000\\11688000_clip1800s.srt",
+    "chat_log_path": "C:\\github\\auto-caption-generator-main\\work\\11688000\\11688000_chat_empty.log",
+    "length_min": 30,
+    "genre": "olympics",
+    "density_tier": "none",
+    "chat_density_msgs_per_min": 0.0,
+    "video_no": "11688000",
+    "title": "A4-W5-11688000-30min-olympics",
+    "channel_id": "a7e175625fdea5a7d98428302b7aa57f",
+    "channel_name": "탬탬",
+    "duration_sec": 1800,
+    "publish_date": "2026-02-07"
+  }
+]

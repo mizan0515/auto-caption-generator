@@ -1,0 +1,21 @@
+# Cloudflare Pages 프로젝트 설정 (wrangler v3+).
+#
+# 이 파일은 다음 두 경로에서만 읽힌다:
+#   1. `wrangler pages deploy site/` 로 CLI 업로드할 때
+#   2. Cloudflare Pages 가 Git 연동 모드로 wrangler.toml 을 인식할 때
+#
+# 대시보드의 "Direct Upload" 모드는 이 파일을 보지 않으므로,
+# UI 만으로 배포할 사용자는 이 파일을 무시해도 된다.
+#
+# 운영 메모:
+#   - 빌드 명령은 비워둔다. site/ 는 로컬에서 미리 생성된 산출물이다.
+#   - pages_build_output_dir 가 site/ 를 가리켜야 한다.
+#   - secrets / vars 는 본 저장소 어디에도 두지 않는다 (정적 호스팅).
+#   - 실제 배포 명령(예시):
+#       wrangler pages deploy site \
+#         --project-name=auto-caption-generator-site \
+#         --branch=main
+
+name = "auto-caption-generator-site"
+compatibility_date = "2024-12-01"
+pages_build_output_dir = "./site"

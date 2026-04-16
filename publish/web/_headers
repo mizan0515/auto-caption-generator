@@ -1,0 +1,24 @@
+# Cloudflare Pages response headers.
+# 형식: 매칭 패턴 한 줄 후 들여쓴 헤더 목록.
+#
+# 정책 요약:
+#   - HTML/JSON 은 짧은 캐시 (퍼블리시 갱신 후 곧 보이도록).
+#   - 정적 자산(assets/*) 은 하루 캐시.
+#   - 모든 응답에 기본 보안 헤더 적용.
+#   - vod.html 이 같은 origin 의 report.html 을 iframe 으로 삽입하므로
+#     X-Frame-Options 는 SAMEORIGIN 으로 둔다 (DENY 금지).
+
+/assets/*
+  Cache-Control: public, max-age=86400
+
+/*.html
+  Cache-Control: public, max-age=300
+
+/*.json
+  Cache-Control: public, max-age=300
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+  Permissions-Policy: geolocation=(), microphone=(), camera=()

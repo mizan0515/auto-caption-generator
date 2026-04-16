@@ -38,15 +38,18 @@ def fetch_vod_list(channel_id: str, cookies: dict, page: int = 0, size: int = 20
 
 
 def parse_vod_info(raw: dict, channel_id: str) -> VODInfo:
+    from .config import derive_streamer_id
+    channel_name = raw.get("channel", {}).get("channelName", "")
     return VODInfo(
         video_no=str(raw.get("videoNo", "")),
         title=raw.get("videoTitle", "제목 없음"),
         channel_id=channel_id,
-        channel_name=raw.get("channel", {}).get("channelName", ""),
+        channel_name=channel_name,
         duration=raw.get("duration", 0),
         publish_date=raw.get("liveOpenDate", raw.get("publishDate", "")),
         thumbnail_url=raw.get("thumbnailImageUrl", ""),
         category=raw.get("videoCategoryValue", ""),
+        streamer_id=derive_streamer_id(channel_id, channel_name),
     )
 
 
@@ -122,6 +125,9 @@ def check_new_vods(
         return []
 
     # 최초 실행 여부: processed_vods 가 비어있고 last_poll_time 도 없으면 bootstrap
+    # 최초 실행 여부: 해당 채널에 대한 처리 기록이 없고 poll_time 도 없으면 bootstrap
+    # 멀티 스트리머 시 채널별 bootstrap 판단이 이상적이지만,
+    # Slice 1 에서는 전역 bootstrap (기존 동작) 을 유지한다.
     is_bootstrap = (
         not state._data.get("processed_vods")
         and state._data.get("last_poll_time") is None
@@ -163,6 +169,7 @@ def check_new_vods(
                 state.update(
                     video_no,
                     status="skipped_bootstrap",
+                    channel_id=channel_id,
                     title=raw.get("videoTitle", ""),
                 )
         state.update_poll_time()
@@ -174,7 +181,7 @@ def check_new_vods(
         if not video_no:
             continue
 
-        existing_status = state.get_status(video_no)
+        existing_status = state.get_status(video_no, channel_id=channel_id)
         # 처리됨/처리중/스킵됨 모두 제외
         if existing_status in (
             "processing", "completed", "collecting", "analyzing",

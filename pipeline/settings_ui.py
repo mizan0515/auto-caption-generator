@@ -1,21 +1,29 @@
 """파이프라인 설정 GUI (tkinter)
 
 트레이 앱 또는 독립 실행으로 pipeline_config.json을 편집.
+
+멀티 스트리머 모드:
+    - 한 화면에서 여러 스트리머를 추가/수정/삭제할 수 있다.
+    - 저장 시 cfg["streamers"] 가 canonical form 으로 직렬화되며
+      `pipeline.config.normalize_streamers()` 가 그대로 소비할 수 있다.
+    - legacy 호환을 위해 첫 번째 스트리머는 `target_channel_id`,
+      `streamer_name`, `fmkorea_search_keywords` 로도 미러링된다.
 """
 
 import json
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 
-from .config import load_config, save_config, _config_path
+from .config import load_config, save_config, _config_path, normalize_streamers
 
 
 # ── 필드 정의: (config key, 라벨, 타입, 설명) ──
+# 스트리머 관련 필드 (streamer_name, target_channel_id, fmkorea_search_keywords)
+# 는 별도 멀티 스트리머 섹션에서 관리한다.
 FIELDS = [
-    # 기본 설정
-    ("streamer_name",        "스트리머 이름",       "str",   "모니터링할 스트리머 이름 (표시용)"),
-    ("target_channel_id",    "채널 ID",            "str",   "Chzzk 채널 ID (32자리 hex)"),
+    # 기본 설정 (스트리머 외)
     ("poll_interval_sec",    "폴링 간격 (초)",      "int",   "새 VOD 확인 주기 (기본: 300초 = 5분)"),
     ("download_resolution",  "다운로드 해상도",     "int",   "VOD 다운로드 해상도 (기본: 144)"),
     ("bootstrap_mode",       "Bootstrap 모드",     "str",   "최초 실행 시 정책: 빈칸(질문) / skip_all / latest_n"),
@@ -23,13 +31,12 @@ FIELDS = [
 
     # 커뮤니티
     ("fmkorea_enabled",      "fmkorea 수집",       "bool",  "fmkorea 커뮤니티 스크레이핑 활성화"),
-    ("fmkorea_search_keywords", "검색 키워드",     "list",  "쉼표로 구분 (예: 탬탬버린,탬탬)"),
     ("fmkorea_max_pages",    "최대 페이지",         "int",   "키워드당 검색 페이지 수"),
     ("fmkorea_max_posts",    "최대 게시글",         "int",   "수집할 최대 게시글 수"),
 
     # 자막/요약
-    ("chunk_max_chars",      "청크 최대 글자",      "int",   "SRT 청크 분할 기준 (기본: 150000)"),
-    ("chunk_overlap_sec",    "청크 오버랩 (초)",    "int",   "청크 간 겹침 구간 (기본: 45)"),
+    ("chunk_max_chars",      "청크 최대 글자",      "int",   "SRT 청크 분할 기준 (기본: 8000)"),
+    ("chunk_overlap_sec",    "청크 오버랩 (초)",    "int",   "청크 간 겹침 구간 (기본: 30)"),
     ("claude_timeout_sec",   "Claude 타임아웃 (초)","int",   "Claude CLI 호출 제한시간"),
 
     # 경로
@@ -37,6 +44,12 @@ FIELDS = [
     ("work_dir",             "작업 디렉터리",       "str",   "임시 파일 저장 경로"),
     ("auto_cleanup",         "자동 정리",           "bool",  "처리 완료 후 임시 파일 삭제"),
 ]
+
+# 섹션 분할 인덱스
+BASIC_END = 4        # 기본 설정 0..3
+COMMUNITY_END = 7    # 커뮤니티 4..6
+CHUNK_END = 10       # 자막/요약 7..9
+# 경로 10..
 
 COOKIE_FIELDS = [
     ("NID_AUT", "NID_AUT", "Chzzk 인증 쿠키"),
@@ -54,6 +67,9 @@ class SettingsWindow:
         self.on_save = on_save
         self.cfg = load_config()
         self.widgets = {}
+        # 멀티 스트리머 row 관리: 각 항목은 dict
+        #   {"frame": ttk.Frame, "channel_id": Entry, "name": Entry, "keywords": Entry}
+        self.streamer_rows = []
 
         if parent:
             self.root = tk.Toplevel(parent)
@@ -61,7 +77,7 @@ class SettingsWindow:
             self.root = tk.Tk()
 
         self.root.title("파이프라인 설정")
-        self.root.geometry("600x720")
+        self.root.geometry("680x780")
         self.root.resizable(False, True)
 
         self._build_ui()
@@ -90,24 +106,43 @@ class SettingsWindow:
 
         row = 0
 
+        # ── 멀티 스트리머 ──
+        row = self._add_section("스트리머 (멀티 스트리머 지원)", row)
+        ttk.Label(
+            self.frame,
+            text="여러 스트리머를 동시에 모니터링할 수 있습니다. 각 행: 채널 ID(32자리 hex), 이름, 검색 키워드(쉼표 구분).",
+            foreground="gray",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 4))
+        row += 1
+
+        # streamers 목록 컨테이너 (rows 가 동적으로 추가/제거됨)
+        self.streamers_container = ttk.Frame(self.frame)
+        self.streamers_container.grid(row=row, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 4))
+        row += 1
+
+        # "+ 스트리머 추가" 버튼
+        add_btn = ttk.Button(self.frame, text="+ 스트리머 추가", command=self._on_add_streamer)
+        add_btn.grid(row=row, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 6))
+        row += 1
+
         # ── 기본 설정 ──
         row = self._add_section("기본 설정", row)
-        for key, label, ftype, desc in FIELDS[:4]:
+        for key, label, ftype, desc in FIELDS[:BASIC_END]:
             row = self._add_field(key, label, ftype, desc, row)
 
         # ── 커뮤니티 설정 ──
         row = self._add_section("커뮤니티 수집", row)
-        for key, label, ftype, desc in FIELDS[4:8]:
+        for key, label, ftype, desc in FIELDS[BASIC_END:COMMUNITY_END]:
             row = self._add_field(key, label, ftype, desc, row)
 
         # ── 자막/요약 설정 ──
         row = self._add_section("자막 / 요약", row)
-        for key, label, ftype, desc in FIELDS[8:11]:
+        for key, label, ftype, desc in FIELDS[COMMUNITY_END:CHUNK_END]:
             row = self._add_field(key, label, ftype, desc, row)
 
         # ── 경로 설정 ──
         row = self._add_section("경로 / 정리", row)
-        for key, label, ftype, desc in FIELDS[11:]:
+        for key, label, ftype, desc in FIELDS[CHUNK_END:]:
             row = self._add_field(key, label, ftype, desc, row)
 
         # ── 쿠키 설정 ──
@@ -191,6 +226,105 @@ class SettingsWindow:
         )
         return row + 1
 
+    # ── 멀티 스트리머 row 관리 ──
+
+    def _on_add_streamer(self):
+        """'+ 스트리머 추가' 버튼 콜백."""
+        self._add_streamer_row({"channel_id": "", "name": "", "search_keywords": []})
+
+    def _add_streamer_row(self, streamer: dict) -> None:
+        """streamers_container 에 한 행을 추가한다.
+
+        streamer: {"channel_id": str, "name": str, "search_keywords": list[str]}
+        """
+        row_frame = ttk.LabelFrame(self.streamers_container, text=f"스트리머 #{len(self.streamer_rows) + 1}")
+        row_frame.pack(fill="x", expand=True, pady=(0, 6))
+
+        # 채널 ID
+        ttk.Label(row_frame, text="채널 ID (32 hex):").grid(row=0, column=0, sticky="w", padx=6, pady=2)
+        cid_entry = ttk.Entry(row_frame, width=40)
+        cid_entry.grid(row=0, column=1, sticky="ew", padx=6, pady=2)
+        cid_entry.insert(0, streamer.get("channel_id", "") or "")
+
+        # 이름
+        ttk.Label(row_frame, text="이름:").grid(row=1, column=0, sticky="w", padx=6, pady=2)
+        name_entry = ttk.Entry(row_frame, width=30)
+        name_entry.grid(row=1, column=1, sticky="ew", padx=6, pady=2)
+        name_entry.insert(0, streamer.get("name", "") or "")
+
+        # 검색 키워드
+        ttk.Label(row_frame, text="검색 키워드 (쉼표):").grid(row=2, column=0, sticky="w", padx=6, pady=2)
+        kw_entry = ttk.Entry(row_frame, width=40)
+        kw_entry.grid(row=2, column=1, sticky="ew", padx=6, pady=2)
+        keywords = streamer.get("search_keywords") or []
+        if isinstance(keywords, list):
+            kw_entry.insert(0, ", ".join(str(k) for k in keywords))
+        else:
+            kw_entry.insert(0, str(keywords))
+
+        # 삭제 버튼
+        del_btn = ttk.Button(row_frame, text="삭제", width=8)
+        del_btn.grid(row=0, column=2, rowspan=3, sticky="ns", padx=8, pady=2)
+
+        row_frame.columnconfigure(1, weight=1)
+
+        row_dict = {
+            "frame": row_frame,
+            "channel_id": cid_entry,
+            "name": name_entry,
+            "keywords": kw_entry,
+        }
+        self.streamer_rows.append(row_dict)
+
+        # 람다 캡처 — row_dict 자체를 인자로 넘긴다
+        del_btn.configure(command=lambda r=row_dict: self._remove_streamer_row(r))
+
+    def _remove_streamer_row(self, row_dict: dict) -> None:
+        if row_dict not in self.streamer_rows:
+            return
+        if len(self.streamer_rows) <= 1:
+            messagebox.showwarning(
+                "삭제 불가",
+                "최소 1명의 스트리머가 필요합니다."
+            )
+            return
+        row_dict["frame"].destroy()
+        self.streamer_rows.remove(row_dict)
+        self._renumber_streamer_rows()
+
+    def _renumber_streamer_rows(self) -> None:
+        """삭제 후 LabelFrame 의 '스트리머 #N' 표시를 갱신한다."""
+        for idx, row in enumerate(self.streamer_rows, start=1):
+            row["frame"].configure(text=f"스트리머 #{idx}")
+
+    def _clear_streamer_rows(self) -> None:
+        for row in list(self.streamer_rows):
+            row["frame"].destroy()
+        self.streamer_rows = []
+
+    def _collect_streamers(self) -> list[dict]:
+        """row 위젯에서 streamers list 를 수집한다 (canonical form)."""
+        result = []
+        for row in self.streamer_rows:
+            cid = row["channel_id"].get().strip()
+            name = row["name"].get().strip()
+            kw_raw = row["keywords"].get().strip()
+            keywords = [s.strip() for s in kw_raw.split(",") if s.strip()]
+            # 키워드 비어있으면 기본값으로 name 사용 (legacy 동작 보존)
+            if not keywords and name:
+                keywords = [name]
+            result.append({
+                "channel_id": cid,
+                "name": name,
+                "search_keywords": keywords,
+            })
+        return result
+
+    @staticmethod
+    def _is_valid_channel_id(channel_id: str) -> bool:
+        """Chzzk channel_id 는 32자리 hex 문자열이어야 한다."""
+        return bool(re.fullmatch(r"[0-9a-fA-F]{32}", channel_id))
+
     def _toggle_cookie_visibility(self):
         self._cookie_visible = not self._cookie_visible
         show = "" if self._cookie_visible else "*"
@@ -202,6 +336,15 @@ class SettingsWindow:
 
     def _load_values(self):
         """설정값을 위젯에 로드"""
+        # 스트리머: legacy/multi 통합 normalize_streamers 로 1+ 행 생성
+        self._clear_streamer_rows()
+        streamers = normalize_streamers(self.cfg)
+        if not streamers:
+            streamers = [{"channel_id": "", "name": "", "search_keywords": []}]
+        for s in streamers:
+            self._add_streamer_row(s)
+
+        # 일반 필드
         for key, _, ftype, _ in FIELDS:
             val = self.cfg.get(key, "")
             widget = self.widgets[key]
@@ -219,7 +362,8 @@ class SettingsWindow:
                 widget.insert(0, str(val))
             else:
                 widget.delete(0, tk.END)
-                widget.insert(0, str(val))
+                # None 은 빈 문자열로 표시
+                widget.insert(0, "" if val is None else str(val))
 
         # 쿠키
         cookies = self.cfg.get("cookies", {})
@@ -229,9 +373,48 @@ class SettingsWindow:
             w.insert(0, cookies.get(key, ""))
 
     def _collect_values(self) -> dict:
-        """위젯에서 설정값 수집"""
+        """위젯에서 설정값 수집.
+
+        반환:
+            dict (성공) — `streamers` canonical list 와 legacy mirror 가 함께 들어감
+            None (입력 오류 시 — 사용자에 메시지박스 표시 후 호출자 abort)
+        """
         cfg = dict(self.cfg)
 
+        # streamers
+        streamers = self._collect_streamers()
+        if not streamers:
+            messagebox.showerror("입력 오류", "최소 1명의 스트리머를 입력해주세요.")
+            return None
+
+        # 검증: 채널 ID 와 이름이 있어야 한다 (모두 비어있는 행 거부)
+        for idx, s in enumerate(streamers, start=1):
+            if not s["channel_id"] and not s["name"]:
+                messagebox.showerror(
+                    "입력 오류",
+                    f"스트리머 #{idx} 에 채널 ID 또는 이름을 입력해주세요."
+                )
+                return None
+            if s["channel_id"] and not self._is_valid_channel_id(s["channel_id"]):
+                if not messagebox.askyesno(
+                    "경고",
+                    f"스트리머 #{idx} 의 채널 ID 가 유효한 32자리 hex 가 아닙니다 "
+                    f"({s['channel_id']!r}). 그대로 저장할까요?"
+                ):
+                    return None
+
+        cfg["streamers"] = streamers
+
+        # legacy mirror — 첫 스트리머를 scalar 필드에 동시 기록한다.
+        #   - tray_app.py 의 상태 표시는 여전히 cfg["target_channel_id"] 를 본다.
+        #   - publish/builder/build_site.py 는 metadata 우선, scalar 는 fallback.
+        #   - main.py 의 일부 fallback 도 scalar 에 의존한다.
+        first = streamers[0]
+        cfg["target_channel_id"] = first["channel_id"]
+        cfg["streamer_name"] = first["name"]
+        cfg["fmkorea_search_keywords"] = list(first["search_keywords"])
+
+        # 일반 필드
         for key, label, ftype, _ in FIELDS:
             widget = self.widgets[key]
 
@@ -248,7 +431,12 @@ class SettingsWindow:
                     messagebox.showerror("입력 오류", f"'{label}'은(는) 숫자여야 합니다: {raw}")
                     return None
             else:
-                cfg[key] = widget.get().strip()
+                raw = widget.get().strip()
+                # bootstrap_mode 는 빈 문자열을 None 으로 정규화 (DEFAULT 와 일치)
+                if key == "bootstrap_mode" and raw == "":
+                    cfg[key] = None
+                else:
+                    cfg[key] = raw
 
         # 쿠키
         cfg["cookies"] = {}
@@ -261,11 +449,6 @@ class SettingsWindow:
         cfg = self._collect_values()
         if cfg is None:
             return
-
-        # 채널 ID 검증
-        cid = cfg.get("target_channel_id", "")
-        if len(cid) != 32:
-            messagebox.showwarning("경고", f"채널 ID가 32자가 아닙니다 ({len(cid)}자). 확인해주세요.")
 
         save_config(cfg)
         self.cfg = cfg

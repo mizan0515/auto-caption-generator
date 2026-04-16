@@ -1,0 +1,40 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-multi-streamer-web-publish-mvp",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Turn 2 peer-verify PASS. C1/C2/C4/C5 were reproduced directly. C3 had two documentation overclaims only: publish-schema overstated channel_id fallback stability for mixed historical outputs, and deploy-free-hosting omitted the embedded Chart.js CDN dependency. Both were fixed in-place. Runtime pipeline code stayed unchanged, validators passed, and the session remains converged.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "PASS. Sister main@d97514e, live detached d97514e, remote refs/heads/main only, merge-base exit 0.",
+    "C2": "PASS. Single-streamer audit wording matches live code: config is scalar, VODInfo has no streamer_id, summarizer metadata lacks streamer_id/channel_id/platform/search_text, and state is flat by video_no.",
+    "C3": "FAIL-then-FIXED. Docs existed and runtime code stayed untouched, but publish-schema overstated channel_id fallback stability and deploy-free-hosting omitted the external Chart.js CDN dependency. Both documents were corrected in-place.",
+    "C4": "PASS. python -m publish.builder.build_site reproduced vod_count=1, streamer_count=1, 14 files, and byte-identical report copies.",
+    "C5": "PASS. 7/7 HTTP 200, 5 query counts reproduced, site cookie scan 0 hits, publish.hook rerun OK, validators PASS."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: publish/ 레이어는 runtime 권위에 종속되지 않는 derived view 로 설계하고, metadata JSON 자체는 수정하지 않는다.",
+    "Turn 1: 평면 site/vods/<video_no>/ 경로를 채택하고, video_no 충돌은 실제 관찰 시 streamer-prefixed 경로로 이전한다.",
+    "Turn 1: 검색은 client-side substring 으로 시작하고, 형태소/n-gram 업그레이드는 backlog P3 로 미룬다.",
+    "Turn 1: 무료 호스팅 1순위는 Cloudflare Pages Direct Upload, 2순위는 GitHub Pages 로 둔다.",
+    "Turn 1: 자동 퍼블리시 hook 은 pipeline 에 미삽입 상태로 두고 publish.hook.rebuild_site_safe() 를 준비한다.",
+    "Turn 2: current builder 는 per-VOD channel_id 가 없어 pipeline_config.target_channel_id 단일 fallback 에 의존하므로, mixed historical output 에 대한 stable streamer identity 는 아직 보장하지 않는다.",
+    "Turn 2: 현재 VOD 상세 페이지는 embedded report.html 의 external Chart.js CDN 의존성을 가진다. strict CSP/offline 대응은 후속 슬라이스다."
+  ],
+  "meta_improvements": [
+    "publish-view 를 derived layer 로 두면 runtime schema 변경 없이도 제품 표면을 확장할 수 있다.",
+    "기존 md/html/metadata 를 byte-identical 로 복사하면 회귀 검사를 간단한 file hash 비교로 끝낼 수 있다.",
+    "site/ 를 gitignored build artifact 로 두고 Direct Upload 배포를 전제로 잡으면 secrets/config 와 publish tree 를 분리할 수 있다.",
+    "Peer-verify 에서는 구현 성공 여부뿐 아니라 mixed historical output, CSP/offline 같은 다음 슬라이스 취약점도 같은 턴에서 문서화해야 한다."
+  ]
+}

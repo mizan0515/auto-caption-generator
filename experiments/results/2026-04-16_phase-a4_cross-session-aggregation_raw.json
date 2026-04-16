@@ -1,0 +1,179 @@
+{
+  "source_files": [
+    "2026-04-15_phase-a4_raw.json",
+    "2026-04-16_phase-a4_genre-acquisition_raw.json",
+    "2026-04-16_phase-a4-acquisition-followup_raw.json"
+  ],
+  "merged_cells": [
+    {
+      "sample_id": "W1-30min-talk-high",
+      "length_min": 30,
+      "genre": "talk",
+      "density_tier": "high",
+      "chat_density_msgs_per_min": 76.1667,
+      "n_chunks": 4,
+      "n_chunks_full_cell": 5,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 0,
+      "median_user_ratio": null,
+      "P95_user_ratio": null,
+      "median_additive_overhead": null,
+      "insufficient_data": true,
+      "computed_chat_density_msgs_per_min": 76.1667
+    },
+    {
+      "sample_id": "W2-1h-talk-medium",
+      "length_min": 60,
+      "genre": "talk",
+      "density_tier": "medium",
+      "chat_density_msgs_per_min": 38.0833,
+      "n_chunks": 4,
+      "n_chunks_full_cell": 10,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 0,
+      "median_user_ratio": null,
+      "P95_user_ratio": null,
+      "median_additive_overhead": null,
+      "insufficient_data": true,
+      "computed_chat_density_msgs_per_min": 38.0833
+    },
+    {
+      "sample_id": "W3-3h-talk-low",
+      "length_min": 180,
+      "genre": "talk",
+      "density_tier": "low",
+      "chat_density_msgs_per_min": 12.6944,
+      "n_chunks": 4,
+      "n_chunks_full_cell": 27,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 0,
+      "median_user_ratio": null,
+      "P95_user_ratio": null,
+      "median_additive_overhead": null,
+      "insufficient_data": true,
+      "computed_chat_density_msgs_per_min": 12.6944
+    },
+    {
+      "sample_id": "W4-offset1800s-game-nochat",
+      "length_min": 30,
+      "genre": "game",
+      "density_tier": "none",
+      "chat_density_msgs_per_min": 0.0,
+      "n_chunks": 4,
+      "n_chunks_full_cell": 6,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 2,
+      "median_user_ratio": 4.0621,
+      "P95_user_ratio": 4.1256,
+      "median_additive_overhead": 7913.5,
+      "insufficient_data": true,
+      "computed_chat_density_msgs_per_min": 0.0
+    },
+    {
+      "sample_id": "W5-11688000-30min-olympics-nochat",
+      "length_min": 30,
+      "genre": "olympics",
+      "density_tier": "none",
+      "chat_density_msgs_per_min": 0.0,
+      "n_chunks": 3,
+      "n_chunks_full_cell": 3,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 3,
+      "median_user_ratio": 4.1179,
+      "P95_user_ratio": 4.6886,
+      "median_additive_overhead": 7912.0,
+      "insufficient_data": false,
+      "computed_chat_density_msgs_per_min": 0.0
+    },
+    {
+      "sample_id": "W4f-offset1800s-12702452-chat",
+      "length_min": 30,
+      "genre": "game",
+      "density_tier": "high",
+      "chat_density_msgs_per_min": 81.52,
+      "n_chunks": 4,
+      "n_chunks_full_cell": 6,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 3,
+      "median_user_ratio": 2.8815,
+      "P95_user_ratio": 3.2994,
+      "median_additive_overhead": 8286.0,
+      "insufficient_data": false,
+      "computed_chat_density_msgs_per_min": 81.4667,
+      "platform_category": "더 게임 오브 라이프 포 닌텐도 스위치",
+      "content_judgement": "talk",
+      "chat_coverage": "full"
+    },
+    {
+      "sample_id": "W5f-11688000-30min-chat",
+      "length_min": 30,
+      "genre": "olympics",
+      "density_tier": "medium",
+      "chat_density_msgs_per_min": 51.48,
+      "n_chunks": 3,
+      "n_chunks_full_cell": 3,
+      "n_chunks_cap": 4,
+      "n_valid_chunks": 3,
+      "median_user_ratio": 2.6337,
+      "P95_user_ratio": 2.9456,
+      "median_additive_overhead": 8242.0,
+      "insufficient_data": false,
+      "computed_chat_density_msgs_per_min": 51.4667,
+      "platform_category": "동계 올림픽",
+      "content_judgement": "olympics",
+      "chat_coverage": "full"
+    }
+  ],
+  "global": {
+    "template_hash": "4d732b40fa470862",
+    "covered_cell_count": 3,
+    "covered_lengths_min": [
+      30
+    ],
+    "covered_genres": [
+      "game",
+      "olympics"
+    ],
+    "covered_density_tiers": [
+      "high",
+      "medium",
+      "none"
+    ],
+    "global_median_P95": 3.2994,
+    "dispersion_range": [
+      2.8045,
+      3.7943
+    ],
+    "dispersion_failures": [
+      "W5-11688000-30min-olympics-nochat"
+    ],
+    "axis_coverage_ok": false,
+    "dispersion_ok": false,
+    "decision": "per_cell_multiplicative",
+    "recommended_margin": null
+  },
+  "labeling_schema": {
+    "primary": "platform_category",
+    "secondary": "content_judgement",
+    "promotion_axis_uses": "platform_category",
+    "note": "Cells lacking platform_category are counted in evaluate_global via genre/insufficient_data but excluded from platform_category distinct-count reported here."
+  },
+  "platform_category_coverage": {
+    "covered_platform_categories": [
+      "더 게임 오브 라이프 포 닌텐도 스위치",
+      "동계 올림픽"
+    ],
+    "covered_platform_category_count": 2,
+    "unlabeled_covered_sample_ids": [
+      "W5-11688000-30min-olympics-nochat"
+    ]
+  },
+  "promotion_readiness": {
+    "ready": false,
+    "gate": "covered_cell_count>=5 AND covered_platform_category>=2 AND covered_density_tiers>=2 AND dispersion_ok",
+    "covered_cell_count": 3,
+    "covered_platform_category_count": 2,
+    "covered_density_tiers_count": 3,
+    "dispersion_ok": false
+  }
+}

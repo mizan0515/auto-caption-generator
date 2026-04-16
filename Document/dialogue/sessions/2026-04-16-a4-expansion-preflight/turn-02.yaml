@@ -1,0 +1,116 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-a4-expansion-preflight"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "The three promotion blockers remain real from live docs/code: cookie validity unknown, W2=W3 duplication, and genre-axis single coverage."
+    - id: C2
+      description: "The raw asset, script, and code-entry inventory is reproducible from live/sister surfaces."
+    - id: C3
+      description: "The recommended two-session ladder is the minimum sufficient decomposition: acquisition first, smoke second, no bundling, no chunk_max_tokens promotion."
+    - id: C4
+      description: "No pipeline/config/result/git-ref/remote mutation slipped into Turn 1; only this session's DAD artifacts plus sister root state mirror were written."
+    - id: C5
+      description: "Session/root metadata and summary artifacts are internally consistent after peer seal: converged, accepted, scope medium, current_turn advanced to 2, BOM preserved, validators still PASS in sister."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: aligned
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "Cookie readiness is still field-level only. The next execute session must start with Step 0 `NetworkManager.get_video_info` probe before any acquisition."
+      - "Global promotion still remains blocked even after preflight seal; `chunk_max_tokens` runtime default stays deferred."
+    amendments: []
+  checkpoint_results:
+    C1:
+      status: PASS
+      evidence: "Live docs confirm all three blockers. `experiments/results/2026-04-15_phase-a4_generalization.md:96-103` and `:147-149` show W2=W3 numeric identity and its same-VOD+t=0+chat window cause. `:117` and `:122` show `covered_genres=[\"talk\"]` and `axis_coverage_ok=false`. `pipeline_config.json` introspection proved cookie fields non-empty but no executed `get_video_info` probe appears in Turn 1 evidence."
+    C2:
+      status: FAIL-then-FIXED
+      evidence: "Inventory was reproducible except for one asset-name overclaim: live has `..._clip3600s_part001.wav`, not `..._clip3600s.wav`. Corrected in turn-01.yaml, session/root state closed_reason + C3, and summary.md."
+    C3:
+      status: PASS
+      evidence: "Turn 1 handoff specifies `2026-04-16-a4-genre-acquisition-execute` with Step 0 cookie probe, Step 1 non-talk acquisition, Step 2 W2/W3 de-duplication, followed by separate `2026-04-16-a4-end-to-end-smoke`. This is the minimum sufficient split because acquisition can fail before smoke has any target."
+    C4:
+      status: PASS
+      evidence: "Live remains detached `d97514e` with 13 status lines and no code/result dirt beyond pre-existing residue. Sister status contains only root state mirror, this session dir, and the same 5 scratch files. Remote remains `refs/heads/main` only."
+    C5:
+      status: PASS
+      evidence: "Session/root states match on session_id, current_turn, last_agent, session_status, scope, contract_status, and closed_reason. Both summary files retain BOM. Sister validators re-pass after Turn 2 edits."
+  issues_found:
+    - "Turn 1 inventory claimed `work/12702452/..._clip3600s.{mp4,srt,wav}`. Live disk actually holds `..._clip3600s.mp4`, `..._clip3600s.srt`, and `..._clip3600s_part001.wav`."
+  fixes_applied:
+    - "Corrected the W2 wav asset name in turn-01.yaml, session/root state closed_reason and C3 text, and session summary artifacts."
+
+my_work:
+  task_model:
+    goal: "Peer-verify claude-code Turn 1 of the A4 follow-up preflight and either seal it or record the minimum documentary correction."
+    non_goals:
+      - "any pipeline/config/result mutation"
+      - "any git ref or remote mutation"
+      - "any acquisition, measurement, or smoke execution"
+      - "any cleanup of the accepted 8+4 validator residue"
+  changes:
+    files_modified:
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/2026-04-16-2026-04-16-a4-expansion-preflight-summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/state.json"
+      - "Document/dialogue/state.json"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-02.yaml"
+    summary: "Peer verification confirmed Turn 1's blocker analysis, inventory, split execute ladder, and no-mutation thesis. One documentary drift was fixed: the W2 wav asset is `clip3600s_part001.wav`, not `clip3600s.wav`."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "pipeline_config.json introspection -> NID_AUT non-empty True; NID_SES non-empty True; chunk_max_tokens key absent"
+      - "rg -n 'W2-1h-talk-medium|W3-3h-talk-low|covered_genres|axis_coverage_ok|same VOD|t=0|chat_log' experiments/results/2026-04-15_phase-a4_generalization.md"
+      - "Get-ChildItem C:/github/auto-caption-generator/work/12702452 | Select Name,Length"
+      - "Get-Item sister experiments/a4_measure.py, _a4_transcribe_wav.py, _a4_cells.json, _a4_paths.json, a3_measure.py"
+      - "rg -n 'def download_vod_144p|class NetworkManager|@staticmethod|def (extract_content_no|get_video_info|get_video_dash_manifest|get_video_m3u8_manifest|get_video_m3u8_base_url|get_clip_info|get_clip_manifest|check_new_vods)' pipeline/downloader.py content/network.py pipeline/monitor.py"
+      - "live: git symbolic-ref --short -q HEAD -> exit 1; git rev-parse --short HEAD -> d97514e; git status --short -> 13 lines"
+      - "sister: git branch --show-current -> main; git rev-parse --short HEAD -> d97514e; git status --short -> root state + session dir + same 5 scratch files"
+      - "git ls-remote --heads origin -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main"
+      - "sister Validate-Documents -> PASS (55 files)"
+      - "sister Validate-DadPacket -> PASS"
+      - "state/root metadata comparison -> match on session_id/current_turn/last_agent/session_status/scope/contract_status/mode/closed_reason"
+      - "summary BOM check -> 239,187,191 on both summary files"
+    artifacts:
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-02.yaml"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/2026-04-16-2026-04-16-a4-expansion-preflight-summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/state.json"
+      - "Document/dialogue/state.json"
+  verification: "The three blockers held, the inventory was reproducible after one asset-name correction, the ladder remained minimum-sufficient, and no mutation slipped into pipeline/config/results/git refs/remotes. Sister validators passed after the Turn 2 documentary fix."
+  open_risks:
+    - "Cookie validity remains untested against Chzzk API. The next execute session must keep Step 0 probe mandatory."
+    - "Global promotion remains blocked until at least 3 new independent cells are added and smoke runs on a newly acquired VOD."
+    - "The 8 pre-existing Validate-Documents and 4 Validate-DadPacket live failures remain accepted residue and were not touched here."
+  confidence: high
+
+handoff:
+  next_task: "Open `2026-04-16-a4-genre-acquisition-execute` next. Step 0 cookie probe is mandatory. Only after that session converges should `2026-04-16-a4-end-to-end-smoke` open."
+  context: |
+    Turn 1 preflight is now peer-sealed. The only correction was the
+    exact W2 wav asset name: `clip3600s_part001.wav`.
+
+    Authorized next step:
+      1. `2026-04-16-a4-genre-acquisition-execute`
+         - Step 0 cookie readiness probe via `NetworkManager.get_video_info`
+         - Step 1 non-talk acquisition
+         - Step 2 W2/W3 de-duplication by offset or VOD change
+      2. `2026-04-16-a4-end-to-end-smoke`
+         - separate follow-up session after acquisition converges
+
+    Runtime promotion of `chunk_max_tokens` remains deferred.
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "Peer verification confirmed the blocker analysis, the minimum-sufficient two-session ladder, and the no-mutation claim. One session-local inventory wording drift was corrected in place. The preflight session is sealed and authorizes opening `2026-04-16-a4-genre-acquisition-execute` next."

@@ -3,12 +3,16 @@
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 CONFIG_FILENAME = "pipeline_config.json"
 
 DEFAULT_CONFIG = {
     "target_channel_id": "a7e175625fdea5a7d98428302b7aa57f",
     "streamer_name": "탬탬",
+    # 멀티 스트리머 설정 (리스트). None 이면 legacy 단일 스트리머 모드.
+    # 형식: [{"channel_id": "...", "name": "...", "search_keywords": [...]}]
+    "streamers": None,
     "poll_interval_sec": 300,
     "download_resolution": 144,
     "output_dir": "./output",
@@ -37,6 +41,9 @@ DEFAULT_CONFIG = {
     #   "latest_n": 최신 N개만 처리, 나머지는 스킵
     "bootstrap_mode": None,
     "bootstrap_latest_n": 1,
+    # 자동 퍼블리시: VOD 처리 성공 후 site/ 재빌드
+    "publish_autorebuild": True,
+    "publish_site_dir": "./site",
     "cookies": {"NID_AUT": "", "NID_SES": ""},
 }
 
@@ -60,6 +67,51 @@ def save_config(cfg: dict) -> None:
     path = _config_path()
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def normalize_streamers(cfg: dict) -> list[dict]:
+    """cfg 에서 스트리머 목록을 추출한다.
+
+    - cfg["streamers"] 가 비어있지 않은 리스트이면 그대로 사용.
+    - 그렇지 않으면 legacy target_channel_id + streamer_name 에서 단일 항목을 생성.
+    - 반환: [{"channel_id": str, "name": str, "search_keywords": list[str]}]
+    """
+    raw = cfg.get("streamers")
+    if raw and isinstance(raw, list):
+        normalized = []
+        for s in raw:
+            normalized.append({
+                "channel_id": s.get("channel_id", ""),
+                "name": s.get("name", ""),
+                "search_keywords": s.get("search_keywords", [s.get("name", "")]),
+            })
+        return normalized
+
+    # Legacy single-streamer fallback
+    channel_id = cfg.get("target_channel_id", "")
+    name = cfg.get("streamer_name", "")
+    keywords = cfg.get("fmkorea_search_keywords", [name] if name else [])
+    return [{
+        "channel_id": channel_id,
+        "name": name,
+        "search_keywords": keywords,
+    }]
+
+
+def derive_streamer_id(channel_id: Optional[str], name: Optional[str] = None) -> str:
+    """channel_id 또는 name 으로부터 안정적인 streamer_id slug 를 생성한다."""
+    if channel_id:
+        import re
+        safe = re.sub(r"[^0-9a-fA-F]", "", channel_id)
+        if safe:
+            return f"channel-{safe}"
+    if name:
+        import re
+        slug = name.strip().lower()
+        slug = re.sub(r"[\s/]+", "-", slug)
+        slug = re.sub(r"[^a-z0-9가-힣\-_]", "", slug)
+        return f"name-{slug}" if slug else "unknown-streamer"
+    return "unknown-streamer"
 
 
 def get_cookies(cfg: dict) -> dict:

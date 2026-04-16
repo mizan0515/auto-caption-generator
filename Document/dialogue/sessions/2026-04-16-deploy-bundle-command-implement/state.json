@@ -1,0 +1,38 @@
+﻿{
+    "protocol_version":  "dad-v2",
+    "session_id":  "2026-04-16-deploy-bundle-command-implement",
+    "session_status":  "converged",
+    "superseded_by":  null,
+    "closed_reason":  "Turn 2 codex peer-verify reproduced C1-C5, fixed escaped JSON cookie leak detection in publish.deploy.check and tmp archive cleanup in publish.deploy.package, then re-ran verifier, package command, and validators to PASS.",
+    "relay_mode":  "user-bridged",
+    "mode":  "hybrid",
+    "scope":  "medium",
+    "current_turn":  2,
+    "max_turns":  5,
+    "last_agent":  "codex",
+    "contract_status":  "accepted",
+    "contract_checkpoints":  {
+                                 "C1":  "PASS. sister main@d97514e, live d97514e (detached, read-only), remote d97514e, merge-base OK.",
+                                 "C2":  "PASS. publish/deploy/check.preflight + COOKIE_PATTERNS + _emit_line are reusable; build_site copies deploy meta to site/; .gitignore already excludes dist/. Insertion point = new publish/deploy/package.py running after build + after preflight, writing to dist/deploy/\u003ctarget\u003e/.",
+                                 "C3":  "PASS. publish.deploy.package CLI implemented with --target {cloudflare,github-pages,all} (repeatable), --strict, --rebuild, --clean, --json. preflight runs first; errors abort with no archive on disk; --strict promotes warnings to the same abort.",
+                                 "C4":  "FAIL-then-FIXED. Escaped JSON-string NID_SES originally bypassed cookie detection; Turn 2 changed token detection to direct substring matching and confirmed package abort + no archives.",
+                                 "C5":  "FAIL-then-FIXED. Builder exceptions originally left *.tmp bundle artifacts; Turn 2 added cleanup on builder failure, then reran verifier/package/validators to PASS."
+                             },
+    "packets":  [
+                    "Document/dialogue/sessions/2026-04-16-deploy-bundle-command-implement/turn-01.yaml",
+                    "Document/dialogue/sessions/2026-04-16-deploy-bundle-command-implement/turn-02.yaml"
+                ],
+    "decisions":  [
+                      "Turn 1: bundle output lives at dist/deploy/\u003ctarget\u003e/ -- dist/ is already gitignored, so no .gitignore change is needed.",
+                      "Turn 1: cloudflare gets zip (Direct Upload native); github-pages gets tar.gz (upload-pages-artifact native). Each file is stored at the publish root, never under site/.",
+                      "Turn 1: deterministic timestamps fix to 1980-01-01 because zip cannot represent epoch 0; tar uses the same epoch (315532800) so both archives compare with one mental model. gzip header uses mtime=0 and an empty filename so the archive byte stream itself drops the wall-clock timestamp.",
+                      "Turn 1: preflight gating semantics mirror check.py -- errors always abort the bundle, warnings only abort under --strict.",
+                      "Turn 1: every produced archive is reopened and grepped for NID_AUT/NID_SES; a hit deletes the archive and aborts. defense in depth on top of preflight.",
+                      "Turn 1: archives are written as *.tmp and atomically replaced; partial bundles never linger in dist/deploy/.",
+                      "Turn 2: treat NID_AUT/NID_SES as toxic substrings anywhere in decoded text payloads; word-boundary regexes are insufficient for escaped JSON leak cases.",
+                      "Turn 2: atomic bundle write includes cleanup on builder failure; no stale *.tmp archive may survive a failed build."
+                  ],
+    "meta_improvements":  [
+                              "Bundle command consolidates the operator\u0027s last-mile step into a single locally reproducible CLI: preflight gating, byte-identical archives, manifest+checksums, and post-archive cookie scan removed the previous ad-hoc zip/upload guesswork from the deploy flow."
+                          ]
+}

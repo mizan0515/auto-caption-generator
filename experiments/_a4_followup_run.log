@@ -1,0 +1,62 @@
+[followup-measure] cell=W4f-offset1800s-12702452-chat platform_category=더 게임 오브 라이프 포 닌텐도 스위치 content_judgement=talk
+pipeline INFO 채팅 분석 시작...
+pipeline INFO   시계열 변환 완료: 176개 버킷
+pipeline INFO   Z-score 피크 탐지: 8개
+pipeline INFO   최종 하이라이트: 7개 (상위 7개 사용)
+pipeline INFO SRT 청크 분할: C:\github\auto-caption-generator-main\work\12702452\12702452_offset1800s_clip1800s.srt (max_tokens=2500, encoding=cl100k_base, overlap=30s)
+pipeline INFO   6개 청크 생성 (총 181개 자막)
+pipeline INFO Claude usage input_tokens=2 output_tokens=3665 cache_creation_input_tokens=11486 cache_read_input_tokens=23191 session_id=c9d185dd-06b3-46b2-8481-7481e80bc0e0 total_cost_usd=0.109129
+pipeline INFO Claude usage input_tokens=2 output_tokens=5914 cache_creation_input_tokens=11510 cache_read_input_tokens=23191 session_id=5e117bad-892a-4535-85d3-74a5864ed416 total_cost_usd=0.142949
+pipeline INFO Claude usage input_tokens=2 output_tokens=16409 cache_creation_input_tokens=0 cache_read_input_tokens=34701 session_id=823a2997-e4be-4eec-81b2-ee3797188932 total_cost_usd=0.260619
+pipeline INFO Claude usage input_tokens=2 output_tokens=3172 cache_creation_input_tokens=0 cache_read_input_tokens=34701 session_id=e445de9f-12ac-4d6c-a47b-550c81a85b17 total_cost_usd=0.062104
+pipeline INFO Claude usage input_tokens=2 output_tokens=15179 cache_creation_input_tokens=13170 cache_read_input_tokens=23191 session_id=f57546db-951f-427b-8878-6dd1a0e55bb4 total_cost_usd=0.289814
+pipeline INFO Claude usage input_tokens=2 output_tokens=6476 cache_creation_input_tokens=0 cache_read_input_tokens=36361 session_id=f628a62a-757f-4f2b-bf1b-e1d0a3a327fe total_cost_usd=0.113842
+pipeline INFO Claude usage input_tokens=2 output_tokens=17015 cache_creation_input_tokens=12688 cache_read_input_tokens=23191 session_id=b9701f46-e984-4c4e-bd2f-651debb92204 total_cost_usd=0.314994
+pipeline INFO Claude usage input_tokens=2 output_tokens=15967 cache_creation_input_tokens=0 cache_read_input_tokens=35879 session_id=cea2c065-e5ec-475c-868e-32196e2c364b total_cost_usd=0.255571
+pipeline INFO Claude usage input_tokens=2 output_tokens=6524 cache_creation_input_tokens=11744 cache_read_input_tokens=23191 session_id=7a93328c-899c-440a-b960-f7956966c7b5 total_cost_usd=0.153160
+pipeline INFO Claude usage input_tokens=2 output_tokens=20871 cache_creation_input_tokens=0 cache_read_input_tokens=34935 session_id=d6f70319-0441-4c48-a2ec-2b3bea28edd4 total_cost_usd=0.327854
+[followup-measure] inter-cell idle 360s (prompt-cache TTL clearance)
+[followup-measure] cell=W5f-11688000-30min-chat platform_category=동계 올림픽 content_judgement=olympics
+pipeline INFO 채팅 분석 시작...
+pipeline INFO   시계열 변환 완료: 176개 버킷
+pipeline INFO   Z-score 피크 탐지: 10개
+pipeline INFO   최종 하이라이트: 6개 (상위 6개 사용)
+pipeline INFO SRT 청크 분할: C:\github\auto-caption-generator-main\work\11688000\11688000_clip1800s.srt (max_tokens=2500, encoding=cl100k_base, overlap=30s)
+pipeline INFO   3개 청크 생성 (총 124개 자막)
+pipeline INFO Claude usage input_tokens=2 output_tokens=2952 cache_creation_input_tokens=12399 cache_read_input_tokens=23191 session_id=abecb432-af9e-481f-8a11-a18569ed6a2e total_cost_usd=0.102732
+pipeline INFO Claude usage input_tokens=2 output_tokens=1433 cache_creation_input_tokens=0 cache_read_input_tokens=35590 session_id=7f555953-af39-4595-b135-6112ea0ac798 total_cost_usd=0.037120
+pipeline INFO Claude usage input_tokens=2 output_tokens=6760 cache_creation_input_tokens=13600 cache_read_input_tokens=23191 session_id=405ad132-e23f-4ac5-9035-b6ddfa74aba3 total_cost_usd=0.165496
+pipeline INFO Claude usage input_tokens=2 output_tokens=5346 cache_creation_input_tokens=0 cache_read_input_tokens=36791 session_id=353937a9-649e-49b4-8ab3-3dd88ae4cf27 total_cost_usd=0.097366
+pipeline INFO Claude usage input_tokens=2 output_tokens=11259 cache_creation_input_tokens=13285 cache_read_input_tokens=23191 session_id=bf9b71a2-4e2b-4927-8a30-1dcac43ae891 total_cost_usd=0.231505
+pipeline INFO Claude usage input_tokens=2 output_tokens=2427 cache_creation_input_tokens=0 cache_read_input_tokens=36476 session_id=2543c670-0e7b-4c8d-8f8c-73f47b004d96 total_cost_usd=0.053182
+Wrote experiments\results\2026-04-16_phase-a4-acquisition-followup_raw.json
+{
+  "template_hash": "4d732b40fa470862",
+  "covered_cell_count": 2,
+  "covered_lengths_min": [
+    30
+  ],
+  "covered_genres": [
+    "game",
+    "olympics"
+  ],
+  "covered_density_tiers": [
+    "high",
+    "medium"
+  ],
+  "global_median_P95": 3.1225,
+  "dispersion_range": [
+    2.6541,
+    3.5909
+  ],
+  "dispersion_failures": [],
+  "axis_coverage_ok": false,
+  "dispersion_ok": true,
+  "decision": "per_cell_multiplicative",
+  "recommended_margin": null,
+  "labeling_schema": {
+    "primary": "platform_category",
+    "secondary": "content_judgement",
+    "promotion_axis_uses": "platform_category"
+  }
+}

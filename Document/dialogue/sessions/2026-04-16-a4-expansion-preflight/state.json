@@ -1,0 +1,40 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-a4-expansion-preflight",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Preflight-only research turn for A4 follow-up. Re-confirmed that A3 (3.35x scoped) and A4 (per_cell_multiplicative scoped) cannot be promoted to runtime default because (a) only 1 genre covered (talk), (b) W2 and W3 are not independent cells (identical first-4-chunks: same VOD, t=0 start, chat_log covers only 0-1799s), (c) axis_coverage_ok=false and dispersion_ok=false in the A4 raw, (d) full-pipeline end-to-end smoke has never been run on new default values. Preflight inventory reproduced: all A3/A4 assets present under work/12702452 in live (144p source mp4 + clip1800s.srt + clip3600s mp4+srt + clip3600s_part001.wav + clip10800s mp4+srt+wav + 12702452_chat.log); all four A4 experiment scripts present in sister (a4_measure.py 16158B, _a4_transcribe_wav.py 2389B, _a4_cells.json 2033B, _a4_paths.json 1763B) plus a3_measure.py; pipeline/downloader.py (download_vod_144p entry), content/network.py (NetworkManager static API), pipeline/monitor.py (check_new_vods) all alive in sister; pipeline_config.json exists with NID_AUT and NID_SES non-empty but validity unverified this turn; chunk_max_tokens absent from config so runtime default is None (char path). Recommend next session 2026-04-16-a4-genre-acquisition-execute as Step 0 cookie probe + Step 1 non-talk acquisition + Step 2 W2/W3 de-duplication sample, then a separate 2026-04-16-a4-end-to-end-smoke session only after acquisition succeeds. No pipeline code, config value, live/sister git ref, or experiments result file was modified.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "Auth probe PASS (pong, 2.8s). Sister main at d97514e with 5 experiments scratch files. Live detached at d97514e with 13 legitimate status lines (1 modified root state.json mirror plus 7 untracked session dirs plus 5 experiments scratch files). Remote only d97514e refs/heads/main. PR 7 MERGED into origin/main at mergeCommit d97514e49..., d97514e is ancestor of origin/main. All expected.",
+    "C2": "A3 and A4 and progress_report re-read from live files. Extracted constraints: A3 scoped PASS at 3.35x (P95 3.1843 × 1.05 ceil); A4 scoped PASS per_cell_multiplicative only (W1 3.37x, W2 2.80x, W3 2.80x); global_multiplicative and global_additive both FAIL on C2 promotion rule; chunk_max_tokens runtime default stays None; W2 and W3 are not independent cells; genre axis only covers talk; full-pipeline end-to-end smoke never run.",
+    "C3": "Preflight inventory PASS. A3/A4 assets reproducible: work/12702452 in live holds 144p source mp4, clip1800s.srt, clip3600s mp4+srt plus clip3600s_part001.wav, clip10800s mp4+srt+wav, 12702452_chat.log. All four A4 experiment scripts present in sister (a4_measure.py, _a4_transcribe_wav.py, _a4_cells.json, _a4_paths.json) plus a3_measure.py. Pipeline code paths alive in sister: pipeline/downloader.py exports download_vod_144p, content/network.py NetworkManager provides extract_content_no plus get_video_info plus get_video_dash_manifest plus get_video_m3u8_manifest plus get_clip_info plus get_clip_manifest, pipeline/monitor.py exports extract_channel_id plus fetch_vod_list plus check_new_vods. pipeline_config.json exists with NID_AUT and NID_SES non-empty; chunk_max_tokens is absent from the saved config so runtime uses DEFAULT_CONFIG None value.",
+    "C4": "Three judgment questions answered with document and code evidence. Q1 minimum new cells: at least 3 independent new cells (to reach covered_cell_count greater-equal 5 per A4 C2 promotion rule) including at least 1 non-talk genre cell and at least 1 medium-density cell that is not t=0 of an existing VOD, so density-tier independence is restored. Q2 session split: genre acquisition and full-pipeline smoke must be separate sequential sessions because acquisition can fail on cookie or VOD-availability grounds and a bundled session would stall mid-run. Q3 first action priority: cookie readiness probe via content/network.py NetworkManager.get_video_info on a known VOD id comes before acquisition, because cookies are present but Chzzk API validity is untested; only on probe PASS should new-VOD acquisition proceed, else fallback to resampling the existing 12702452 VOD at a non-zero start offset to break W2 and W3 duplication.",
+    "C5": "Plan-only turn. No pipeline code, no pipeline_config.json key or value, no live or sister git ref, no remote, no experiments/results file, and no sealed A4 or G-UNRELATED-DIRTY session artifact was modified. Only this preflight session wrote four DAD artifacts plus the sister root state mirror. Sister Validate-Documents PASS. Sister Validate-DadPacket PASS."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-a4-expansion-preflight/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: Used sister worktree as the authoritative write surface per user directive; live was read-only for baseline and work/12702452 asset confirmation. Only DAD artifacts were written.",
+    "Turn 1: Classified this session as scope=medium because preflight spans multiple code paths (downloader, network, monitor, config, chunker, summarizer, claude_cli) plus multiple experiment scripts plus multiple result docs even though no code mutation is performed.",
+    "Turn 1: Closed the session as converged rather than active because the three judgment questions have doc-backed and code-backed answers and the next execution session can open immediately with a concrete charter.",
+    "Turn 1: Recommended 2026-04-16-a4-genre-acquisition-execute as the very next session with a Step 0 cookie probe gate, and deferred 2026-04-16-a4-end-to-end-smoke to a follow-up session that depends on acquisition success. Bundling the two would risk a stalled smoke if acquisition blocks.",
+    "Turn 1: Declined to fix the pre-existing 8+4 live validator residue because that is out-of-scope for this preflight charter and belongs to a dedicated cleanup session if the user wants it.",
+    "Turn 1: Treated W2 and W3 as one independent cell for promotion-rule accounting. A4 numeric identity (ratio 2.6606 and additive 7604 in both) is not a coincidence but a direct consequence of same VOD + t=0 start + chat_log covering only 0-1799s. Any future acquisition must break at least one of those three assumptions.",
+    "Turn 2: Codex peer-verified the three blockers, the inventory, the split execute ladder, and the no-mutation claim. One documentary drift was corrected: the live W2 wav asset is clip3600s_part001.wav, not clip3600s.wav."
+  ],
+  "meta_improvements": [
+    "Preflight sessions should cap write scope at DAD artifacts plus the root state mirror and run their validators in the sister worktree. Live stays read-only so that asset-existence checks cannot accidentally mutate anything. This session kept that invariant and is a clean template for future preflight slices.",
+    "Cookie readiness cannot be inferred from config-field presence. NID_AUT and NID_SES are non-empty but Chzzk token validity is orthogonal; an execute session that skips the probe and relies on field presence will silently fail at content.network.NetworkManager.get_video_info and waste turn budget.",
+    "W2 and W3 duplication in A4 is a methodology bug masked as a length-axis success. Future genre or density-axis extensions must sample a different VOD OR a non-zero start offset OR widen the chat_log coverage window. Encode this as an acquisition preflight check so the failure mode does not recur.",
+    "Phase-label drift between progress_report.md Phase A numbering and the current A3/A4 scope definitions persists. This preflight session did not resolve it; it belongs in a separate doc-sync turn or in the acquisition execute session if it blocks planning."
+  ]
+}

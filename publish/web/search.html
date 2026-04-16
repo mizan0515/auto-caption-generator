@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>검색 — VOD 요약 허브</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html">VOD 요약 허브</a>
+    <nav>
+      <a href="index.html">스트리머</a>
+      <a href="search.html">검색</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap main">
+  <h1 class="page-title">요약 검색</h1>
+  <p class="page-sub">스트리머명, 방송 제목, 해시태그, 타임라인 제목에서 단어를 찾는다 (대소문자 무시 substring).</p>
+
+  <form class="search-form" id="search-form" onsubmit="return false;">
+    <input id="search-input" type="search" placeholder="예: 올림픽, 탬탬, 스노보드" autocomplete="off">
+    <button id="search-button" type="submit">검색</button>
+  </form>
+
+  <p class="search-meta" id="search-meta"></p>
+  <ul id="search-results" class="vod-list"></ul>
+</main>
+
+<script src="assets/app.js"></script>
+<script>
+window.ACG.renderSearch();
+</script>
+</body>
+</html>

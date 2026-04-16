@@ -1,0 +1,130 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-multi-streamer-web-publish-mvp"
+
+contract:
+  status: proposed
+  checkpoints:
+    - id: C1
+      description: "Baseline: sister main@d97514e matches remote refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. Live worktree is detached at d97514e with 18 untracked/modified residue lines (read-only). Auth probe returns pong. Predecessor session 2026-04-16-a4-end-to-end-smoke is converged and re-read."
+    - id: C2
+      description: "Single-streamer assumption audit: pipeline/config.py DEFAULT_CONFIG scalarizes target_channel_id + streamer_name; pipeline/models.VODInfo has channel_id/channel_name but no streamer_id slug; pipeline/summarizer.generate_reports() metadata JSON lacks streamer_id/channel_id/platform/thumbnail_url/search_text; output filename pattern has no streamer prefix; pipeline/state.PipelineState.processed_vods is flat by video_no. Audit encoded into docs/publish-schema.md with derivation rules for every missing field."
+    - id: C3
+      description: "Slice 1 artefacts land as designed: docs/multi-streamer-web-publish-backlog.md (P0-P6 with why-now/산출물/난이도/Claude-cost), docs/publish-schema.md (publish-view schema + backward compat derivation), docs/deploy-free-hosting.md (Cloudflare Pages primary + GitHub Pages fallback + deploy checklist), docs/auto-publish-hook-plan.md (Slice 2 insertion points + rollback). Runtime pipeline code is untouched."
+    - id: C4
+      description: "Static site builder produces site/ tree as specified in docs/publish-schema.md. python -m publish.builder.build_site returns vod_count=1, streamer_count=1, 6 asset files. 14 files total under site/ (index.html+streamer.html+vod.html+search.html + assets/{app.css,app.js} + index.json + streamers.json + search-index.json + streamers/channel-*/index.json + vods/11688000/{index.json, report.html, report.md, metadata.json}). report.md/html/metadata.json in site/ are byte-identical to the originals in output/ (diff -q returned ALL IDENTICAL)."
+    - id: C5
+      description: "Web MVP serves end-to-end via python -m http.server: 7/7 endpoints return HTTP 200 (index.html, index.json, streamers/<sid>/index.json, vods/<vno>/index.json, search-index.json, app.js, app.css). Client-side search matches 4/4 vocabulary queries (올림픽=1, 탬탬=1, 스노보드=1, 에어컨=1) and returns 0 for nothing-should-match. No NID_AUT/NID_SES substring leaks in site/. publish.hook.rebuild_site_safe imports cleanly and re-runs the builder."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    이 세션을 "멀티 스트리머 + 웹 퍼블리시 MVP 첫 vertical slice"로 정의한 이유:
+    (1) 직전 세션 2026-04-16-a4-end-to-end-smoke 에서 파이프라인 자체는 이미 end-to-end smoke 을 통과했다. 기본 기능은 증명되었고, A4 promotion 은 별도 cache-TTL 세션으로 격리됨.
+    (2) 제품 관점에서 남은 큰 결손은 (a) 사용자가 파이프라인 산출물을 "목록-상세-검색" 제품으로 소비할 경로가 없고, (b) 파이프라인 전체가 단일 스트리머를 전제로 굳어 있다는 점. 이 둘은 교차한다 — publish 레이어를 다시 만들지 않고서는 multi-streamer 를 물어도 보여줄 곳이 없다.
+    (3) 세션을 "multi-streamer data model" 과 "web publish" 각각으로 쪼갤 수 있지만, runtime 을 건드리지 않고 publish-view 만으로 두 축을 동시에 풀 수 있다는 것이 이번 슬라이스의 핵심이다. 그래서 하나의 세션 = 하나의 실제 산출 (= 로컬에서 빌드 가능하고 무료 호스팅 가능한 web MVP) 원칙을 지키면서 두 축을 같이 닫는다.
+    (4) A4 재측정, 증분 빌드, 실 배포 계정 연동은 명시적으로 P3/P4/P6 에서 다음 세션으로 미뤘다. 본 세션은 "schema + builder + UI + docs" 첫 슬라이스만 완결한다.
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "sister git branch --show-current = main; git rev-parse --short HEAD = d97514e. live worktree git symbolic-ref returned nothing (detached); rev-parse --short HEAD = d97514e; status --short | wc -l = 18. git ls-remote --heads origin = d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main. git merge-base --is-ancestor d97514e origin/main exit 0. claude -p ping --output-format json --max-turns 1 → result=pong, is_error=false. Document/dialogue/state.json 의 예전 session 2026-04-16-a4-end-to-end-smoke 재확인 후 새 세션 state.json 작성."
+    C2:
+      verdict: pass
+      evidence: "pipeline/main.py (433 lines) 와 pipeline/config.py (111 lines) 읽어 target_channel_id/streamer_name 단일 전제 확인. pipeline/models.py VODInfo 는 channel_id/channel_name 만 가진다 (streamer_id 없음, thumbnail_url 필드는 있으나 채우는 경로 없음). pipeline/summarizer.py generate_reports() 의 metadata dict 는 {video_no, title, channel, duration, publish_date, category, total_chats, highlight_count, highlights, processed_at} 만 포함 — streamer_id/channel_id/platform/thumbnail_url/search_text 전부 없음. pipeline/state.py PipelineState._data['processed_vods'] 는 video_no → entry 플랫 맵. 이 audit 결과가 docs/publish-schema.md 의 'Single-Streamer Assumption Audit (Turn 1)' 섹션에 그대로 기록됨."
+    C3:
+      verdict: pass
+      evidence: "docs/multi-streamer-web-publish-backlog.md (P0~P6 항목별 목표/why now/산출물/난이도/Claude 토큰 성격 + Slice 1 in/out scope). docs/publish-schema.md (VodRecord 필드 전체 + backward compat 파생 규칙 테이블 + 사이트 디렉토리 구조 + 검색 인덱스 스키마). docs/deploy-free-hosting.md (Cloudflare Pages 1순위 Direct Upload 흐름 + GitHub Pages 2순위 주의사항 + 배포 전 체크리스트 5항목). docs/auto-publish-hook-plan.md (Slice 2 삽입 지점 3후보 + 롤백 프로토콜). 네 문서 모두 runtime 코드 무변경 원칙을 명시. git status --short 로 확인 — pipeline/, content/, transcribe.py, tray_app.py, pipeline_config.json 변경 없음 (publish/, docs/, README.md, .gitignore 추가/수정만)."
+    C4:
+      verdict: pass
+      evidence: "python -m publish.builder.build_site → stdout JSON: {vod_count:1, streamer_count:1, assets_copied:[index.html, streamer.html, vod.html, search.html, assets/app.css, assets/app.js], site_dir:'.../site'}. find site -maxdepth 4 -type f | wc -l = 14 files as specified. site/index.json 의 streamers[0] = {streamer_id:'channel-a7e175625fdea5a7d98428302b7aa57f', streamer_name:'탬탬버린', channel_id:'a7e1...', platform:'chzzk', vod_count:1}. site/vods/11688000/index.json 에 publish schema 전 필드 (search_text 포함, 400자+) 가 채워짐. diff -q output/*.md site/vods/11688000/report.md + diff -q output/*.html report.html + diff -q output/*_metadata.json metadata.json → ALL IDENTICAL (바이트 단위 일치, 기존 리포트 회귀 없음)."
+    C5:
+      verdict: pass
+      evidence: "python -m http.server --directory site 8765 실행 후 curl 7회: index.html=200, index.json=200, streamers/<sid>/index.json=200, vods/11688000/index.json=200, search-index.json=200, assets/app.js=200, assets/app.css=200. client-side substring search 검증 (PYTHONIOENCODING=utf-8 python -c script): '올림픽' hits=1, '탬탬' hits=1, '스노보드' hits=1, '에어컨' hits=1, 'nothing-should-match' hits=0 — 즉 제목/스트리머명/타임라인 제목 세 축 모두 검색 가능. rg 'NID_AUT|NID_SES' site/ → 0 matches. publish/hook.py 재실행 시 rebuild_site_safe 정상 작동하며 stdout 동일 JSON."
+  issues_found: []
+  fixes_applied: []
+
+my_work:
+  task_model:
+    goal: "단일 스트리머 전제를 깨지 않고, publish-view 레이어만으로 '로컬 빌드 가능 + 무료 정적 호스팅 가능한 멀티 스트리머 웹 MVP' 첫 vertical slice 를 완결한다."
+    non_goals:
+      - "pipeline/ 런타임 코드 수정"
+      - "pipeline_config.json 스키마 변경"
+      - "A4 chunk_max_tokens promotion 재측정"
+      - "실제 Cloudflare Pages 계정 연동 배포"
+      - "자동 publish hook 을 pipeline/main.py 에 삽입"
+      - "기존 2026-04-15 / 2026-04-16 A4 결과 overwrite"
+      - "live worktree write 또는 remote mutation"
+  plan: "Audit → 백로그/스키마/배포/훅 문서 → 빌더 → 웹 MVP → README 통합 → 빌더 실행/HTTP 검증/검색 검증/회귀 diff → 턴 패킷/상태/요약 → 두 validator PASS."
+  changes:
+    files_modified:
+      - "README.md"
+      - ".gitignore"
+      - "Document/dialogue/state.json"
+    files_created:
+      - "docs/multi-streamer-web-publish-backlog.md"
+      - "docs/publish-schema.md"
+      - "docs/deploy-free-hosting.md"
+      - "docs/auto-publish-hook-plan.md"
+      - "publish/__init__.py"
+      - "publish/builder/__init__.py"
+      - "publish/builder/build_site.py"
+      - "publish/hook.py"
+      - "publish/web/index.html"
+      - "publish/web/streamer.html"
+      - "publish/web/vod.html"
+      - "publish/web/search.html"
+      - "publish/web/assets/app.css"
+      - "publish/web/assets/app.js"
+      - "Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/state.json"
+      - "Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/2026-04-16-2026-04-16-multi-streamer-web-publish-mvp-summary.md"
+    summary: |
+      Slice 1 완결: (1) docs/ 4종(backlog/publish-schema/deploy-free-hosting/auto-publish-hook-plan)으로 제품 방향 문서화. (2) publish/builder/build_site.py 결정론적 빌더 — output/ 의 md+html+metadata.json 을 읽어 site/ 정적 트리를 만든다. (3) publish/web/ 4화면 + CSS/JS 로 정적 웹 MVP (목록/상세/검색). (4) publish/hook.py 로 훅 래퍼 (pipeline 미삽입). (5) README.md 와 .gitignore 에 새 경로 반영. runtime pipeline 코드 무변경.
+  self_iterations: 0
+  evidence:
+    commands:
+      - "claude -p ping --output-format json --max-turns 1 -> result=pong, is_error=false"
+      - "cd auto-caption-generator-main; git branch --show-current -> main; git rev-parse --short HEAD -> d97514e; git status --short (기대 residue)"
+      - "git -C auto-caption-generator rev-parse --short HEAD -> d97514e; status --short | wc -l -> 18"
+      - "git ls-remote --heads origin -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main; git merge-base --is-ancestor d97514e origin/main -> exit 0"
+      - "Read pipeline/main.py, pipeline/config.py, pipeline/summarizer.py, pipeline/models.py, pipeline/state.py, pipeline/settings_ui.py for single-streamer audit"
+      - "Read output/pipeline_state.json and output/11688000_..._metadata.json for existing metadata surface"
+      - "python -m publish.builder.build_site -> {vod_count:1, streamer_count:1, assets_copied:[6 files]}"
+      - "find site -maxdepth 4 -type f | wc -l -> 14"
+      - "diff -q output/*.md vs site/vods/11688000/report.md + html + metadata -> ALL IDENTICAL"
+      - "PYTHONIOENCODING=utf-8 python -c 'search 5 queries against site/search-index.json' -> 올림픽=1, 탬탬=1, 스노보드=1, 에어컨=1, nothing-should-match=0"
+      - "python -m http.server --directory site 8765 & curl 7 endpoints -> 7x HTTP 200 (index.html, index.json, streamers/<sid>/index.json, vods/11688000/index.json, search-index.json, assets/app.js, assets/app.css)"
+      - "rg 'NID_AUT|NID_SES' site/ -> 0 matches"
+      - "python -m publish.hook -> same JSON as builder"
+      - "python -c 'from publish.builder.build_site import build_site; from publish.hook import rebuild_site_safe; print(\"imports OK\")'"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> expected PASS"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> expected PASS"
+    artifacts:
+      - "docs/multi-streamer-web-publish-backlog.md"
+      - "docs/publish-schema.md"
+      - "docs/deploy-free-hosting.md"
+      - "docs/auto-publish-hook-plan.md"
+      - "publish/builder/build_site.py"
+      - "publish/hook.py"
+      - "publish/web/{index,streamer,vod,search}.html"
+      - "publish/web/assets/{app.css,app.js}"
+      - "site/ (빌드 산출물, gitignored)"
+      - "README.md (publish 섹션 추가)"
+      - ".gitignore (site/ 추가)"
+  verification: |
+    Builder + HTTP server + search + byte-identity + cookie scan + hook import 여섯 축 모두 긍정. 기존 리포트(md/html/metadata)는 byte-identical 복사로 회귀 없음. runtime pipeline 코드 변경 없음 (pipeline/, content/, transcribe.py, tray_app.py, pipeline_config.json 무변경). Slice 1 범위 안에서 더 실행할 테스트 없음. A4 promotion, 증분 빌드, 실 배포 hook 은 backlog 에서 다음 세션 후보로 격리.
+  open_risks:
+    - "자동 퍼블리시 hook 의 남은 통합 리스크: docs/auto-publish-hook-plan.md 의 후보 3지점 중 pipeline/main.py::process_vod() 말미 opt-in 삽입이 가장 낮은 위험이지만, state.update 경로에 끼워 넣으면 파일 잠금/경합 고려가 필요. 증분 빌드(변경된 VOD만) 도입 전까지 현 빌더는 site/ 전체 덮어쓰기이므로 VOD 수 증가 시 I/O 비용이 선형 증가한다."
+    - "Multi-streamer ingestion 은 아직 실사용 미검증: 현재 output/ 데이터는 단일 스트리머(탬탬버린)뿐이라 빌더가 2개 이상 스트리머를 실제로 만났을 때의 streamer_id 중복·충돌을 운영 수준에서 관찰한 적이 없다. Slice 2 이전에 두 스트리머 실제 run 이 필요."
+    - "A4 promotion deferred: 2026-04-16-a4-end-to-end-smoke 세션에서 covered_cell_count=3, promotion_ready=false 로 동결. W1/W2/W3 재측정은 cache-TTL-aware retry protocol 을 갖춘 별도 세션이 필요. 본 세션은 그 축을 건드리지 않았다. backlog P6 참조."
+  confidence: high
+
+handoff:
+  next_task: ""
+  context: "Slice 1 은 단일 세션 안에서 vertical cut 을 닫는 것이 목표였고 모든 체크포인트가 PASS. 이 턴에서 suggest_done=true 로 세션을 converged 로 닫는다. 다음 슬라이스는 docs/multi-streamer-web-publish-backlog.md 의 P3 검색 업그레이드 / P4 자동 퍼블리시 hook / P5 실 배포 / P6 A4 재측정 중 사용자 우선순위에 따라 별도 세션으로 연다."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "다섯 체크포인트 모두 PASS. 빌더는 결정론적으로 site/ 트리를 생성하고, 기존 output/ 리포트와 byte-identical 복사 관계이며, 7/7 HTTP 엔드포인트가 200, 4/4 검색 쿼리 매칭, NID_AUT/NID_SES 누수 0, runtime pipeline 코드 무변경. Slice 1 범위 안의 '실제 산출 1개 = 로컬 빌드 가능한 멀티 스트리머 웹 MVP' 가 완결."

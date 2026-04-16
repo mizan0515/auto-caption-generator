@@ -1,0 +1,86 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-multi-streamer-web-publish-mvp"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Baseline recheck: sister main@d97514e, live detached d97514e, remote refs/heads/main only, predecessor turn-01/state re-read."
+    - id: C2
+      description: "Single-streamer audit wording matches live code."
+    - id: C3
+      description: "Docs exist, runtime code is untouched, and wording-level overclaims are corrected in-place if found."
+    - id: C4
+      description: "Builder rerun, 14-file site tree, and byte-identical output copies reproduce."
+    - id: C5
+      description: "HTTP 200 endpoints, search counts, site cookie scan, publish hook, and validators reproduce."
+
+peer_review:
+  task_model_review:
+    status: amended
+    summary: "Turn 1 implementation is substantively real. Two documentation overclaims required in-place correction: mixed historical output streamer_id stability, and the embedded Chart.js CDN dependency for hosted report pages."
+  issues_found:
+    - file: "C:/github/auto-caption-generator-main/docs/publish-schema.md"
+      lines: "10, 58-60, 75-103"
+      detail: "The schema text implied multi-streamer readiness at the builder level, but build_site.py:198-200 assigns channel_id from pipeline_config.target_channel_id for every record. Mixed historical outputs without per-VOD channel_id would collapse to one streamer_id."
+    - file: "C:/github/auto-caption-generator-main/docs/deploy-free-hosting.md"
+      lines: "12, 56-62"
+      detail: "The deployment guide omitted that vod.html embeds report.html, and report.html loads Chart.js from an external jsDelivr CDN. That matters for strict CSP and offline hosting."
+  fixes_applied:
+    - file: "C:/github/auto-caption-generator-main/docs/publish-schema.md"
+      detail: "Clarified Slice 1 as multi-streamer-ready at the schema level but single-channel-validated in the current builder, corrected the channel_id fallback wording, and documented that _VIDEO_FNAME_RE affects date fallback only, not triple discovery."
+    - file: "C:/github/auto-caption-generator-main/docs/deploy-free-hosting.md"
+      detail: "Added explicit Chart.js CDN caveat and a deployment checklist item for CSP/offline hosting."
+    - file: "C:/github/auto-caption-generator-main/docs/multi-streamer-web-publish-backlog.md"
+      detail: "Added carry-forward limitations so later slices do not treat mixed-streamer identity stability or offline hosting as already solved."
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "git branch --show-current = main; git rev-parse --short HEAD = d97514e; live rev-parse --short HEAD = d97514e; git ls-remote --heads origin returned only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c; git merge-base --is-ancestor d97514e origin/main exit 0."
+    C2:
+      verdict: pass
+      evidence: "pipeline/config.py has scalar target_channel_id/streamer_name. pipeline/models.py::VODInfo has no streamer_id. pipeline/summarizer.py::generate_reports metadata dict lacks streamer_id/channel_id/platform/search_text. The audit wording in Turn 1 matches live code."
+    C3:
+      verdict: fail-then-fixed
+      evidence: "docs 4종 and publish.hook symbol existed, and runtime diff stayed empty. However, publish-schema overstated mixed-streamer identity stability and deploy-free-hosting omitted the external Chart.js CDN dependency. Both were corrected without touching pipeline/content/transcribe.py/tray_app.py/pipeline_config.json."
+    C4:
+      verdict: pass
+      evidence: "python -m publish.builder.build_site reproduced vod_count=1, streamer_count=1. site file count reproduced as 14. SHA-256 comparisons for output md/html/metadata vs site/vods/11688000/report.md|report.html|metadata.json were all identical."
+    C5:
+      verdict: pass
+      evidence: "python -m http.server --directory site 8765 returned 200 for 7 endpoints. site/search-index.json search replay reproduced 올림픽=1, 탬탬=1, 스노보드=1, 에어컨=1, nothing-should-match=0. rg 'NID_AUT|NID_SES' site/ returned 0 hits. python -m publish.hook reran successfully. Validate-Documents and Validate-DadPacket both passed."
+
+my_work:
+  evidence:
+    commands:
+      - "git branch --show-current"
+      - "git rev-parse --short HEAD"
+      - "git -C C:/github/auto-caption-generator rev-parse --short HEAD"
+      - "git -C C:/github/auto-caption-generator ls-remote --heads origin"
+      - "git -C C:/github/auto-caption-generator merge-base --is-ancestor d97514e origin/main"
+      - "Get-Content Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/turn-01.yaml"
+      - "Get-Content Document/dialogue/sessions/2026-04-16-multi-streamer-web-publish-mvp/state.json"
+      - "git diff --name-only HEAD -- pipeline content transcribe.py tray_app.py pipeline_config.json"
+      - "python -m publish.builder.build_site"
+      - "python -X utf8 - <hash and search replay helper>"
+      - "python -m http.server --directory site 8765"
+      - "Invoke-WebRequest http://127.0.0.1:8765/{index.html,index.json,...}"
+      - "rg 'NID_AUT|NID_SES' site/"
+      - "python -m publish.hook"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+  verification: |
+    C1, C2, C4, and C5 reproduced directly. The only defects were wording-level overclaims in the docs. No runtime code, config, git ref, remote, or live worktree mutation was introduced.
+  open_risks:
+    - "Current builder still uses pipeline_config.target_channel_id as a single-channel fallback. Mixed historical outputs without per-VOD channel_id remain a known limitation."
+    - "Embedded report.html still depends on external Chart.js CDN; strict CSP/offline hosting remains unsolved."
+    - "P3/P4/P5/P6 follow-on slices remain outside this session."
+
+handoff:
+  next_task: ""
+  context: "Turn 2 peer-verify reproduced the MVP slice and corrected two documentation overclaims in-place."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "C1/C2/C4/C5 reproduced cleanly. C3 had documentation overclaims only; they were fixed in-place. Validators PASS, so the session remains converged."

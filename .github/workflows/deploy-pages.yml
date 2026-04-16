@@ -1,0 +1,87 @@
+# GitHub Pages 배포 (수동 트리거 전용 scaffold).
+#
+# 사전 조건:
+#   - site/ 디렉토리가 워크플로우 checkout 시점에 존재해야 한다.
+#   - 본 저장소의 .gitignore 는 기본적으로 site/ 를 제외한다. 따라서 GH Pages
+#     를 쓰려면 다음 중 하나를 선택한다:
+#       (A) site/ 를 별도 publish 브랜치에 commit (예: gh-pages-data)
+#       (B) 본 워크플로우를 fork 해서 .gitignore 의 site/ 제외 규칙을 풀고
+#           main 에 commit
+#       (C) 다른 워크플로우에서 actions/upload-artifact 로 올린 site 를
+#           이 워크플로우 시작 시 actions/download-artifact 로 받기
+#         (구현은 사용자 환경에 의존하므로 본 scaffold 는 (A)/(B) 가정)
+#
+# 안전:
+#   - workflow_dispatch 만 허용. push 자동 트리거 없음.
+#   - Chzzk 쿠키나 pipeline_config.json 은 절대 노출되지 않는다 (gitignored).
+#   - secrets 사용 없음.
+#   - site/ 가 비어 있으면 즉시 명시적으로 실패.
+#
+# Cloudflare Pages 와의 관계:
+#   - 본 저장소의 권장 1순위는 Cloudflare Pages Direct Upload 다.
+#   - GitHub Pages 는 fallback 옵션이며 본 워크플로우는 그 scaffold 다.
+
+name: Deploy site to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify site/ directory exists
+        run: |
+          if [ ! -f "./site/index.html" ]; then
+            echo "::error::site/index.html not found. site/ must be present at checkout time."
+            echo "::error::Run 'python -m publish.builder.build_site' locally and arrange site/ to exist on this ref."
+            echo "::error::See .github/workflows/deploy-pages.yml header comment for options (A/B/C)."
+            exit 1
+          fi
+          echo "site/ contents:"
+          ls -la ./site
+          echo "site/vods/ count:"
+          ls -1 ./site/vods 2>/dev/null | wc -l || echo 0
+
+      - name: Ensure .nojekyll marker
+        run: |
+          if [ ! -f "./site/.nojekyll" ]; then
+            echo "Adding .nojekyll (was missing from build output)"
+            touch ./site/.nojekyll
+          fi
+
+      - name: Cookie leak preflight
+        run: |
+          if grep -RIl --include='*.html' --include='*.json' --include='*.js' --include='*.md' \
+             -E 'NID_AUT|NID_SES' ./site; then
+            echo "::error::Cookie token detected inside site/ — refusing to deploy."
+            exit 1
+          fi
+          echo "Cookie leak scan: clean."
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,40 @@
+{
+  "protocol_version": "dad-v2",
+  "session_id": "2026-04-16-multi-streamer-runtime-implement",
+  "session_status": "converged",
+  "superseded_by": null,
+  "closed_reason": "Turn 2 Codex peer-verify reproduced C1-C8 directly. The runtime multi-streamer slice was valid as implemented; only session/root closeout metadata drift from Turn 1 was fixed in place.",
+  "relay_mode": "user-bridged",
+  "mode": "hybrid",
+  "scope": "medium",
+  "current_turn": 2,
+  "max_turns": 5,
+  "last_agent": "codex",
+  "contract_status": "accepted",
+  "contract_checkpoints": {
+    "C1": "PASS. sister main@d97514e, live detached d97514e, merge-base d97514e -> origin/main exit 0.",
+    "C2": "PASS. normalize_streamers() maps legacy single-streamer config to a 1-item list and preserves multi-streamer config as an N-item list.",
+    "C3": "PASS. PipelineState composite keys use {channel_id}:{video_no} when channel_id exists, keep plain video_no fallback, and get_failed_vods() returns (video_no, channel_id) tuples.",
+    "C4": "PASS. generate_reports() writes channel_id, streamer_id, platform, and thumbnail_url into metadata JSON.",
+    "C5": "PASS. run_daemon() and run_once() iterate normalize_streamers() results and keep channel_id through retry reconstruction paths.",
+    "C6": "PASS. publish builder is metadata-first for channel identity and preserves two-streamer synthetic replay without streamer collapse.",
+    "C7": "PASS. settings_ui remains importable and existing output still rebuilds as 1 VOD / 1 streamer.",
+    "C8": "PASS. Validate-DadPacket.ps1 and Validate-Documents.ps1 both passed."
+  },
+  "packets": [
+    "Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/turn-01.yaml",
+    "Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/turn-02.yaml"
+  ],
+  "decisions": [
+    "Turn 1: normalize_streamers() establishes a canonical streamers list while preserving legacy target_channel_id and streamer_name compatibility.",
+    "Turn 1: PipelineState uses composite keys {channel_id}:{video_no} to avoid cross-streamer collisions while still resolving legacy plain video_no entries.",
+    "Turn 1: metadata JSON now records channel_id, streamer_id, platform, and thumbnail_url so publish can derive per-VOD identity from runtime artifacts.",
+    "Turn 1: settings_ui was left functionally backward-compatible; multi-streamer editing UX is deferred to a later slice.",
+    "Turn 2: The implementation checkpoints passed as claimed. The only correction needed was to seal the session/root state consistently with the completed runtime slice."
+  ],
+  "meta_improvements": [
+    "Runtime identity should be recorded in per-VOD metadata rather than re-derived from a global single-channel config fallback.",
+    "Composite keys in PipelineState remove a whole class of cross-streamer video_no collisions without breaking existing legacy state entries.",
+    "A future slice still needs a real multi-streamer settings UI and auto-publish hook insertion, but those are no longer blockers for runtime identity correctness."
+  ]
+}

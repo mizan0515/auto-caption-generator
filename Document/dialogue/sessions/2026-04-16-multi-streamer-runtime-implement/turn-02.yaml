@@ -1,0 +1,85 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-multi-streamer-runtime-implement"
+
+contract:
+  status: accepted
+  checkpoints:
+    C1: "Auth probe and baseline: d97514e head, merge-base exit 0."
+    C2: "Config normalization works for legacy and multi-streamer config."
+    C3: "PipelineState composite key and fallback behavior are correct."
+    C4: "generate_reports() records identity metadata fields."
+    C5: "run_daemon()/run_once() iterate normalize_streamers() and propagate channel_id through retry paths."
+    C6: "publish builder uses metadata channel_id first and preserves two-streamer identity in synthetic replay."
+    C7: "Backward compatibility remains intact: settings_ui import OK, existing output still builds as 1 VOD / 1 streamer."
+    C8: "Validators PASS."
+
+peer_review:
+  task_model_review:
+    status: amended
+    summary: "Runtime implementation itself passed. The only defect was documentary closeout drift: Turn 1 left session/root state active/proposed instead of sealing the completed slice."
+  issues_found:
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/state.json"
+      detail: "Turn 1 claimed all C1-C8 PASS in the packet, but session state still remained session_status=active and contract_status=proposed."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/state.json"
+      detail: "Root dialogue state mirrored the same closeout drift as the session state."
+  fixes_applied:
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/state.json"
+      detail: "Updated current_turn=2, last_agent=codex, session_status=converged, contract_status=accepted, packets list, and closed_reason."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/state.json"
+      detail: "Synced root dialogue state to the Turn 2 peer-verified converged state."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/2026-04-16-2026-04-16-multi-streamer-runtime-implement-summary.md"
+      detail: "Appended Turn 2 peer-verify verdict and the state-closeout correction."
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "git rev-parse HEAD = d97514e49212d10b6ef8403b829f2612651a452c; git merge-base --is-ancestor d97514e origin/main exit 0."
+    C2:
+      verdict: pass
+      evidence: "normalize_streamers() returned a 1-item list for legacy cfg and a 2-item list for cfg.streamers. Code paths in pipeline/config.py:69-95 matched the runtime replay."
+    C3:
+      verdict: pass
+      evidence: "PipelineState.make_key() produced '{channel_id}:{video_no}' when channel_id was present and plain video_no otherwise. _resolve_key() preferred composite then fell back to plain. get_failed_vods() returned tuples [('123','chan'), ('999', None)] in replay."
+    C4:
+      verdict: pass
+      evidence: "pipeline/summarizer.py:334-345 writes channel_id, streamer_id, platform, and thumbnail_url into metadata JSON."
+    C5:
+      verdict: pass
+      evidence: "pipeline/main.py:293-333 and 381-392 iterate normalize_streamers(); retry path at 336-354 carries failed_channel_id through increment_retry and reconstructed VODInfo."
+    C6:
+      verdict: pass
+      evidence: "publish/builder/build_site.py:199-202 uses meta.channel_id before pipeline_config fallback. Synthetic replay with two metadata files produced total_streamers=2, streamer_ids ['channel-chanA','channel-chanB'], and 2 search entries."
+    C7:
+      verdict: pass
+      evidence: "pipeline.settings_ui imported successfully. python -m publish.builder.build_site on the current output still returned vod_count=1 and streamer_count=1."
+    C8:
+      verdict: pass
+      evidence: "Validate-DadPacket.ps1 and Validate-Documents.ps1 both passed on the sister worktree."
+
+my_work:
+  evidence:
+    commands:
+      - "git rev-parse HEAD"
+      - "git merge-base --is-ancestor d97514e origin/main"
+      - "Get-Content Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/turn-01.yaml"
+      - "Get-Content Document/dialogue/sessions/2026-04-16-multi-streamer-runtime-implement/state.json"
+      - "python -X utf8 - <normalize_streamers replay>"
+      - "python -X utf8 - <PipelineState composite key replay>"
+      - "python -X utf8 - <settings_ui import>"
+      - "python -X utf8 - <synthetic two-streamer builder replay>"
+      - "python -m publish.builder.build_site"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+  verification: |
+    C1-C8 all reproduced. The runtime slice is valid. The only corrective action needed in Turn 2 was sealing the session/root state consistently with the already-completed implementation.
+  open_risks:
+    - "Manual --process and retry VOD reconstruction still leave thumbnail_url empty unless metadata path populates it upstream. This does not break the checkpoint contract but remains an enrichment gap."
+    - "settings_ui remains legacy-single-streamer oriented. Runtime compatibility is preserved, but a real multi-streamer editor UX is still a later slice."
+
+handoff:
+  next_task: ""
+  context: "Turn 2 peer-verify confirmed the runtime multi-streamer slice. No further DAD session is required for this slice."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "C1-C8 reproduced directly. Only state closeout drift was fixed in-place, so the session is now properly converged."

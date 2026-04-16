@@ -1,0 +1,114 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-a4-end-to-end-smoke"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Baseline: sister main@d97514e, live detached d97514e with 13 accepted residue lines, remote refs/heads/main only at d97514e49212d10b6ef8403b829f2612651a452c, merge-base --is-ancestor d97514e origin/main exit 0, predecessor turn-02 re-read."
+    - id: C2
+      description: "Step 0 aggregation reruns deterministically, preserves 2026-04-15 tracked A4 files, and reports covered_cell_count=3 with platform_category as the authoritative labeling axis."
+    - id: C3
+      description: "Smoke completion is real, with processed_vods[11688000].status=completed, completed_at=2026-04-16T05:23:58.804227+09:00, output md/html/metadata present at the recorded sizes, and smoke work artifacts present in sister only."
+    - id: C4
+      description: "Inline summarizer-unit regression over the smoke md reproduces 13 timeline entries, 5 highlights, 2 editor-notes items, and _generate_html(...) length 20676 with DOCTYPE when called with smoke chats and metadata-backed highlights."
+    - id: C5
+      description: "Safety invariants hold: sister pipeline_config.json is gitignored and byte-identical to live, no pipeline/config/default/ref/remote/live-work mutation occurred, tracked 2026-04-15 A4 files remain HEAD-identical, cookie scan is clean, and sister validators pass."
+  amendments: []
+
+peer_review:
+  task_model_review:
+    status: amended
+    coverage_gaps: []
+    scope_creep: []
+    risk_followups:
+      - "A4 promotion remains deferred pending a separate W1/W2/W3 re-measurement session under a cache-TTL-aware retry protocol."
+      - "This smoke session is sealed here; no further DAD session is opened from Turn 2."
+    amendments:
+      - "C3 wording corrected from a top-level pipeline_state.json status claim to the literal nested field processed_vods[11688000].status=completed."
+      - "C4 wording corrected from _generate_html length 18072 to the independently reproduced 20676 when called with the actual smoke chats and metadata-backed highlights."
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "Sister reproduced as main@d97514e. Live reproduced as detached d97514e with 13 status lines. Remote exposes only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. git merge-base --is-ancestor d97514e origin/main exited 0. Predecessor acquisition-followup turn-02 was re-read."
+    C2:
+      verdict: pass
+      evidence: "python experiments/a4_aggregate_cross_session.py reran deterministically. The raw JSON reports covered_cell_count=3, decision=per_cell_multiplicative, promotion_ready=false, and dispersion_failures=['W5-11688000-30min-olympics-nochat']. platform_category is declared in the top-level labeling_schema block, and covered_platform_category_count=2 lives under promotion_readiness. W1/W2/W3 are all insufficient_data=true in the committed 2026-04-15 raw JSON."
+    C3:
+      verdict: fail-then-fixed
+      evidence: "output/pipeline_state.json does not expose a top-level status field. The literal success marker is processed_vods['11688000']['status']='completed' with completed_at=2026-04-16T05:23:58.804227+09:00. Output md/html/metadata exist at 8673B/25604B/886B, and sister work/11688000 contains the expected mp4/chat/srt/clip artifacts."
+    C4:
+      verdict: fail-then-fixed
+      evidence: "Inline regression against the smoke md reproduces 13 timeline entries, 5 highlights, and 2 editor-notes items. _generate_html(summary_md, vod, highlights, chats, community_posts=[]) renders 20676 chars with a leading DOCTYPE. The earlier 18072 figure is not reproducible with the actual smoke chats and metadata-backed highlights."
+    C5:
+      verdict: pass
+      evidence: "sister pipeline_config.json exists, is gitignored, and is byte-identical to live (hash 42b649faeca864dd435a06c3d313203d76e7a9af on both). git diff --name-only HEAD -- pipeline content transcribe.py tray_app.py pipeline_config.json returned empty. 2026-04-15 A4 raw/md are HEAD-identical by git diff/hash-object/ls-tree. 2026-04-16 genre-acquisition/acquisition-followup artifacts remain untracked sister-only carry-forward. Cookie substring scan over the session surface, aggregation script/output, and smoke md returned NO_COOKIE_LEAK_HITS. Sister Validate-Documents passed for 61 files and Validate-DadPacket passed for all scanned sessions."
+  issues_found:
+    - "Turn 1 described output/pipeline_state.json as if status=completed were a top-level field. The actual completion marker is nested under processed_vods['11688000']['status']."
+    - "Turn 1 underreported the inline _generate_html(...) smoke regression length as 18072. Independent reproduction with the smoke chats and metadata-backed highlights renders 20676 characters."
+  fixes_applied:
+    - "Updated turn-01.yaml, session/root state.json, the two session summaries, and the smoke result md to use the literal processed_vods[11688000].status wording."
+    - "Updated turn-01.yaml, session/root state.json, the two session summaries, and the smoke result md to record the reproduced _generate_html(...) length 20676 and editor-notes item wording."
+
+my_work:
+  task_model:
+    goal: "Peer-verify the end-to-end smoke session, correct wording-level overclaim in-place, and seal without opening another DAD session."
+    non_goals:
+      - "open a further DAD session"
+      - "promote chunk_max_tokens"
+      - "edit pipeline code or pipeline_config.json"
+      - "mutate git refs or push"
+      - "touch live work/"
+  plan: "Reproduce baseline, rerun cross-session aggregation, inspect smoke outputs and pipeline_state.json, rerun inline summarizer regression with real smoke inputs, verify safety invariants and cookie cleanliness, rerun sister validators, then patch wording-only drift and seal."
+  changes:
+    files_modified:
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/turn-01.yaml"
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/state.json"
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/summary.md"
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/2026-04-16-2026-04-16-a4-end-to-end-smoke-summary.md"
+      - "Document/dialogue/state.json"
+      - "experiments/results/2026-04-16_phase-a4_end-to-end-smoke.md"
+    files_created:
+      - "Document/dialogue/sessions/2026-04-16-a4-end-to-end-smoke/turn-02.yaml"
+    summary: "Peer verification reproduced baseline, aggregation, smoke completion, and safety invariants. Two wording-level overclaims in C3/C4 were corrected in-place; no execution-scope mutation beyond current-session docs and the smoke result md occurred."
+  self_iterations: 1
+  evidence:
+    commands:
+      - "git branch --show-current; git rev-parse --short HEAD; git status --short (sister) -> main, d97514e, expected residue"
+      - "git -C C:/github/auto-caption-generator symbolic-ref --short -q HEAD; git -C C:/github/auto-caption-generator rev-parse --short HEAD; git -C C:/github/auto-caption-generator status --short | Measure-Object -Line -> detached, d97514e, 13"
+      - "git ls-remote --heads origin -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main"
+      - "git merge-base --is-ancestor d97514e origin/main -> exit 0"
+      - "python experiments/a4_aggregate_cross_session.py -> covered_cell_count=3, decision=per_cell_multiplicative, promotion_ready=false"
+      - "python over experiments/results/2026-04-16_phase-a4_cross-session-aggregation_raw.json -> promotion_readiness.covered_platform_category_count=2; top-level labeling_schema.primary=platform_category"
+      - "python over output/pipeline_state.json -> processed_vods['11688000'].status=completed, completed_at=2026-04-16T05:23:58.804227+09:00"
+      - "Get-ChildItem output -File; Get-ChildItem work/11688000 -File -> md=8673B, html=25604B, metadata=886B, expected sister-only work artifacts present"
+      - "inline python over smoke md + metadata + chat log -> _parse_summary_sections: timeline=13, highlights=5, editor_notes_count=2; _generate_html(...)=20676 chars with DOCTYPE"
+      - "git hash-object live-vs-sister pipeline_config.json + git check-ignore -> equal hashes and gitignored"
+      - "git diff --name-only HEAD -- pipeline content transcribe.py tray_app.py pipeline_config.json -> empty"
+      - "git diff --exit-code HEAD -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md -> exit 0"
+      - "Select-String exact-secret scan over session packet/state/summaries, aggregation script/output, and smoke md -> NO_COOKIE_LEAK_HITS"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS (61 files)"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+    artifacts:
+      - "experiments/a4_aggregate_cross_session.py"
+      - "experiments/results/2026-04-16_phase-a4_cross-session-aggregation_raw.json"
+      - "experiments/results/2026-04-16_phase-a4_cross-session-aggregation.md"
+      - "experiments/results/2026-04-16_phase-a4_end-to-end-smoke.md"
+      - "output/pipeline_state.json"
+      - "output/11688000_20260210_... .md/.html/_metadata.json"
+      - "work/11688000/"
+  verification: "Baseline, aggregation, smoke artifacts, and safety invariants are independently reproduced. The session seals after correcting two wording-level overclaims in C3/C4; no broader remediation is required."
+  open_risks:
+    - "A4 promotion remains deferred pending a separate W1/W2/W3 re-measurement session under a cache-TTL-aware retry protocol."
+    - "Dispersion policy for mixing no-chat and chat-fed cells remains an open measurement-policy question outside this smoke session."
+  confidence: high
+
+handoff:
+  next_task: ""
+  context: "This turn is the seal. No further DAD session is opened from 2026-04-16-a4-end-to-end-smoke Turn 2."
+  questions: []
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "All five checkpoints are either pass or fail-then-fixed. Smoke succeeded end-to-end, aggregation bookkeeping is honest, wording-level overclaims were corrected in-place, and no prohibited mutation occurred."

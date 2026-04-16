@@ -26,6 +26,7 @@ if _project_root not in sys.path:
 from .config import (
     load_config, save_config, get_cookies, ensure_dirs,
     validate_cookies, interactive_cookie_setup,
+    normalize_streamers, derive_streamer_id,
 )
 from .state import PipelineState
 from .monitor import check_new_vods
@@ -38,6 +39,39 @@ from .scraper import scrape_fmkorea
 from .summarizer import process_chunks, merge_results, generate_reports
 from .models import VODInfo, PipelineResult
 from .utils import setup_logging, sec_to_hms, format_duration, clip_video
+
+
+def _try_auto_publish(cfg: dict, result: 'PipelineResult', state: PipelineState, logger):
+    """VOD 처리 성공 후 자동 퍼블리시를 시도한다. 실패해도 예외를 흘리지 않는다."""
+    try:
+        from publish.hook import auto_publish_after_vod
+        pub_result = auto_publish_after_vod(
+            cfg,
+            result_md=result.summary_md_path,
+            result_html=result.summary_html_path,
+            result_meta=result.metadata_path,
+            logger_override=logger,
+        )
+        # state 에 publish 결과 기록
+        vod = result.vod_info
+        channel_id = vod.channel_id if vod else None
+        if pub_result is not None:
+            state.update(
+                result.video_no, status="completed",
+                channel_id=channel_id,
+                publish_status="success",
+                publish_vod_count=pub_result.get("vod_count", 0),
+            )
+        else:
+            # autorebuild 가 비활성화이거나 스킵된 경우
+            if cfg.get("publish_autorebuild", False):
+                state.update(
+                    result.video_no, status="completed",
+                    channel_id=channel_id,
+                    publish_status="skipped_or_failed",
+                )
+    except Exception as e:
+        logger.warning(f"자동 퍼블리시 중 예외 (무시): {e}")
 
 
 def _cleanup_whisper_temp(video_path: str, work_dir: str, logger):
@@ -96,7 +130,7 @@ def process_vod(
     try:
         # ── 1단계: 병렬 데이터 수집 ──
         result.stage = "collecting"
-        state.update(vod.video_no, status="collecting")
+        state.update(vod.video_no, status="collecting", channel_id=vod.channel_id)
         logger.info(f"{'='*60}")
         logger.info(f"VOD 처리 시작: [{vod.video_no}] {vod.title}")
         logger.info(f"  길이: {format_duration(vod.duration)}, 카테고리: {vod.category}")
@@ -158,7 +192,7 @@ def process_vod(
 
         # ── 2단계: 채팅 분석 ──
         result.stage = "analyzing"
-        state.update(vod.video_no, status="analyzing")
+        state.update(vod.video_no, status="analyzing", channel_id=vod.channel_id)
 
         highlights = []
         if chats:
@@ -170,7 +204,7 @@ def process_vod(
 
         # ── 3단계: 자막 생성 ──
         result.stage = "transcribing"
-        state.update(vod.video_no, status="transcribing")
+        state.update(vod.video_no, status="transcribing", channel_id=vod.channel_id)
 
         srt_path = transcribe_video(video_path)
         result.srt_path = srt_path
@@ -181,7 +215,7 @@ def process_vod(
 
         # ── 4단계: SRT 청크 분할 ──
         result.stage = "chunking"
-        state.update(vod.video_no, status="chunking")
+        state.update(vod.video_no, status="chunking", channel_id=vod.channel_id)
 
         # Phase A2 precedence (pipeline/config.py DEFAULT_CONFIG 와 docstring 참조):
         #   chunk_max_tokens (not None) > chunk_max_chars.
@@ -208,12 +242,14 @@ def process_vod(
             result.summary_html_path = html_path
             result.metadata_path = meta_path
             state.update(vod.video_no, status="completed",
+                         channel_id=vod.channel_id,
                          output_md=md_path, output_html=html_path)
+            _try_auto_publish(cfg, result, state, logger)
             return result
 
         # ── 5단계: Claude 요약 ──
         result.stage = "summarizing"
-        state.update(vod.video_no, status="summarizing")
+        state.update(vod.video_no, status="summarizing", channel_id=vod.channel_id)
 
         claude_timeout = cfg.get("claude_timeout_sec", 300)
 
@@ -228,7 +264,7 @@ def process_vod(
 
         # ── 6단계: 리포트 저장 ──
         result.stage = "saving"
-        state.update(vod.video_no, status="saving")
+        state.update(vod.video_no, status="saving", channel_id=vod.channel_id)
 
         md_path, html_path, meta_path = generate_reports(
             summary, vod, highlights, chats, output_dir,
@@ -243,6 +279,7 @@ def process_vod(
         state.update(
             vod.video_no,
             status="completed",
+            channel_id=vod.channel_id,
             output_md=md_path,
             output_html=html_path,
         )
@@ -252,6 +289,9 @@ def process_vod(
         logger.info(f"  Markdown: {md_path}")
         logger.info(f"  HTML:     {html_path}")
         logger.info(f"{'='*60}")
+
+        # 자동 퍼블리시
+        _try_auto_publish(cfg, result, state, logger)
 
         # 임시 파일 정리
         if cfg.get("auto_cleanup", True) and video_path:
@@ -266,7 +306,7 @@ def process_vod(
     except Exception as e:
         result.stage = "error"
         result.error = str(e)
-        state.update(vod.video_no, status="error", error=str(e))
+        state.update(vod.video_no, status="error", channel_id=vod.channel_id, error=str(e))
         logger.error(f"VOD [{vod.video_no}] 처리 실패: {e}")
         logger.debug(traceback.format_exc())
 
@@ -278,7 +318,7 @@ def process_vod(
 
 
 def run_daemon(cfg: dict):
-    """데몬 모드: 주기적으로 새 VOD 폴링 후 처리"""
+    """데몬 모드: 주기적으로 새 VOD 폴링 후 처리 (멀티 스트리머 지원)"""
     log_dir = os.path.join(cfg["output_dir"], "logs")
     logger = setup_logging(log_dir)
     ensure_dirs(cfg)
@@ -287,14 +327,15 @@ def run_daemon(cfg: dict):
     state = PipelineState(state_path)
     state.clear_stop()
 
-    channel_id = cfg["target_channel_id"]
+    streamers = normalize_streamers(cfg)
     poll_interval = cfg.get("poll_interval_sec", 300)
     cookies = get_cookies(cfg)
 
     logger.info("=" * 60)
     logger.info("  Chzzk VOD 자동 모니터링 파이프라인 시작")
-    logger.info(f"  채널: {channel_id}")
-    logger.info(f"  스트리머: {cfg.get('streamer_name', '?')}")
+    logger.info(f"  스트리머 수: {len(streamers)}")
+    for s in streamers:
+        logger.info(f"    - {s['name']} (채널: {s['channel_id'][:8]}...)")
     logger.info(f"  폴링 간격: {poll_interval}초")
     logger.info(f"  출력 디렉터리: {cfg['output_dir']}")
     logger.info("=" * 60)
@@ -309,32 +350,45 @@ def run_daemon(cfg: dict):
             break
 
         try:
-            new_vods = check_new_vods(channel_id, cookies, state, cfg=cfg)
-
-            for vod in new_vods:
+            for streamer in streamers:
                 if state.should_stop():
                     break
-                process_vod(vod, cfg, state, logger)
+                channel_id = streamer["channel_id"]
+                logger.info(f"── 스트리머 폴링: {streamer['name']} ({channel_id[:8]}...) ──")
+
+                # 스트리머별 검색 키워드를 cfg 에 임시 주입 (fmkorea 용)
+                streamer_cfg = dict(cfg)
+                if streamer.get("search_keywords"):
+                    streamer_cfg["fmkorea_search_keywords"] = streamer["search_keywords"]
+                    streamer_cfg["streamer_name"] = streamer["name"]
+
+                new_vods = check_new_vods(channel_id, cookies, state, cfg=streamer_cfg)
+
+                for vod in new_vods:
+                    if state.should_stop():
+                        break
+                    process_vod(vod, streamer_cfg, state, logger)
 
             # 실패한 VOD 재시도
             failed = state.get_failed_vods(max_retries=3)
-            for video_no in failed:
+            for video_no, failed_channel_id in failed:
                 if state.should_stop():
                     break
                 logger.info(f"실패 VOD 재시도: {video_no}")
-                state.increment_retry(video_no)
-                # 재시도를 위해 VOD 정보 재조회
+                retry_channel_id = failed_channel_id or cfg.get("target_channel_id", "")
+                state.increment_retry(video_no, channel_id=retry_channel_id)
                 try:
                     from content.network import NetworkManager
                     _, _, _, _, _, metadata = NetworkManager.get_video_info(video_no, cookies)
                     vod = VODInfo(
                         video_no=video_no,
                         title=metadata.get("title", ""),
-                        channel_id=channel_id,
+                        channel_id=retry_channel_id,
                         channel_name=metadata.get("channelName", ""),
                         duration=metadata.get("duration", 0),
                         publish_date=metadata.get("createdDate", ""),
                         category=metadata.get("category", ""),
+                        streamer_id=derive_streamer_id(retry_channel_id, metadata.get("channelName", "")),
                     )
                     process_vod(vod, cfg, state, logger)
                 except Exception as e:
@@ -349,7 +403,7 @@ def run_daemon(cfg: dict):
 
 
 def run_once(cfg: dict):
-    """1회 실행: 새 VOD 확인 후 처리하고 종료"""
+    """1회 실행: 새 VOD 확인 후 처리하고 종료 (멀티 스트리머 지원)"""
     log_dir = os.path.join(cfg["output_dir"], "logs")
     logger = setup_logging(log_dir)
     ensure_dirs(cfg)
@@ -361,13 +415,24 @@ def run_once(cfg: dict):
     if not validate_cookies(cfg):
         return
 
-    new_vods = check_new_vods(cfg["target_channel_id"], cookies, state, cfg=cfg)
-    if not new_vods:
-        logger.info("처리할 새 VOD가 없습니다.")
-        return
+    streamers = normalize_streamers(cfg)
+    total_new = 0
+    for streamer in streamers:
+        channel_id = streamer["channel_id"]
+        logger.info(f"── 스트리머: {streamer['name']} ({channel_id[:8]}...) ──")
 
-    for vod in new_vods:
-        process_vod(vod, cfg, state, logger)
+        streamer_cfg = dict(cfg)
+        if streamer.get("search_keywords"):
+            streamer_cfg["fmkorea_search_keywords"] = streamer["search_keywords"]
+            streamer_cfg["streamer_name"] = streamer["name"]
+
+        new_vods = check_new_vods(channel_id, cookies, state, cfg=streamer_cfg)
+        total_new += len(new_vods)
+        for vod in new_vods:
+            process_vod(vod, streamer_cfg, state, logger)
+
+    if total_new == 0:
+        logger.info("처리할 새 VOD가 없습니다.")
 
 
 def run_single(video_no: str, cfg: dict, limit_duration_sec: int = 0):
@@ -387,14 +452,17 @@ def run_single(video_no: str, cfg: dict, limit_duration_sec: int = 0):
     logger.info(f"VOD {video_no} 정보 조회 중...")
 
     _, _, _, _, _, metadata = NetworkManager.get_video_info(video_no, cookies)
+    channel_id = cfg.get("target_channel_id", "")
+    channel_name = metadata.get("channelName", "")
     vod = VODInfo(
         video_no=video_no,
         title=metadata.get("title", ""),
-        channel_id=cfg["target_channel_id"],
-        channel_name=metadata.get("channelName", ""),
+        channel_id=channel_id,
+        channel_name=channel_name,
         duration=metadata.get("duration", 0),
         publish_date=metadata.get("createdDate", ""),
         category=metadata.get("category", ""),
+        streamer_id=derive_streamer_id(channel_id, channel_name),
     )
 
     process_vod(vod, cfg, state, logger, limit_duration_sec=limit_duration_sec)

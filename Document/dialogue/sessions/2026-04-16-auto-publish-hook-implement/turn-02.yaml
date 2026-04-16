@@ -1,0 +1,76 @@
+type: turn
+from: codex
+turn: 2
+session_id: "2026-04-16-auto-publish-hook-implement"
+
+contract:
+  status: accepted
+  checkpoints:
+    C1: "Auth probe: sister head d97514e and merge-base d97514e -> origin/main exit 0."
+    C2: "Hook insertion: _try_auto_publish exists, is called in both process_vod success paths, and is absent from except handlers."
+    C3: "Safety gates: publish_autorebuild=false skips, missing current VOD outputs block, and _verify_output_files rejects empty and incomplete output directories."
+    C4: "Multi-streamer preserve: synthetic two-VOD/two-streamer rebuild keeps both streamer identities in site output."
+    C5: "Backward compatibility and validators: existing output rebuild still returns 1 VOD / 1 streamer, settings_ui imports, validators PASS."
+
+peer_review:
+  task_model_review:
+    status: amended
+    summary: "The auto-publish runtime wiring itself matched the Turn 1 claims. The only defect was documentary closeout drift: the session and root state were left active/proposed despite suggest_done=true."
+  checkpoint_results:
+    C1:
+      verdict: pass
+      evidence: "git rev-parse HEAD returned d97514e49212d10b6ef8403b829f2612651a452c and git merge-base --is-ancestor d97514e origin/main exited 0."
+    C2:
+      verdict: pass
+      evidence: "pipeline/main.py shows _try_auto_publish() at lines 44-74, called at process_vod() lines 247 and 294. AST replay reported CALLS [247, 294] and EXCEPT_CALLS []. _try_auto_publish imports and calls publish.hook.auto_publish_after_vod()."
+    C3:
+      verdict: pass
+      evidence: "publish/hook.py lines 121-129 skip when publish_autorebuild=false or any current VOD file is missing. _verify_output_files() lines 31-57 rejected an empty directory with 'metadata.json 파일 없음' and an incomplete triple with '완전한 VOD 산출물 세트(md+html+metadata) 없음'. Synthetic replay returned None for the disabled and missing-current-VOD cases."
+    C4:
+      verdict: pass
+      evidence: "Synthetic replay of auto_publish_after_vod() over two VOD triplets returned vod_count=2 and streamer_count=2. The resulting streamers.json contained streamer_ids ['channel-chanA', 'channel-chanB']."
+    C5:
+      verdict: pass
+      evidence: "python -m publish.builder.build_site on the current output returned vod_count=1 and streamer_count=1. pipeline.settings_ui imported successfully. Validate-DadPacket.ps1 and Validate-Documents.ps1 both passed."
+  issues_found:
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/state.json"
+      detail: "Turn 1 recorded suggest_done=true but left session_status=active, contract_status=proposed, current_turn=1, and packets without turn-02."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/state.json"
+      detail: "Root dialogue state mirrored the same closeout drift as the session-scoped state."
+  fixes_applied:
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/state.json"
+      detail: "Updated the session to current_turn=2, last_agent=codex, session_status=converged, contract_status=accepted, and added turn-02.yaml to packets."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/state.json"
+      detail: "Synced the root state to the peer-verified converged session state."
+    - file: "C:/github/auto-caption-generator-main/Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/2026-04-16-2026-04-16-auto-publish-hook-implement-summary.md"
+      detail: "Appended the Turn 2 peer-verify verdict and the closeout-drift correction."
+
+my_work:
+  evidence:
+    commands:
+      - "git rev-parse HEAD"
+      - "git merge-base --is-ancestor d97514e origin/main"
+      - "Get-Content Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/turn-01.yaml"
+      - "Get-Content Document/dialogue/sessions/2026-04-16-auto-publish-hook-implement/state.json"
+      - "python -X utf8 - <AST replay for process_vod _try_auto_publish calls>"
+      - "python -X utf8 - <synthetic auto_publish_after_vod success / disabled / missing / two-streamer replay>"
+      - "python -m publish.builder.build_site"
+      - "python -X utf8 -c \"import pipeline.settings_ui; print('SETTINGS_UI_IMPORT_OK')\""
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs"
+  verification: |
+    C1-C5 were reproduced directly. The runtime hook insertion, safety gates,
+    and two-streamer publish preservation all matched the Turn 1 claims. The
+    only corrective action needed in Turn 2 was to seal the session/root state
+    consistently with the already-completed runtime slice.
+  open_risks:
+    - "Hosted deployment remains out of scope. This slice only verifies local site rebuild after successful VOD processing."
+    - "Daemon-mode rebuild frequency control is still untested under long-running multi-VOD workloads."
+    - "settings_ui does not yet expose publish_autorebuild or publish_site_dir; JSON-level config editing is still required for those options."
+
+handoff:
+  next_task: ""
+  context: "Turn 2 peer-verify confirmed the auto-publish hook first slice. No additional DAD session is required for this slice."
+  ready_for_peer_verification: true
+  suggest_done: true
+  done_reason: "C1-C5 were reproduced directly. Only session/root closeout drift was fixed in place, so the session is now properly converged."

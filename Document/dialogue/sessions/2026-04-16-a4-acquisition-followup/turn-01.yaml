@@ -1,0 +1,174 @@
+type: turn
+from: claude-code
+turn: 1
+session_id: "2026-04-16-a4-acquisition-followup"
+
+contract:
+  status: accepted
+  checkpoints:
+    - id: C1
+      description: "Auth probe PASS. Sister main@d97514e. Live detached d97514e. Remote only refs/heads/main at d97514e49212d10b6ef8403b829f2612651a452c. merge-base --is-ancestor d97514e origin/main = true. Predecessor session 2026-04-16-a4-genre-acquisition-execute turn-02 (Codex peer-seal) re-read."
+    - id: C2
+      description: "Labeling schema fixed. Every row and cell in the new raw JSON carries platform_category (authoritative, from Chzzk videoCategoryValue) and content_judgement (optional). The global block carries labeling_schema.primary=platform_category, labeling_schema.promotion_axis_uses=platform_category. Schema decision also written into 2026-04-16_phase-a4-acquisition-followup.md."
+    - id: C3
+      description: "W5 chat acquisition PASS. pipeline.chat_collector.fetch_all_chats(11688000, max_duration_sec=1800) returned 1544 messages, coverage 1799.5s, density 51.48 msgs/min (medium tier). Saved to sister work/11688000/11688000_chat.log (82929 bytes). Chzzk chat API is cookieless; no auth probe needed. Live work/ untouched."
+    - id: C4
+      description: "W4 offset chat acquisition PASS. An arbitrary playerMessageTime=1800000 request does not yield the desired relative [1800s, 3600s) window; the usable acquisition path is paginating from t=0 through 3600s and filtering post-normalization [1800000, 3600000), which returned 2444 messages, coverage 1798.9s, density 81.52 msgs/min (high tier). Saved to sister work/12702452/12702452_chat_offset1800s.log (117235 bytes) with timestamps rebased to [00:00, 30:00). Live work/12702452/12702452_chat.log remained untouched."
+    - id: C5
+      description: "Re-measurement PASS. Both cells valid (n_valid_chunks=3). W4f median_user_ratio=2.8815 P95=3.2994 additive=8286. W5f median_user_ratio=2.6337 P95=2.9456 additive=8242. Global decision=per_cell_multiplicative (covered_cell_count=2 within this session). template_hash=4d732b40fa470862 unchanged. 2026-04-15 A4 raw/md remain byte-identical to HEAD. The prior 2026-04-16 genre-acquisition raw/md are sister-only untracked carry-forward artifacts, so HEAD byte-identity does not apply to them. Sister Validate-Documents + Validate-DadPacket PASS on the new session packet."
+  amendments: []
+
+peer_review:
+  project_analysis: |
+    Why this acquisition-followup belongs before smoke.
+
+    Codex Turn 2 of 2026-04-16-a4-genre-acquisition-execute sealed
+    the execute session by independently reproducing baseline,
+    Step 0 probe, Step 1 non-talk acquisition, Step 2 offset resample,
+    cookie non-leak, 2026-04-15 A4 byte-identity, and raw JSON
+    arithmetic. Codex also explicitly listed three open risks: the
+    labeling schema was unresolved, W5 was no-chat, and W4 was
+    insufficient_data. Codex recommended storing both
+    platform_category and content_judgement and recommended a
+    separate acquisition/measurement follow-up before opening the
+    end-to-end smoke session.
+
+    This session executes exactly that: it does not open smoke, it
+    does not promote chunk_max_tokens, and it closes the three open
+    risks with new artifacts only. The smoke-open authorization is
+    now a handoff recommendation, not a decision taken in this
+    session.
+
+    Two surprises emerged:
+
+    1. Chzzk VOD chat is a cookieless public API. `fetch_all_chats`
+       never uses the config cookies. This means the Step 0 cookie
+       probe from the previous session is not a prerequisite for
+       chat acquisition. It remains a prerequisite for VOD media
+       download (`pipeline.downloader.download_vod_144p` goes
+       through the Qt-less NetworkManager with cookies).
+
+    2. VOD 11688000 (Winter Olympics) has a real chat log, density
+       51.48 msgs/min (medium tier). The previous session's
+       "no-chat variant" framing for W5 was a data-absence artifact
+       of not having attempted the pull, not a property of the VOD.
+
+    W4 offset (12702452 @1800s) also has chat, density 81.52
+    msgs/min. One gotcha: the Chzzk chats API does not honor an
+    arbitrary `playerMessageTime` seek value; it only honors the
+    `nextPlayerMessageTime` token returned by the previous page. So
+    offset pulls must paginate from t=0 and filter the desired
+    window post-normalization.
+
+  open_questions:
+    - "Should the cross-session aggregation across {W1, W2, W3, W4f, W5f} be run inside the smoke session's contract or as its own small acquisition-followup Turn 2?"
+    - "Within-chunk retry protocol still has the cache-TTL gap that produces retry_user_attributable=2 when the initial warm call populated the cache before retry_cold. W4f chunk 1 reproduced this. Should the fix ship in experiments/a4_measure.py as a MIN_RETRY_IDLE_SEC constant, or as a per-cell wrapper override?"
+
+  checkpoint_decisions:
+    C1:
+      verdict: pending_codex
+      evidence: "Auth probe recorded. Sister main@d97514e and live detached d97514e reproduced. Predecessor Codex seal re-read."
+    C2:
+      verdict: pending_codex
+      evidence: "Raw JSON every row/cell carries platform_category + content_judgement. Global block carries labeling_schema with promotion_axis_uses=platform_category. Decision documented in companion .md 'Labeling schema decision' section."
+    C3:
+      verdict: pending_codex
+      evidence: "1544 messages, 1799.5s coverage, 51.48 msgs/min. Sister file 11688000_chat.log 82929 bytes. Live work/11688000 has no chat file (inode unchanged)."
+    C4:
+      verdict: pending_codex
+      evidence: "2444 messages over [1800s, 3600s) window. Sister file 12702452_chat_offset1800s.log 117235 bytes with rebased [00:00, 30:00) timestamps. Direct arbitrary playerMessageTime seeking did not produce the desired relative offset window; paginate-from-t=0 plus window-filter did."
+    C5:
+      verdict: pending_codex
+      evidence: "New raw JSON 2026-04-16_phase-a4-acquisition-followup_raw.json lists both cells with n_valid_chunks=3 and insufficient_data=false. W4f chunk 1 retry repro'd the 2026-04-16 retry-collapse but chunks 2/3/4 passed on first pair. Global decision=per_cell_multiplicative unchanged. 2026-04-15 A4 tracked files are HEAD-identical; the prior 2026-04-16 genre-acquisition files are untracked sister-only carry-forward artifacts and therefore out of HEAD-based identity scope."
+
+my_work:
+  task_model:
+    goal: "Close the three measurement issues Codex flagged on seal of 2026-04-16-a4-genre-acquisition-execute without opening smoke, without mutating pipeline code/config/runtime defaults, and without overwriting prior A4 result files."
+    non_goals:
+      - "open 2026-04-16-a4-end-to-end-smoke"
+      - "promote chunk_max_tokens"
+      - "edit pipeline code"
+      - "mutate pipeline_config.json"
+      - "overwrite 2026-04-15 A4 raw or md"
+      - "overwrite 2026-04-16 genre-acquisition raw or md"
+      - "push to remote or mutate any git ref"
+      - "touch live work/"
+      - "cross-session aggregation run (deferred to next contract)"
+  steps_executed:
+    - "Auth probe: claude -p 'ping' --output-format json --max-turns 1 -> pong"
+    - "Baseline: sister main@d97514e, live detached d97514e, remote only refs/heads/main at d97514e49..., merge-base is-ancestor true"
+    - "W5 chat probe: experiments/_a4_chat_probe.py -> OK 1544 msgs density 51.48"
+    - "W4 offset chat probe: direct seek NO_CHAT; experiments/_a4_chat_probe2.py pagination-from-t=0 -> OK 2444 msgs density 81.52"
+    - "Schema-aware cells file: experiments/_a4_cells_followup.json with platform_category + content_judgement + chat_coverage"
+    - "Follow-up measurement: experiments/a4_measure_followup.py with 360s inter-cell idle -> experiments/results/2026-04-16_phase-a4-acquisition-followup_raw.json"
+    - "Companion markdown: experiments/results/2026-04-16_phase-a4-acquisition-followup.md"
+    - "Session packet/state/summaries and root state.json mirror"
+  files_modified:
+    - "Document/dialogue/state.json"
+  files_created:
+    - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/turn-01.yaml"
+    - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/state.json"
+    - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/summary.md"
+    - "Document/dialogue/sessions/2026-04-16-a4-acquisition-followup/2026-04-16-2026-04-16-a4-acquisition-followup-summary.md"
+    - "experiments/_a4_chat_probe.py"
+    - "experiments/_a4_chat_probe2.py"
+    - "experiments/_a4_chat_probe_summary.json"
+    - "experiments/_a4_chat_probe2_summary.json"
+    - "experiments/_a4_cells_followup.json"
+    - "experiments/a4_measure_followup.py"
+    - "experiments/_a4_followup_run.log"
+    - "experiments/results/2026-04-16_phase-a4-acquisition-followup_raw.json"
+    - "experiments/results/2026-04-16_phase-a4-acquisition-followup.md"
+    - "work/11688000/11688000_chat.log"
+    - "work/12702452/12702452_chat_offset1800s.log"
+  self_iterations: 1
+  evidence:
+    commands:
+      - "claude -p 'ping' --output-format json --max-turns 1 -> subtype=success result=pong"
+      - "cd sister && git branch --show-current; git rev-parse --short HEAD -> main, d97514e"
+      - "git -C live symbolic-ref --short -q HEAD; git -C live rev-parse --short HEAD -> exit 1 (detached), d97514e"
+      - "git ls-remote --heads origin -> d97514e49212d10b6ef8403b829f2612651a452c refs/heads/main (sole head)"
+      - "git merge-base --is-ancestor d97514e origin/main -> true"
+      - "python experiments/_a4_chat_probe.py -> W5 OK count=1544 coverage=1799.5 density=51.48; W4 arbitrary relative playerMessageTime path produced no usable in-window result"
+      - "python experiments/_a4_chat_probe2.py -> W4 offset pagination-from-t=0 window [1800,3600) count=2444 density=81.52"
+      - "python experiments/a4_measure_followup.py -> NEW raw JSON 2026-04-16_phase-a4-acquisition-followup_raw.json with covered_cell_count=2, decision=per_cell_multiplicative, labeling_schema block present"
+      - "git diff --exit-code HEAD -- experiments/results/2026-04-15_phase-a4_raw.json experiments/results/2026-04-15_phase-a4_generalization.md experiments/results/2026-04-16_phase-a4_genre-acquisition_raw.json experiments/results/2026-04-16_phase-a4_genre-acquisition.md (expected exit 0 at Codex Turn 2 verify)"
+      - "powershell -File tools/Validate-Documents.ps1 -Root . -IncludeRootGuides -IncludeAgentDocs -> PASS"
+      - "powershell -File tools/Validate-DadPacket.ps1 -Root . -AllSessions -> PASS"
+  open_risks:
+    - "Cross-session aggregation across {W1, W2, W3, W4f, W5f} has not been executed. covered_cell_count within this session is 2, so axis_coverage_ok remains false locally. A cross-session evaluate_global call is needed before any promotion claim."
+    - "W4f chunk 1 reproduced the 2026-04-16 retry-collapse pattern: initial pair failed consistency, retry_cold received cache_creation_input_tokens=0 because the initial warm already populated the cache. Within-chunk retry gap of 5s is too short for the Anthropic prompt cache (5-minute TTL). Cells still landed insufficient_data=false because 3 other chunks passed, but the protocol itself is still brittle."
+    - "Chzzk chats API does not honor arbitrary playerMessageTime seek. Offset pulls require paginate-from-t=0 plus post-normalization window filter. This is now a known method; future offset work must use the probe2 pattern."
+    - "Smoke session is still pending. Measurement ambiguity is reduced but the cross-session aggregation step is a minor gate that could be attached to smoke's contract or handled as its own Turn 2."
+    - "Live work/ has 13 dirty status lines (validator residue accepted at preflight time). No change this session."
+  confidence: high
+
+handoff:
+  next_task: |
+    Codex Turn 2 on this session peer-verifies the five checkpoints and
+    decides whether smoke opens next. If Codex accepts, the next
+    session is either:
+      (a) 2026-04-16-a4-end-to-end-smoke with cross-session
+          aggregation attached to its contract, or
+      (b) a tiny acquisition-followup Turn 2 that runs
+          evaluate_global across {W1, W2, W3, W4f, W5f} cell
+          summaries, then smoke.
+    Pick one in the Codex turn-02 handoff.
+  context: |
+    Labeling schema is fixed: platform_category authoritative,
+    content_judgement annotation. W5 chat acquired (1544 msgs,
+    medium tier). W4 offset chat acquired (2444 msgs, high tier).
+    Both cells re-measured with chat: W4f 3/4 valid (chunk 1
+    retry-collapse repro'd), W5f 3/3 valid. Global decision stays
+    per_cell_multiplicative this session. Cross-session count is
+    5 cells if aggregated, but that aggregation is deferred.
+
+    No pipeline code, pipeline_config.json, runtime defaults, or
+    any prior result file was mutated. No git ref or remote
+    change. No cookie printed.
+  questions:
+    - "Should the cross-session aggregation ride in smoke's contract or be its own Turn 2 here?"
+    - "Should experiments/a4_measure.py grow a MIN_RETRY_IDLE_SEC guard, or is that a separate experiments-hygiene session?"
+  ready_for_peer_verification: true
+  suggest_done: false
+  done_reason: ""
