@@ -60,7 +60,7 @@
   - 현상: Claude 출력이 예상 포맷에서 벗어나면 파싱 실패 → 빈 타임라인
   - 목표: 유연한 파싱 + 항상 raw_fallback 유지
 
-- [ ] **B10 FM코리아 세션 재사용**
+- [x] **B10 FM코리아 세션 재사용**
   - 파일: `pipeline/scraper.py:268-273`
   - 현상: 매 scrape마다 세션 생성 + 메인 페이지 방문
   - 목표: 데몬 모드에서 세션 재사용
@@ -95,4 +95,5 @@
 | B07 | 2026-04-17 | ✅ Tier2: known/unknown channel/global cfg 비변형 3 시나리오 검증 | main.py (streamers_by_channel 인덱스 + _build_streamer_cfg 헬퍼) |
 | B08 | 2026-04-17 | ✅ Tier2: cues 공유 시 parse_srt 호출 0회, 미공유 fallback 1회 검증 | summarizer.py + subtitle_analyzer.py + community_matcher.py |
 | B09 | 2026-04-17 | ✅ Tier2: strict/no-emoji/loose-bracket/total-fail 4 변형 + raw_fallback 항상 유지 | summarizer.py (_parse_summary_sections + _generate_html) |
+| B10 | 2026-04-17 | ✅ Tier2: 첫 호출/TTL 내 재호출/TTL 만료/reset 4 시나리오 검증 (메인 방문 1→1→2→3) | scraper.py (_SESSION_CACHE + _get_or_create_session + reset_fmkorea_session) |
 | — | — | — | — |

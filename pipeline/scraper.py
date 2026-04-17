@@ -11,6 +11,7 @@
 import logging
 import random
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -23,6 +24,12 @@ from .models import CommunityPost
 from .utils import retry
 
 logger = logging.getLogger("pipeline")
+
+# B10: 세션 재사용 — 데몬 모드에서 매 스크랩마다 세션 생성 + 메인페이지 방문하던
+# 비용을 줄인다. TTL 만료 또는 차단 발생 시 강제 갱신.
+_SESSION_CACHE: dict = {"session": None, "last_main_visit": 0.0}
+_SESSION_LOCK = threading.Lock()
+_SESSION_TTL_SEC = 1800  # 30분 후 메인 페이지 재방문하여 쿠키 갱신
 
 KST = timezone(timedelta(hours=9))
 
@@ -50,6 +57,44 @@ REQUEST_JITTER = 2.5  # 0~N 사이 랜덤 딜레이 추가
 class FmkoreaBlocked(Exception):
     """fmkorea 안티봇 차단 감지 — 재시도 없이 즉시 중단"""
     pass
+
+
+def _get_or_create_session() -> requests.Session:
+    """캐시된 fmkorea 세션 반환. TTL 경과 시 메인 페이지 재방문으로 쿠키 갱신.
+
+    호출자는 항상 이 함수를 통해 세션을 획득해야 cookies/last_main_visit 가
+    일관되게 관리된다. 차단 감지 시 reset_fmkorea_session() 으로 강제 폐기.
+    """
+    with _SESSION_LOCK:
+        sess = _SESSION_CACHE["session"]
+        last = _SESSION_CACHE["last_main_visit"]
+        now = time.time()
+        needs_main_visit = sess is None or (now - last) > _SESSION_TTL_SEC
+
+        if sess is None:
+            sess = requests.Session()
+            sess.headers.update(HEADERS)
+            _SESSION_CACHE["session"] = sess
+            logger.debug("fmkorea 세션 신규 생성")
+
+        if needs_main_visit:
+            try:
+                sess.get("https://www.fmkorea.com/", timeout=10)
+                _SESSION_CACHE["last_main_visit"] = now
+                time.sleep(1.5)
+                logger.debug("fmkorea 메인 페이지 방문 (쿠키 갱신)")
+            except requests.RequestException as e:
+                logger.debug(f"fmkorea 메인 방문 실패 (무시, 캐시된 세션 그대로 사용): {e}")
+
+        return sess
+
+
+def reset_fmkorea_session() -> None:
+    """차단 감지 등으로 세션을 폐기하고 다음 호출 시 새로 생성하도록 한다."""
+    with _SESSION_LOCK:
+        _SESSION_CACHE["session"] = None
+        _SESSION_CACHE["last_main_visit"] = 0.0
+    logger.debug("fmkorea 세션 캐시 리셋")
 
 
 def _build_search_url(keyword: str, page: int = 1) -> str:
@@ -261,16 +306,8 @@ def scrape_fmkorea(
         except (ValueError, TypeError):
             logger.warning(f"방송 시작 시각 파싱 실패: {broadcast_start}")
 
-    # 세션으로 쿠키 유지 (fmkorea 는 세션 쿠키를 봄)
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    # 메인 페이지 방문 — 세션 쿠키 획득 (안티봇 통과 용도)
-    try:
-        session.get("https://www.fmkorea.com/", timeout=10)
-        time.sleep(1.5)
-    except requests.RequestException as e:
-        logger.debug(f"fmkorea 메인 방문 실패 (무시): {e}")
+    # B10: 캐시된 세션 재사용 (TTL 만료 시에만 메인 페이지 재방문)
+    session = _get_or_create_session()
 
     blocked = False
     for keyword in keywords:
@@ -304,6 +341,8 @@ def scrape_fmkorea(
 
             except FmkoreaBlocked as e:
                 logger.warning(f"  ⚠ fmkorea 레이트리밋 감지 ({e}) — 추가 요청 중단")
+                # B10: 차단 발생 시 세션 캐시 폐기 → 다음 스크랩은 새 세션으로 시도
+                reset_fmkorea_session()
                 blocked = True
                 break
             except Exception as e:
