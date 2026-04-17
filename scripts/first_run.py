@@ -1,9 +1,9 @@
 """원클릭 셋업/런치 — 의존성·외부 도구·설정을 점검하고 누락된 것만 사용자에게 안내.
 
 사용법:
-    python scripts/first_run.py          # 체크 + 필요 시 대화형 설치/설정 → 트레이 실행
+    python scripts/first_run.py          # 체크 + 필요 시 대화형 설치/설정 → 대시보드 실행
     python scripts/first_run.py --check  # 체크만, 설치/실행 안 함 (CI용)
-    python scripts/first_run.py --no-launch  # 체크 통과해도 트레이 실행 안 함
+    python scripts/first_run.py --no-launch  # 체크 통과해도 대시보드 실행 안 함
 
 체크 항목 (순서대로):
 1. Python >= 3.10
@@ -15,7 +15,10 @@
    - 없으면 설정 GUI 실행
 7. 쿠키 비어있으면 browser_cookie3 로 자동 추출 시도
 
-성공 시 `pythonw tray_app.py` 를 detached 로 런치.
+성공 시 `pythonw -m pipeline.dashboard` 를 detached 로 런치.
+대시보드 프로세스가 파이프라인 데몬을 백그라운드 스레드로 직접 소유한다
+(이전 구조: 별도 tray 프로세스 + 파일 IPC. Windows 11 이 트레이 아이콘을
+숨기는 UX 문제로 트레이 계층을 제거하고 대시보드-only 로 단순화함).
 """
 from __future__ import annotations
 
@@ -65,23 +68,6 @@ def check_python() -> bool:
         print("     https://www.python.org/downloads/ 에서 최신 설치 후 재시도")
         return False
     _ok(f"Python {v.major}.{v.minor}.{v.micro}")
-
-    # MS Store Python 감지 — App Container 샌드박스에서 Shell_NotifyIcon 이
-    # 실제 트레이에 표시되지 않는 사례가 있다. 데몬/대시보드는 정상 동작하지만
-    # 트레이 아이콘 가시성 문제로 사용자 오해를 부른다.
-    prefix = sys.executable.lower()
-    if "windowsapps" in prefix or "packages\\python" in prefix:
-        print(
-            "     [경고] Microsoft Store Python 감지 — 트레이 아이콘이 표시되지 "
-            "않을 수 있습니다."
-        )
-        print(
-            "     대시보드 창에서 모든 기능(일시정지/재개/종료)을 사용할 수 있으므로 "
-            "문제가 되지 않습니다."
-        )
-        print(
-            "     트레이 아이콘이 꼭 필요하면 python.org 정식 설치본으로 교체하세요."
-        )
     return True
 
 
@@ -96,8 +82,6 @@ def check_pip_deps(auto_install: bool) -> bool:
     probes = [
         ("requests", "requests"),
         ("bs4", "beautifulsoup4"),
-        ("pystray", "pystray"),
-        ("PIL", "Pillow"),
         ("browser_cookie3", "browser_cookie3"),
     ]
     missing = []
@@ -245,61 +229,6 @@ def open_settings_ui() -> bool:
         return False
 
 
-def _tray_lockfile() -> Path:
-    """tray_app 이 쓰는 lockfile 경로와 동일 규칙 — output_dir/pipeline.tray.lock."""
-    try:
-        from pipeline.config import load_config  # type: ignore
-
-        cfg = load_config()
-        out_dir = Path(cfg.get("output_dir", "output"))
-        if not out_dir.is_absolute():
-            out_dir = PROJECT_ROOT / out_dir
-    except Exception:  # noqa: BLE001
-        out_dir = PROJECT_ROOT / "output"
-    return out_dir / "pipeline.tray.lock"
-
-
-def _pid_alive_win(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform != "win32":
-        try:
-            os.kill(pid, 0)
-            return True
-        except (OSError, ProcessLookupError):
-            return False
-    try:
-        import ctypes
-
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        STILL_ACTIVE = 259
-        k32 = ctypes.windll.kernel32
-        h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not h:
-            return False
-        try:
-            code = ctypes.c_ulong(0)
-            if k32.GetExitCodeProcess(h, ctypes.byref(code)) == 0:
-                return False
-            return code.value == STILL_ACTIVE
-        finally:
-            k32.CloseHandle(h)
-    except Exception:  # noqa: BLE001
-        return True  # 의심스러우면 살아있다고 가정 (중복 기동 회피)
-
-
-def tray_already_running() -> int:
-    """살아있는 트레이 PID 반환, 없으면 0."""
-    lock = _tray_lockfile()
-    if not lock.exists():
-        return 0
-    try:
-        pid = int(lock.read_text(encoding="utf-8").split(",", 1)[0].strip())
-    except (OSError, ValueError):
-        return 0
-    return pid if _pid_alive_win(pid) else 0
-
-
 def _spawn_detached(args: list[str]) -> bool:
     try:
         creationflags = 0
@@ -345,49 +274,30 @@ def _resolve_pythonw() -> str:
     return exe
 
 
-def open_dashboard() -> bool:
-    """별도 pythonw 프로세스로 pipeline.dashboard 모듈 실행."""
+def launch_dashboard() -> bool:
+    """대시보드를 detached 프로세스로 런치 (단일 진입점).
+
+    대시보드 프로세스가 내부적으로 파이프라인 데몬 스레드를 생성한다.
+    싱글톤 락은 `pipeline.dashboard.main()` 에서 처리하므로 이미 실행 중이면
+    조용히 종료되고 기존 창이 유지된다.
+    """
+    _section("8. 대시보드 실행")
     pythonw = _resolve_pythonw()
     if not Path(pythonw).exists():
         _err(f"pythonw 를 찾지 못함: {pythonw}")
         return False
-    return _spawn_detached([pythonw, "-m", "pipeline.dashboard"])
-
-
-def launch_tray() -> bool:
-    _section("8. 트레이 앱 실행")
-
-    # 이미 실행 중이면 트레이를 다시 띄우지 않고 대시보드만 연다 (아이콘은 Windows 11
-    # 오버플로우 chevron 에 숨겨져 있을 가능성이 크므로 사용자에게 보이는 창 제공).
-    running_pid = tray_already_running()
-    if running_pid:
-        _ok(f"트레이가 이미 실행 중입니다 (PID={running_pid}) — 대시보드를 엽니다.")
-        if open_dashboard():
-            _ok("대시보드 창을 확인하세요. 트레이 종료는 대시보드의 [설정] 또는 트레이 아이콘 우클릭.")
-            return True
-        _err("대시보드 실행에 실패했습니다. 작업관리자에서 pythonw 프로세스를 확인하세요.")
+    if not _spawn_detached([pythonw, "-m", "pipeline.dashboard"]):
         return False
-
-    pythonw = _resolve_pythonw()
-    tray = PROJECT_ROOT / "tray_app.py"
-    if not tray.exists():
-        _err(f"tray_app.py 없음: {tray}")
-        return False
-    if not _spawn_detached([pythonw, str(tray)]):
-        return False
-    _ok("트레이 실행 요청 완료.")
-    print("     * 트레이 프로세스가 부팅되면서 대시보드 창이 함께 열립니다.")
-    print("     * Windows 11 의 트레이 아이콘은 '^' 오버플로우에 숨겨져 있을 수 있습니다.")
-    print("     * MS Store Python 환경에서는 아이콘이 아예 안 보일 수 있으나,")
-    print("       대시보드 창의 [설정] 탭에서 모든 제어가 가능합니다.")
-    # 대시보드 spawn 은 tray_app.py 가 담당 (PR #51). 여기서 또 띄우면 창이 2개.
+    _ok("대시보드 실행 요청 완료.")
+    print("     * 대시보드 창에서 파이프라인이 백그라운드로 실행됩니다.")
+    print("     * 창을 닫으면 파이프라인도 함께 종료됩니다.")
     return True
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="원클릭 셋업 + 런치")
     parser.add_argument("--check", action="store_true", help="체크만 (자동 설치·실행 없음)")
-    parser.add_argument("--no-launch", action="store_true", help="체크 통과해도 트레이 실행 안 함")
+    parser.add_argument("--no-launch", action="store_true", help="체크 통과해도 대시보드 실행 안 함")
     parser.add_argument("--no-install", action="store_true", help="pip install 자동 실행 금지")
     parser.add_argument(
         "--no-refresh-cookies", action="store_true", help="쿠키 자동 추출 시도 안 함"
@@ -446,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.check or args.no_launch:
         return 0
 
-    if not launch_tray():
+    if not launch_dashboard():
         return 4
     return 0
 

@@ -145,8 +145,10 @@ class Dashboard:
     def __init__(self, cfg: Optional[dict] = None):
         self.cfg = cfg or {}
         self.project_root = Path(__file__).resolve().parent.parent
-        self.log_path = Path(self.cfg.get("output_dir", "./output")) / "logs" / "pipeline.log"
-        self.state_path = Path(self.cfg.get("output_dir", "./output")) / "pipeline_state.json"
+        out_dir = Path(self.cfg.get("output_dir", "./output"))
+        self.log_path = out_dir / "logs" / "pipeline.log"
+        self.log_dir = str(out_dir / "logs")
+        self.state_path = out_dir / "pipeline_state.json"
         self._alive = False
         self._auto_scroll = True
         self._filter = "ALL"
@@ -162,6 +164,19 @@ class Dashboard:
         self._trend_summary: Optional[ttk.Label] = None
         self._model_status: Optional[ttk.Label] = None
         self._stats_summary: Optional[ttk.Label] = None
+
+        # 데몬: 대시보드 프로세스가 직접 소유. 이전의 tray_app.py + control.py
+        # 파일 IPC 를 대체. 창이 닫히면 self._on_close 에서 stop() 한다.
+        from pipeline.state import PipelineState
+        from pipeline.daemon import PipelineDaemon
+
+        self.state = PipelineState(str(self.state_path))
+        self.daemon = PipelineDaemon(
+            cfg=self.cfg,
+            state=self.state,
+            log_dir=self.log_dir,
+            notify=self._notify,
+        )
 
     # ---------- 라이프사이클 ----------
     def run(self) -> None:
@@ -191,6 +206,13 @@ class Dashboard:
         self._poll_log()
         self._poll_status()
 
+        # 데몬은 GUI 가 뜬 뒤 시작 — 초기화 에러가 있으면 로그에 찍히고
+        # 사용자는 창에서 바로 확인할 수 있다.
+        try:
+            self.daemon.start()
+        except Exception as e:  # noqa: BLE001
+            self._append_log_lines([f"[데몬 시작 실패] {e}"])
+
         self.root.mainloop()
 
     def focus(self) -> None:
@@ -205,12 +227,26 @@ class Dashboard:
 
     def _on_close(self) -> None:
         self._alive = False
+        # 데몬을 먼저 정지 — 현재 처리 중인 VOD 가 있으면 안전하게 마무리할 수
+        # 있도록 최대 5초 대기. 사용자가 응답 지연을 느끼면 두 번째 닫기에서
+        # 프로세스가 어차피 종료되므로 딱히 추가 강제 종료는 하지 않는다.
+        try:
+            self.daemon.stop(timeout=5.0)
+        except Exception:  # noqa: BLE001
+            pass
         if self.root is not None:
             try:
                 self.root.destroy()
             except tk.TclError:
                 pass
         Dashboard._instance = None
+
+    def _notify(self, title: str, message: str) -> None:
+        """데몬이 GUI 에 띄우는 가벼운 알림. 현재는 로그창에 기록."""
+        try:
+            self._append_log_lines([f"[알림] {title}: {message}"])
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---------- 레이아웃 ----------
     def _build_layout(self) -> None:
@@ -724,8 +760,8 @@ class Dashboard:
         ttk.Label(
             ctrl_group,
             text=(
-                "트레이 아이콘이 Windows 11 오버플로우에 숨겨지거나 MS Store Python 환경에서 "
-                "등록이 실패한 경우에도 여기서 파이프라인을 제어할 수 있습니다."
+                "파이프라인은 이 창 안에서 백그라운드 스레드로 돌고 있습니다. "
+                "창을 닫으면 파이프라인도 종료됩니다."
             ),
             foreground="#8a8a8a",
             wraplength=820,
@@ -737,19 +773,19 @@ class Dashboard:
         ttk.Button(
             ctrl_row,
             text="일시정지",
-            command=lambda: self._send_control("pause"),
+            command=self._ctrl_pause,
             width=14,
         ).pack(side="left", padx=(0, 8))
         ttk.Button(
             ctrl_row,
             text="재개",
-            command=lambda: self._send_control("resume"),
+            command=self._ctrl_resume,
             width=14,
         ).pack(side="left", padx=(0, 8))
         ttk.Button(
             ctrl_row,
-            text="트레이 종료",
-            command=lambda: self._send_control("quit"),
+            text="파이프라인 종료",
+            command=self._ctrl_quit,
             width=14,
         ).pack(side="left", padx=(0, 8))
 
@@ -758,73 +794,30 @@ class Dashboard:
         )
         self._ctrl_status.pack(anchor="w", pady=(10, 0))
 
-    def _send_control(self, action: str) -> None:
-        """대시보드 → 트레이 제어 명령 전송 (파일 기반 IPC)."""
+    def _ctrl_pause(self) -> None:
         try:
-            from pipeline.control import write_command
-
-            out_dir = self.cfg.get("output_dir", "output")
-            token = write_command(out_dir, action)
-            label_ko = {"pause": "일시정지", "resume": "재개", "quit": "종료"}.get(action, action)
-            if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
-                self._ctrl_status.config(
-                    text=f"명령 전송됨: {label_ko} (token={token}) — 트레이 응답 대기…"
-                )
-            # 1초 뒤 ack 확인
-            if self.root is not None:
-                self.root.after(1500, lambda t=token, a=action: self._check_ack(t, a))
+            self.daemon.pause()
+            self._set_ctrl_status("✓ 일시정지되었습니다.")
         except Exception as e:  # noqa: BLE001
-            if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
-                self._ctrl_status.config(text=f"명령 전송 실패: {e}")
+            self._set_ctrl_status(f"일시정지 실패: {e}")
 
-    def _check_ack(self, token: int, action: str) -> None:
+    def _ctrl_resume(self) -> None:
         try:
-            from pipeline.control import read_ack
+            self.daemon.resume()
+            self._set_ctrl_status("✓ 재개되었습니다.")
+        except Exception as e:  # noqa: BLE001
+            self._set_ctrl_status(f"재개 실패: {e}")
 
-            out_dir = self.cfg.get("output_dir", "output")
-            ack = read_ack(out_dir)
-            if ack and int(ack.get("token", -1)) >= token:
-                label_ko = {"pause": "일시정지", "resume": "재개", "quit": "종료"}.get(
-                    action, action
-                )
-                if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
-                    self._ctrl_status.config(
-                        text=f"✓ 트레이가 '{label_ko}' 를 처리했습니다."
-                    )
-            else:
-                # 아직 응답 없음 — 더 기다린다 (최대 5초)
-                if self.root is not None:
-                    self.root.after(1500, lambda t=token, a=action: self._check_ack_retry(t, a, 1))
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _check_ack_retry(self, token: int, action: str, attempt: int) -> None:
-        if attempt >= 4:
-            if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
-                self._ctrl_status.config(
-                    text="⚠ 트레이 응답이 없습니다. 트레이 프로세스가 종료됐거나 락이 풀렸을 수 있습니다."
-                )
-            return
-        try:
-            from pipeline.control import read_ack
-
-            out_dir = self.cfg.get("output_dir", "output")
-            ack = read_ack(out_dir)
-            if ack and int(ack.get("token", -1)) >= token:
-                label_ko = {"pause": "일시정지", "resume": "재개", "quit": "종료"}.get(
-                    action, action
-                )
-                if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
-                    self._ctrl_status.config(
-                        text=f"✓ 트레이가 '{label_ko}' 를 처리했습니다."
-                    )
-                return
-        except Exception:  # noqa: BLE001
-            pass
+    def _ctrl_quit(self) -> None:
+        """파이프라인 + 창을 함께 종료. 창 닫기와 동일한 경로 사용."""
+        self._set_ctrl_status("종료 중… 진행 중인 VOD 를 마무리합니다 (최대 5초).")
         if self.root is not None:
-            self.root.after(
-                1500, lambda t=token, a=action, n=attempt + 1: self._check_ack_retry(t, a, n)
-            )
+            # 상태 라벨이 그려질 기회를 준 뒤 실제 종료
+            self.root.after(100, self._on_close)
+
+    def _set_ctrl_status(self, text: str) -> None:
+        if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
+            self._ctrl_status.config(text=text)
 
     # ---------- 로그 ----------
     def _append_log_lines(self, lines: list[str]) -> None:
