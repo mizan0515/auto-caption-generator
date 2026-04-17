@@ -87,7 +87,7 @@ def call_claude_cached(
     if not _check_sdk():
         # CLI fallback: system + user 를 하나로 합쳐서 전달
         combined = f"{system_prompt}\n\n---\n\n{user_prompt}" if system_prompt else user_prompt
-        return _call_claude_cli(combined, timeout=timeout)
+        return _call_claude_cli(combined, timeout=timeout, model=model)
 
     client = _get_client()
 
@@ -213,20 +213,28 @@ def _parse_claude_output(result: subprocess.CompletedProcess) -> str:
 
 
 @retry(max_retries=2, backoff_base=30.0, exceptions=(RuntimeError, subprocess.TimeoutExpired))
-def _call_claude_cli(prompt: str, timeout: int = 300) -> str:
-    """Claude Code CLI를 호출 (fallback 경로)."""
+def _call_claude_cli(prompt: str, timeout: int = 300, model: str = "") -> str:
+    """Claude Code CLI를 호출 (fallback 경로).
+
+    model: 빈 문자열이면 CLI 기본 모델 사용. "haiku", "sonnet", "opus" 등
+           별칭이나 정식 모델명 모두 가능.
+    """
     if not _check_claude_cli():
         raise RuntimeError(
             "Claude CLI가 설치되어 있지 않습니다. "
             "https://docs.anthropic.com/en/docs/claude-code 에서 설치하세요."
         )
 
-    logger.debug(f"Claude CLI 호출 ({len(prompt):,}자, timeout={timeout}s)")
+    cmd = ["claude", "-p", "--output-format", "json", "--max-turns", "1"]
+    if model:
+        cmd.extend(["--model", model])
+
+    logger.debug(f"Claude CLI 호출 ({len(prompt):,}자, model={model or 'default'}, timeout={timeout}s)")
 
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
     result = subprocess.run(
-        ["claude", "-p", "--output-format", "json", "--max-turns", "1"],
+        cmd,
         input=prompt,
         capture_output=True,
         timeout=timeout,

@@ -255,13 +255,17 @@ def process_vod(
         state.update(vod.video_no, status="summarizing", channel_id=vod.channel_id)
 
         claude_timeout = cfg.get("claude_timeout_sec", 300)
+        claude_model = cfg.get("claude_model", "")
 
-        chunk_results = process_chunks(chunks, highlights, chats, vod, claude_timeout)
+        chunk_results = process_chunks(
+            chunks, highlights, chats, vod, claude_timeout,
+            claude_model=claude_model,
+        )
         logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
 
         summary = merge_results(
             chunk_results, vod, community_posts, highlights, claude_timeout,
-            srt_path=srt_path,
+            srt_path=srt_path, claude_model=claude_model,
         )
         logger.info(f"✓ 통합 요약 생성 완료")
 

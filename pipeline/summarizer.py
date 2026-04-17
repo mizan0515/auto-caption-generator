@@ -121,10 +121,12 @@ def process_chunks(
     chats: list[dict],
     vod_info: VODInfo,
     claude_timeout: int = 300,
+    claude_model: str = "",
 ) -> list[str]:
     """각 청크를 Claude에 전달하여 분석.
 
     시스템 프롬프트(지시문)는 캐싱되어 첫 호출 이후 input token 비용 ~90% 절감.
+    claude_model: 빈 문자열이면 기본 모델, "haiku" 등으로 경량 모델 지정 가능.
     """
     chunk_results = []
 
@@ -132,7 +134,8 @@ def process_chunks(
         user_prompt = _build_chunk_user_prompt(chunk, highlights, chats, vod_info)
         logger.info(
             f"  청크 {chunk['index']}/{len(chunks)} 분석 중 "
-            f"({chunk['start_hhmmss']}~{chunk['end_hhmmss']}, {chunk['char_count']:,}자)..."
+            f"({chunk['start_hhmmss']}~{chunk['end_hhmmss']}, {chunk['char_count']:,}자, "
+            f"model={claude_model or 'default'})..."
         )
 
         try:
@@ -140,6 +143,7 @@ def process_chunks(
                 user_prompt=user_prompt,
                 system_prompt=CHUNK_SYSTEM_PROMPT,
                 timeout=claude_timeout,
+                model=claude_model,
             )
             chunk_results.append(f"## chunk_{chunk['index']:02d} ({chunk['start_hhmmss']}~{chunk['end_hhmmss']})\n\n{result}")
             logger.info(f"  청크 {chunk['index']} 분석 완료 ({len(result):,}자)")
@@ -157,6 +161,7 @@ def merge_results(
     highlights: list[dict],
     claude_timeout: int = 300,
     srt_path: str = "",
+    claude_model: str = "",
 ) -> str:
     """모든 청크 결과를 통합하여 최종 리포트 생성."""
     logger.info("최종 통합 요약 생성 중...")
@@ -251,6 +256,7 @@ def merge_results(
         return _two_round_merge(
             chunk_results, merge_template, merge_system,
             vod_info, community_posts, highlights, claude_timeout,
+            claude_model=claude_model,
         )
 
     try:
@@ -258,6 +264,7 @@ def merge_results(
             user_prompt=user_prompt,
             system_prompt=merge_system,
             timeout=claude_timeout,
+            model=claude_model,
         )
         logger.info(f"최종 리포트 생성 완료 ({len(result):,}자)")
         return result
@@ -274,6 +281,7 @@ def _two_round_merge(
     community_posts: list[CommunityPost],
     highlights: list[dict],
     claude_timeout: int,
+    claude_model: str = "",
 ) -> str:
     """청크가 많을 때 2라운드 병합.
 
@@ -294,6 +302,7 @@ def _two_round_merge(
                 user_prompt=batch_text,
                 system_prompt=mid_system,
                 timeout=claude_timeout,
+                model=claude_model,
             )
             mid_results.append(mid_result)
         except Exception as e:
@@ -310,6 +319,7 @@ def _two_round_merge(
             user_prompt=final_user,
             system_prompt=merge_system,
             timeout=claude_timeout,
+            model=claude_model,
         )
     except Exception as e:
         logger.error(f"2라운드 최종 병합 실패: {e}")
