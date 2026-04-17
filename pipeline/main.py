@@ -31,6 +31,7 @@ from .config import (
     load_config, save_config, get_cookies, ensure_dirs,
     validate_cookies, interactive_cookie_setup,
     normalize_streamers, derive_streamer_id,
+    ConfigError,
 )
 from .state import PipelineState
 from .monitor import check_new_vods
@@ -573,7 +574,17 @@ def main():
         interactive_cookie_setup()
         return
 
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print("=" * 60)
+        print("  ⚠  설정 파일 검증 실패")
+        print("=" * 60)
+        print(str(e))
+        print()
+        print("  설정을 수정한 뒤 다시 실행하세요.")
+        print("  (기본값으로 초기화하려면 pipeline_config.json 을 삭제 후 재실행)")
+        sys.exit(2)
 
     if args.process:
         run_single(args.process, cfg, limit_duration_sec=args.limit_duration)

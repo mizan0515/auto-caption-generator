@@ -72,6 +72,103 @@ DEFAULT_CONFIG = {
 }
 
 
+class ConfigError(ValueError):
+    """pipeline_config.json 의 타입/값이 잘못되었을 때 발생한다.
+
+    load_config() 가 merge 된 cfg 를 validate_config() 로 검사하다 raise 하며,
+    CLI 엔트리포인트(pipeline/main.py) 는 이 예외를 잡아 traceback 없이 친절한
+    한국어 안내를 출력하고 `sys.exit(2)` 한다 (B21).
+    """
+    pass
+
+
+_VALID_CLAUDE_MODELS = {"", "haiku", "sonnet", "opus"}
+_VALID_BOOTSTRAP_MODES = {None, "skip_all", "latest_n"}
+
+# (field, positive_only). bool 은 isinstance(bool, int) 이므로 별도 배제.
+# positive_only=True 면 value > 0 강제, False 면 value >= 0 허용 (0=비활성 의미).
+_INT_FIELDS: list[tuple[str, bool]] = [
+    ("poll_interval_sec", True),
+    ("download_resolution", True),
+    ("chunk_max_chars", True),
+    ("chunk_overlap_sec", False),
+    ("highlight_radius_sec", False),
+    ("cold_sample_sec", True),
+    ("claude_timeout_sec", True),
+    ("whisper_stall_sec", False),
+    ("whisper_timeout_sec", False),
+    ("fmkorea_max_pages", False),
+    ("fmkorea_max_posts", False),
+    ("fmkorea_max_age_hours", False),
+    ("bootstrap_latest_n", True),
+    ("experiment_limit_duration_sec", False),
+]
+
+
+def validate_config(cfg: dict) -> None:
+    """merge 된 cfg 의 타입/값을 검증. 실패 시 ConfigError.
+
+    목적: 첫 실행에서 설정 실수를 바로 차단해 다운로드/전사에 30분 쓰고 나서
+    해독 불가능한 traceback 으로 죽는 UX 를 없앤다 (B21).
+    """
+    errors: list[str] = []
+
+    for field, positive in _INT_FIELDS:
+        if field not in cfg:
+            continue
+        v = cfg[field]
+        if isinstance(v, bool) or not isinstance(v, int):
+            errors.append(
+                f"  - '{field}': 정수여야 합니다. 현재 값: {v!r} ({type(v).__name__})"
+            )
+            continue
+        if positive and v <= 0:
+            errors.append(f"  - '{field}': 양의 정수여야 합니다. 현재 값: {v}")
+        elif not positive and v < 0:
+            errors.append(f"  - '{field}': 0 이상이어야 합니다. 현재 값: {v}")
+
+    if "chunk_max_tokens" in cfg:
+        v = cfg["chunk_max_tokens"]
+        if v is not None and (
+            isinstance(v, bool) or not isinstance(v, int) or v <= 0
+        ):
+            errors.append(
+                f"  - 'chunk_max_tokens': 양의 정수 또는 null 이어야 합니다. 현재: {v!r}"
+            )
+
+    cm = cfg.get("claude_model", "")
+    if cm not in _VALID_CLAUDE_MODELS:
+        allowed = ", ".join(repr(x) for x in sorted(_VALID_CLAUDE_MODELS))
+        errors.append(
+            f"  - 'claude_model': 허용 값은 {allowed}. 현재: {cm!r} (오타 확인)"
+        )
+
+    bm = cfg.get("bootstrap_mode", None)
+    if bm not in _VALID_BOOTSTRAP_MODES:
+        errors.append(
+            f"  - 'bootstrap_mode': null / 'skip_all' / 'latest_n' 중 하나여야 합니다. 현재: {bm!r}"
+        )
+
+    ck = cfg.get("cookies")
+    if ck is not None and not isinstance(ck, dict):
+        errors.append(
+            f"  - 'cookies': 객체(dict)여야 합니다. 현재: {type(ck).__name__}"
+        )
+
+    kw = cfg.get("fmkorea_search_keywords")
+    if kw is not None and not isinstance(kw, list):
+        errors.append(
+            f"  - 'fmkorea_search_keywords': 리스트여야 합니다. 현재: {type(kw).__name__}"
+        )
+
+    if errors:
+        header = (
+            f"pipeline_config.json 설정 오류 ({len(errors)}건)\n"
+            f"파일: {_config_path()}\n"
+        )
+        raise ConfigError(header + "\n".join(errors))
+
+
 def _config_path() -> Path:
     return Path(__file__).resolve().parent.parent / CONFIG_FILENAME
 
@@ -82,6 +179,7 @@ def load_config() -> dict:
         with open(path, "r", encoding="utf-8") as f:
             user_cfg = json.load(f)
         merged = {**DEFAULT_CONFIG, **user_cfg}
+        validate_config(merged)
         return merged
     save_config(DEFAULT_CONFIG)
     return dict(DEFAULT_CONFIG)
