@@ -105,7 +105,8 @@ Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first.
    )"
    ```
 4. PR merge: `gh pr merge --squash --auto`
-5. main 복귀: `git checkout main && git pull`
+5. main 복귀: `git fetch origin main && git checkout origin/main`
+   (main 브랜치가 자매 워크트리에 있으므로 detached HEAD로 복귀)
 
 ## 5. 자기 평가 & 다음 작업 판단
 - 이번 작업을 평가한다:
@@ -138,6 +139,7 @@ Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first.
 
 ## 커밋 & 브랜치
 - main에서 직접 작업 금지. 반드시 task branch에서 작업한다.
+  (이 worktree는 main을 checkout 할 수 없으므로 origin/main에서 branch를 만든다)
 - 관련 파일만 git add (git add -A, git add . 금지).
 - pipeline_config.json, output/, work/, .claude/ 절대 커밋 금지.
 - 커밋 → push → PR → squash merge → main 복귀까지 자동으로 완료한다.
