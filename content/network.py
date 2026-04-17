@@ -138,7 +138,15 @@ class NetworkManager:
         for i, line in enumerate(content):
             if resolution_pattern.search(line):
                 # 다음 줄이 해당 해상도의 세부 플레이리스트 경로
+                if i + 1 >= len(content):
+                    raise ValueError(
+                        f"{resolution} 해상도 매칭 라인 뒤에 플레이리스트 경로가 없습니다."
+                    )
                 relative_path = content[i + 1].strip()
+                if not relative_path:
+                    raise ValueError(
+                        f"{resolution} 해상도 플레이리스트 경로가 빈 문자열입니다."
+                    )
                 base_url = urljoin(path, relative_path)
                 return base_url
 
