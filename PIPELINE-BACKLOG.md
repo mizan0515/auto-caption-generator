@@ -106,6 +106,22 @@
 - [ ] **B-quality-next 타임라인 시간 포맷 일관성** — MD/HTML 리포트에서 `[HH:MM:SS]` vs `[MM:SS]` 혼재 여부 실측 후 정규화
 - [ ] **B-static-next transcribe.py --cleanup 실동작 검증** — 플래그 존재하지만 호출 흐름에서 실제 동작하는지 smoke
 - [ ] **B-websearch-next claude CLI code=1 원인 분류** — WebSearch 로 code=1 대표 원인(인증 만료/네트워크/토큰 한도) 좁힌 후 친절 에러 메시지 매핑 백로그화
+- [ ] **B-ux-next2 tray _on_quit 가 daemon 스레드 join 안 함** — process_vod 중 종료 시 강제 단절로 work/ 잔재 + 다음 실행 재다운로드. pipeline_state 쓰기는 atomic(B06 영역)이지만 downloader 중단 파일 cleanup 미확인. stop flag → 최대 N초 대기 → 타임아웃 시 경고 notify 패턴 설계
+- [x] **B25 tray 이중 실행 silent race 제거**
+  - 파일: `tray_app.py`, `experiments/b25_tray_single_instance.py` (신규)
+  - 현상: `tray_app.exe` 를 두 번 실행하면 두 daemon 스레드가 같은
+    `pipeline_state.json` 을 경쟁 쓰기 → 중복 다운로드/상태 오염/트레이 아이콘 2개.
+    아무 경고 없음 — admin UX 최악의 silent failure 유형.
+  - 목표: (a) `output_dir/pipeline.tray.lock` 에 PID 기록 + 이미 살아 있는
+    PID 면 `AlreadyRunningError` 로 차단, (b) 교차 플랫폼 `_pid_alive`
+    (Windows OpenProcess+GetExitCodeProcess, POSIX `os.kill(pid, 0)`),
+    (c) stale/손상 lockfile 은 자동 회수, (d) `_on_quit` 에서 lock 해제
+    (멱등), (e) `main()` 이 `AlreadyRunningError` 포획 → MessageBox
+    + `SystemExit(3)` (B24 ConfigError exit 2 와 차별).
+  - 검증: `experiments/b25_tray_single_instance.py` 11 케이스 (pid_alive 3종/
+    lock 신규·stale·live·self·손상 5종/release 멱등/main 대화상자/B24 회귀).
+    B24 7/7 + B23 7/7 + B21 13/13 회귀 유지.
+
 - [x] **B24 tray_app ConfigError unhandled**
   - 파일: `tray_app.py`, `experiments/b24_tray_config_error.py` (신규)
   - 현상: `PipelineTray.__init__` 가 `load_config()` 를 호출하는데 잘못된 `pipeline_config.json`
@@ -261,4 +277,5 @@
 | B22 | 2026-04-17 | ✅ Tier2: 7/7 성공/실패 머지 × prompt leak/복구 가이드/helper 단독/traceback 숨김 | pipeline/summarizer.py `_format_failure_notice_for_llm` + `_build_failure_report` + experiments/b22_merge_failure_ux.py |
 | B23 | 2026-04-17 | ✅ Tier2: 7/7 default None/커스텀 경로 반영/없는 경로 DEFAULT 생성/save/ConfigError 메시지 실제 경로/상대→절대 resolve/save·load 왕복 + B21 13/13 회귀 유지 | pipeline/config.py `_resolve_config_path` + `load_config(config_path=)` + `save_config(config_path=)` + `validate_config(source_path=)` + main.py `load_config(config_path=args.config)` + experiments/b23_config_path_arg.py |
 | B24 | 2026-04-17 | ✅ Tier2: 7/7 ConfigError→exit2/에러 원문 전달/RuntimeError 전파/happy run()/비-win32 stderr/ctypes 실패 폴백/multi-line 메시지 + B23 7/7 + B21 13/13 회귀 유지 | tray_app.py `main()` ConfigError 포획 + `_show_fatal_dialog` Win32 MessageBoxW + experiments/b24_tray_config_error.py |
+| B25 | 2026-04-17 | ✅ Tier2: 11/11 pid_alive 3종/lock 신규·stale·live·self·손상 5종/release 멱등/main 대화상자(exit 3)/B24 ConfigError exit 2 차별 회귀 + B24 7/7 + B23 7/7 + B21 13/13 회귀 유지 | tray_app.py `AlreadyRunningError` + `_pid_alive` + `_acquire_lock` + `_release_lock` + `_on_quit` 해제 + main() exit 3 + experiments/b25_tray_single_instance.py |
 | — | — | — | — |

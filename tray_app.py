@@ -39,6 +39,85 @@ from pipeline.state import PipelineState
 from pipeline.utils import setup_logging
 
 
+class AlreadyRunningError(RuntimeError):
+    """이미 다른 트레이 인스턴스가 같은 output_dir 에서 실행 중.
+
+    B25: `_on_quit` 가 lockfile 을 지우므로 정상 종료 후엔 발생하지 않지만,
+    강제 kill/crash 로 stale lockfile 이 남은 경우엔 PID 생존 검사로 자동 회수.
+    """
+
+    def __init__(self, pid: int, lock_path: str):
+        self.pid = pid
+        self.lock_path = lock_path
+        super().__init__(f"이미 실행 중입니다. PID={pid} (lock={lock_path})")
+
+
+def _pid_alive(pid: int) -> bool:
+    """PID 가 살아 있는지 교차 플랫폼 검사.
+
+    Windows: OpenProcess + GetExitCodeProcess (os.kill(pid, 0) 은 Windows 에서
+    실제 종료 시도라 사용 불가).
+    POSIX: os.kill(pid, 0) — signal 0 은 권한/존재 검사 전용.
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            )
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong(0)
+                ctypes.windll.kernel32.GetExitCodeProcess(
+                    handle, ctypes.byref(exit_code)
+                )
+                return exit_code.value == STILL_ACTIVE
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            # ctypes 실패 시 "모른다" 보다는 "살아 있다고 가정" 해서
+            # 우발적 중복 기동을 막는 쪽이 안전 (false positive 감수).
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _acquire_lock(lock_path: str) -> None:
+    """output_dir/pipeline.tray.lock 에 현재 PID 를 기록.
+
+    이미 파일이 있고 그 PID 가 살아 있으면 AlreadyRunningError.
+    살아 있지 않으면 stale 로 보고 덮어쓴다 (crash 회수).
+    """
+    if os.path.exists(lock_path):
+        try:
+            with open(lock_path, "r", encoding="utf-8") as f:
+                existing = f.read().strip()
+            other_pid = int(existing.split(",", 1)[0])
+        except (OSError, ValueError):
+            other_pid = 0
+        if other_pid and other_pid != os.getpid() and _pid_alive(other_pid):
+            raise AlreadyRunningError(other_pid, lock_path)
+    with open(lock_path, "w", encoding="utf-8") as f:
+        f.write(f"{os.getpid()}")
+
+
+def _release_lock(lock_path: str) -> None:
+    """정상 종료 경로에서만 호출. 실패해도 조용히."""
+    try:
+        os.remove(lock_path)
+    except OSError:
+        pass
+
+
 def _show_fatal_dialog(title: str, message: str) -> None:
     """Windows MessageBox 로 치명적 오류 표시. tkinter 의존 없이 ctypes 로.
 
@@ -64,6 +143,11 @@ class PipelineTray:
     def __init__(self):
         self.cfg = load_config()
         ensure_dirs(self.cfg)
+
+        # B25: 이중 실행 방지 락. output_dir 기준이므로 동일 설정으로 두 번
+        # 띄우는 흔한 실수만 잡고, 서로 다른 output_dir 이면 허용.
+        self.lock_path = os.path.join(self.cfg["output_dir"], "pipeline.tray.lock")
+        _acquire_lock(self.lock_path)
 
         self.state_path = os.path.join(self.cfg["output_dir"], "pipeline_state.json")
         self.state = PipelineState(self.state_path)
@@ -166,6 +250,7 @@ class PipelineTray:
         logger.info("트레이 앱 종료 요청")
         self._running = False
         self.state.request_stop()
+        _release_lock(self.lock_path)
         icon.stop()
 
     def _start_daemon(self):
@@ -294,6 +379,17 @@ def main():
             f"설정 파일을 수정한 뒤 다시 실행해 주세요.",
         )
         sys.exit(2)
+    except AlreadyRunningError as e:
+        # B25: 이미 실행 중인 인스턴스 감지 — 중복 기동 silent race 방지.
+        _show_fatal_dialog(
+            "Chzzk 파이프라인 — 이미 실행 중",
+            f"다른 트레이 인스턴스가 이미 실행 중입니다.\n\n"
+            f"PID: {e.pid}\n"
+            f"잠금 파일: {e.lock_path}\n\n"
+            f"기존 트레이 창에서 종료한 뒤 다시 실행하세요.\n"
+            f"기존 프로세스가 이미 죽어 있다고 확신되면 위 잠금 파일을 삭제하고 재실행하세요.",
+        )
+        sys.exit(3)
     app.run()
 
 
