@@ -157,8 +157,10 @@ class PipelineTray:
         self.log_path = os.path.join(self.log_dir, "pipeline.log")
 
         self._daemon_thread = None
+        self._control_thread = None
         self._running = False
         self._paused = False
+        self._last_control_token = 0
         self.icon = None
 
     def _load_icon(self) -> Image.Image:
@@ -295,7 +297,116 @@ class PipelineTray:
         self._running = False
         self.state.request_stop()
         _release_lock(self.lock_path)
-        icon.stop()
+        if icon is not None:
+            icon.stop()
+
+    # ---------- 대시보드 자동 기동 + 제어 파일 폴링 ----------
+
+    def _spawn_dashboard(self) -> None:
+        """트레이 부팅 시 대시보드를 자동 실행.
+
+        MS Store Python / Windows 11 에서 트레이 아이콘이 숨겨져 사용자가 파이프라인을
+        전혀 보지 못하는 상황을 막기 위해 무조건 보이는 창을 하나 띄운다.
+        """
+        try:
+            import subprocess as _sp
+
+            pythonw = sys.executable
+            if sys.platform == "win32" and pythonw.lower().endswith("python.exe"):
+                candidate = pythonw[:-10] + "pythonw.exe"
+                if os.path.exists(candidate):
+                    pythonw = candidate
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = getattr(_sp, "DETACHED_PROCESS", 0) | getattr(
+                    _sp, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+            _sp.Popen(
+                [pythonw, "-m", "pipeline.dashboard"],
+                cwd=_ROOT,
+                creationflags=creationflags,
+                close_fds=True,
+            )
+            logger.info("대시보드 자동 실행 요청 완료")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"대시보드 자동 실행 실패 (무시하고 계속): {e}")
+
+    def _start_control_watcher(self) -> None:
+        """대시보드가 쓴 control 파일을 폴링해 pause/resume/quit 액션 수행."""
+        if self._control_thread and self._control_thread.is_alive():
+            return
+        self._control_thread = threading.Thread(
+            target=self._control_watcher_loop,
+            daemon=True,
+            name="pipeline-control-watcher",
+        )
+        self._control_thread.start()
+
+    def _control_watcher_loop(self) -> None:
+        import time
+
+        from pipeline.control import read_command, write_ack
+
+        out_dir = self.cfg["output_dir"]
+        while self._running or not self._running:  # 트레이가 살아있는 한 계속
+            try:
+                cmd = read_command(out_dir)
+                if cmd is not None and cmd.token > self._last_control_token:
+                    self._last_control_token = cmd.token
+                    logger.info(f"대시보드 제어 명령 수신: {cmd.action} (token={cmd.token})")
+                    self._apply_control_action(cmd.action)
+                    write_ack(out_dir, cmd.token, cmd.action)
+                    if cmd.action == "quit":
+                        return
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"control watcher 예외: {e}")
+            time.sleep(1.0)
+
+    def _apply_control_action(self, action: str) -> None:
+        """제어 파일에서 온 액션을 실행. 트레이 메뉴 핸들러와 같은 효과."""
+        if action == "pause":
+            if not self._paused:
+                self._paused = True
+                self.state.request_stop()
+                logger.info("파이프라인 일시정지됨 (대시보드 요청)")
+                if self.icon:
+                    try:
+                        self.icon.notify("일시정지되었습니다.", "대시보드 제어")
+                    except Exception:  # noqa: BLE001
+                        pass
+        elif action == "resume":
+            if self._paused:
+                self._paused = False
+                self.state.clear_stop()
+                logger.info("파이프라인 재개됨 (대시보드 요청)")
+                self._start_daemon()
+                if self.icon:
+                    try:
+                        self.icon.notify("재개되었습니다.", "대시보드 제어")
+                    except Exception:  # noqa: BLE001
+                        pass
+        elif action == "quit":
+            logger.info("대시보드에서 종료 요청 수신 — 트레이 프로세스 종료 진행")
+            self._running = False
+            self.state.request_stop()
+            _release_lock(self.lock_path)
+            if self.icon is not None:
+                try:
+                    self.icon.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+            # pystray 가 메시지 루프를 돌리는 중이면 아이콘 stop 만으로 프로세스는
+            # 종료되지만, 아이콘 자체가 뜨지 않았거나 멈춘 경우를 대비해 하드 종료.
+            import os as _os
+            import threading as _th
+
+            def _force():
+                import time as _t
+
+                _t.sleep(3.0)
+                _os._exit(0)
+
+            _th.Thread(target=_force, daemon=True).start()
 
     def _start_daemon(self):
         """데몬 스레드 시작"""
@@ -407,6 +518,12 @@ class PipelineTray:
             title="Chzzk VOD 파이프라인",
             menu=menu,
         )
+
+        # 대시보드 자동 기동 (트레이 아이콘이 보이지 않아도 최소 1개의 창은 항상 존재)
+        self._spawn_dashboard()
+        # 대시보드 ↔ 트레이 control 파일 감시 (대시보드에서 pause/resume/quit 가능)
+        self._running = True
+        self._start_control_watcher()
 
         # 트레이 표시 직후 데몬 시작
         self.icon.run(setup=lambda icon: self._start_daemon())
