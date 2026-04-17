@@ -34,9 +34,28 @@ except ImportError:
     print("  pip install pystray Pillow")
     sys.exit(1)
 
-from pipeline.config import load_config, ensure_dirs, _config_path
+from pipeline.config import ConfigError, load_config, ensure_dirs, _config_path
 from pipeline.state import PipelineState
 from pipeline.utils import setup_logging
+
+
+def _show_fatal_dialog(title: str, message: str) -> None:
+    """Windows MessageBox 로 치명적 오류 표시. tkinter 의존 없이 ctypes 로.
+
+    pystray 는 tkinter 를 요구하지 않으므로 messagebox 표시를 위해 tkinter 를
+    추가 import 하지 않고 Win32 API 를 직접 호출. 다른 OS 에서는 stderr 로 폴백.
+    """
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            MB_ICONERROR = 0x10
+            MB_OK = 0x0
+            ctypes.windll.user32.MessageBoxW(0, message, title, MB_ICONERROR | MB_OK)
+            return
+        except Exception:
+            pass
+    print(f"[{title}]\n{message}", file=sys.stderr)
 
 logger = logging.getLogger("pipeline")
 
@@ -263,7 +282,18 @@ class PipelineTray:
 
 
 def main():
-    app = PipelineTray()
+    try:
+        app = PipelineTray()
+    except ConfigError as e:
+        # B24: 잘못된 pipeline_config.json 으로 트레이가 부팅 실패할 때
+        # 사용자에게 traceback 대신 읽을 수 있는 대화상자로 알리고 종료.
+        _show_fatal_dialog(
+            "Chzzk 파이프라인 — 설정 오류",
+            f"pipeline_config.json 에 문제가 있어 트레이를 시작할 수 없습니다.\n\n"
+            f"{e}\n\n"
+            f"설정 파일을 수정한 뒤 다시 실행해 주세요.",
+        )
+        sys.exit(2)
     app.run()
 
 

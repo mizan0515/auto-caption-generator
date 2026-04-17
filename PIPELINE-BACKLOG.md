@@ -106,7 +106,17 @@
 - [ ] **B-quality-next 타임라인 시간 포맷 일관성** — MD/HTML 리포트에서 `[HH:MM:SS]` vs `[MM:SS]` 혼재 여부 실측 후 정규화
 - [ ] **B-static-next transcribe.py --cleanup 실동작 검증** — 플래그 존재하지만 호출 흐름에서 실제 동작하는지 smoke
 - [ ] **B-websearch-next claude CLI code=1 원인 분류** — WebSearch 로 code=1 대표 원인(인증 만료/네트워크/토큰 한도) 좁힌 후 친절 에러 메시지 매핑 백로그화
-- [ ] **B-ops-next tray_app ConfigError unhandled** — B21 의 `ConfigError` 를 `tray_app.py` 가 잡지 않아 잘못된 cfg 에서 tray 부팅 시 messagebox 없이 traceback. B21b 로 처리
+- [x] **B24 tray_app ConfigError unhandled**
+  - 파일: `tray_app.py`, `experiments/b24_tray_config_error.py` (신규)
+  - 현상: `PipelineTray.__init__` 가 `load_config()` 를 호출하는데 잘못된 `pipeline_config.json`
+    이 주어지면 B21 의 `ConfigError` traceback 이 날것으로 터짐. 트레이는 GUI 서비스 런처라
+    콘솔 traceback 이 보이지 않는 환경에서 조용히 죽는 것과 다름없음.
+  - 목표: (a) `main()` 에서 `ConfigError` 만 포획 (RuntimeError 등은 그대로 전파), (b)
+    Win32 `MessageBoxW` 로 사용자에게 에러 원문 표시 (tkinter 의존 추가 없이 ctypes 로),
+    (c) 비-Windows/ctypes 실패 시 stderr 폴백, (d) `SystemExit(2)` 로 종료.
+  - 검증: `experiments/b24_tray_config_error.py` 7 케이스 (ConfigError→exit2, 에러 원문 전달,
+    RuntimeError 전파 유지, happy path run() 호출, 비-win32 stderr 폴백, ctypes import 실패
+    폴백, multi-line 메시지 전달). B23 7/7 + B21 13/13 회귀 유지.
 
 
 - [x] **B14 CLI 한글 깨짐 (Windows cp949 stdout)**
@@ -250,4 +260,5 @@
 | B21 | 2026-04-17 | ✅ Tier2: 13/13 default happy/claude_model 오타/문자열 수/음수/0 허용/None/enum 오타/cookies·list 타입/다중 aggregate/bool 거부/load_config 전파 | pipeline/config.py `ConfigError` + `validate_config()` + main.py 친절 종료 + experiments/b21_config_validation.py |
 | B22 | 2026-04-17 | ✅ Tier2: 7/7 성공/실패 머지 × prompt leak/복구 가이드/helper 단독/traceback 숨김 | pipeline/summarizer.py `_format_failure_notice_for_llm` + `_build_failure_report` + experiments/b22_merge_failure_ux.py |
 | B23 | 2026-04-17 | ✅ Tier2: 7/7 default None/커스텀 경로 반영/없는 경로 DEFAULT 생성/save/ConfigError 메시지 실제 경로/상대→절대 resolve/save·load 왕복 + B21 13/13 회귀 유지 | pipeline/config.py `_resolve_config_path` + `load_config(config_path=)` + `save_config(config_path=)` + `validate_config(source_path=)` + main.py `load_config(config_path=args.config)` + experiments/b23_config_path_arg.py |
+| B24 | 2026-04-17 | ✅ Tier2: 7/7 ConfigError→exit2/에러 원문 전달/RuntimeError 전파/happy run()/비-win32 stderr/ctypes 실패 폴백/multi-line 메시지 + B23 7/7 + B21 13/13 회귀 유지 | tray_app.py `main()` ConfigError 포획 + `_show_fatal_dialog` Win32 MessageBoxW + experiments/b24_tray_config_error.py |
 | — | — | — | — |
