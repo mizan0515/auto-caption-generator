@@ -575,7 +575,7 @@ def main():
         return
 
     try:
-        cfg = load_config()
+        cfg = load_config(config_path=args.config)
     except ConfigError as e:
         print("=" * 60)
         print("  ⚠  설정 파일 검증 실패")

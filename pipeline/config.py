@@ -105,11 +105,16 @@ _INT_FIELDS: list[tuple[str, bool]] = [
 ]
 
 
-def validate_config(cfg: dict) -> None:
+def validate_config(cfg: dict, *, source_path: Optional[str | Path] = None) -> None:
     """merge 된 cfg 의 타입/값을 검증. 실패 시 ConfigError.
 
     목적: 첫 실행에서 설정 실수를 바로 차단해 다운로드/전사에 30분 쓰고 나서
     해독 불가능한 traceback 으로 죽는 UX 를 없앤다 (B21).
+
+    source_path: 검사 대상 파일 경로 (오류 메시지에 표시). None 이면 기본 경로
+    (`_config_path()`). B23 에서 `--config` 커스텀 경로 사용 시 실제 파일을
+    가리키도록 추가됨 — 이전엔 default 경로만 찍혀 "어느 파일이 틀렸는지"
+    오도하는 UX 가 있었다.
     """
     errors: list[str] = []
 
@@ -162,9 +167,10 @@ def validate_config(cfg: dict) -> None:
         )
 
     if errors:
+        shown_path = _resolve_config_path(source_path) if source_path is not None else _config_path()
         header = (
             f"pipeline_config.json 설정 오류 ({len(errors)}건)\n"
-            f"파일: {_config_path()}\n"
+            f"파일: {shown_path}\n"
         )
         raise ConfigError(header + "\n".join(errors))
 
@@ -173,20 +179,33 @@ def _config_path() -> Path:
     return Path(__file__).resolve().parent.parent / CONFIG_FILENAME
 
 
-def load_config() -> dict:
-    path = _config_path()
+def _resolve_config_path(config_path: Optional[str | Path]) -> Path:
+    """load/save 에 사용할 경로를 정규화. None → 기본 경로(`_config_path()`)."""
+    if config_path is None:
+        return _config_path()
+    return Path(config_path).expanduser().resolve()
+
+
+def load_config(config_path: Optional[str | Path] = None) -> dict:
+    """설정을 읽어 DEFAULT 와 merge 한 뒤 validate_config() 로 검사한다.
+
+    B23: `config_path` 가 주어지면 그 경로를 **실제로** 사용한다. 이전에는 CLI
+    `--config` 가 argparse 로만 파싱되고 `load_config()` 에는 전혀 전달되지 않아
+    사용자가 명시적으로 지정한 파일이 조용히 무시됐다 (기만적 UX).
+    """
+    path = _resolve_config_path(config_path)
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
             user_cfg = json.load(f)
         merged = {**DEFAULT_CONFIG, **user_cfg}
-        validate_config(merged)
+        validate_config(merged, source_path=path)
         return merged
-    save_config(DEFAULT_CONFIG)
+    save_config(DEFAULT_CONFIG, config_path=path)
     return dict(DEFAULT_CONFIG)
 
 
-def save_config(cfg: dict) -> None:
-    path = _config_path()
+def save_config(cfg: dict, config_path: Optional[str | Path] = None) -> None:
+    path = _resolve_config_path(config_path)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
