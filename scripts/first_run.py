@@ -272,13 +272,18 @@ def _pid_alive_win(pid: int) -> bool:
         import ctypes
 
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        h = ctypes.windll.kernel32.OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-        )
+        STILL_ACTIVE = 259
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not h:
             return False
-        ctypes.windll.kernel32.CloseHandle(h)
-        return True
+        try:
+            code = ctypes.c_ulong(0)
+            if k32.GetExitCodeProcess(h, ctypes.byref(code)) == 0:
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
     except Exception:  # noqa: BLE001
         return True  # 의심스러우면 살아있다고 가정 (중복 기동 회피)
 
@@ -345,19 +350,11 @@ def launch_tray() -> bool:
     if not _spawn_detached([pythonw, str(tray)]):
         return False
     _ok("트레이 실행 요청 완료.")
-    print("     * Windows 11 은 트레이 아이콘을 기본적으로 숨깁니다.")
-    print("     * 작업표시줄 오른쪽 '^' (오버플로우) 버튼을 눌러 'Chzzk VOD 파이프라인' 아이콘을 확인하세요.")
-    print("     * 한 눈에 보이는 창이 필요하면 지금 대시보드를 엽니다...")
-
-    # 트레이 초기화 (lockfile 생성) 까지 잠시 대기 후 대시보드 동반 실행
-    import time
-
-    for _ in range(30):  # 최대 ~3초
-        time.sleep(0.1)
-        if _tray_lockfile().exists():
-            break
-    if open_dashboard():
-        _ok("대시보드 창이 열렸습니다 — 여기서 로그/상태/비용/설정을 볼 수 있습니다.")
+    print("     * 트레이 프로세스가 부팅되면서 대시보드 창이 함께 열립니다.")
+    print("     * Windows 11 의 트레이 아이콘은 '^' 오버플로우에 숨겨져 있을 수 있습니다.")
+    print("     * MS Store Python 환경에서는 아이콘이 아예 안 보일 수 있으나,")
+    print("       대시보드 창의 [설정] 탭에서 모든 제어가 가능합니다.")
+    # 대시보드 spawn 은 tray_app.py 가 담당 (PR #51). 여기서 또 띄우면 창이 2개.
     return True
 
 

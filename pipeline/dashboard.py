@@ -1249,13 +1249,81 @@ def open_dashboard(cfg: Optional[dict] = None) -> None:
     Dashboard.open(cfg=cfg)
 
 
+def _dashboard_lock_path(cfg: dict) -> Path:
+    out_dir = Path(cfg.get("output_dir", "./output"))
+    return out_dir / "pipeline.dashboard.lock"
+
+
+def _acquire_dashboard_lock(lock_path: Path) -> bool:
+    """프로세스-레벨 싱글톤. 다른 대시보드 프로세스가 살아 있으면 False."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if lock_path.exists():
+        try:
+            pid = int(lock_path.read_text(encoding="utf-8").strip() or "0")
+        except (OSError, ValueError):
+            pid = 0
+        if pid and _is_pid_alive(pid) and pid != os.getpid():
+            return False
+    try:
+        lock_path.write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def _release_dashboard_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except OSError:
+        pass
+
+
+def _is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            k32 = ctypes.windll.kernel32
+            h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not h:
+                return False
+            try:
+                code = ctypes.c_ulong(0)
+                if k32.GetExitCodeProcess(h, ctypes.byref(code)) == 0:
+                    return False  # 쿼리 실패 → 죽은 것으로 간주
+                return code.value == STILL_ACTIVE
+            finally:
+                k32.CloseHandle(h)
+        except Exception:  # noqa: BLE001
+            return True  # 의심스러우면 살아있다고 가정 (중복 기동 회피)
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
 def main() -> int:
     from pipeline._io_encoding import force_utf8_stdio
     from pipeline.config import load_config
 
     force_utf8_stdio()
     cfg = load_config()
-    open_dashboard(cfg)
+
+    # OS-레벨 싱글톤 — 두 개의 pythonw -m pipeline.dashboard 가 동시에 떠
+    # UI 가 2개 보이는 사고 방지.
+    lock = _dashboard_lock_path(cfg)
+    if not _acquire_dashboard_lock(lock):
+        # 이미 실행 중 → 조용히 종료 (기존 창을 사용자가 보게 둔다)
+        return 0
+    try:
+        open_dashboard(cfg)
+    finally:
+        _release_dashboard_lock(lock)
     return 0
 
 
