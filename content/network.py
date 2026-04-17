@@ -1,3 +1,4 @@
+import logging
 import re
 import requests
 import json
@@ -7,6 +8,59 @@ import xml.etree.ElementTree as ET
 NAVER_API = "https://apis.naver.com"
 CHZZK_API = "https://api.chzzk.naver.com"
 VIDEOHUB_API = "https://api-videohub.naver.com"
+
+_logger = logging.getLogger(__name__)
+
+# 같은 런 안에서 쿠키 갱신이 한 번 터진 뒤 무한 재시도하지 않도록 가드.
+_refresh_attempted = False
+
+
+def _maybe_refresh_cookies(cookies: dict) -> bool:
+    """401/403 응답 시 브라우저에서 NID_AUT/NID_SES 를 재추출해 cookies 를 in-place 갱신.
+
+    런 1회 한정. 성공 시 True 를 돌려주고 호출측이 원래 요청을 재시도한다.
+    cookies dict 를 직접 변경하므로, 이후 같은 세션의 다른 요청도 자동으로 새 쿠키 사용.
+    """
+    global _refresh_attempted
+    if _refresh_attempted:
+        return False
+    _refresh_attempted = True
+
+    try:
+        from pipeline.cookie_refresh import refresh_cookies  # lazy: 배포 전후 의존성 순환 회피
+        from pipeline.config import load_config
+    except Exception as e:  # noqa: BLE001
+        _logger.warning(f"쿠키 자동 갱신 모듈 로드 실패: {e}")
+        return False
+
+    try:
+        ok, reason = refresh_cookies()
+        _logger.warning(f"인증 실패 감지 → 쿠키 자동 갱신 시도: {reason}")
+        if not ok:
+            return False
+        cfg = load_config()
+        new_cookies = cfg.get("cookies") or {}
+        if not (new_cookies.get("NID_AUT") and new_cookies.get("NID_SES")):
+            return False
+        # 호출측 dict 를 직접 mutate → 이후 NetworkManager 호출들도 새 쿠키 사용
+        cookies.clear()
+        cookies.update(new_cookies)
+        return True
+    except Exception as e:  # noqa: BLE001
+        _logger.warning(f"쿠키 자동 갱신 예외: {e}")
+        return False
+
+
+def _get_with_auth_retry(url: str, cookies: dict, **kwargs) -> requests.Response:
+    """requests.get 래퍼 — 401/403 이면 쿠키 재추출 후 1회 재시도.
+
+    cookies 가 dict 가 아니거나 재시도가 무의미하면 그냥 requests.get 과 동일.
+    """
+    response = requests.get(url, cookies=cookies, **kwargs)
+    if response.status_code in (401, 403) and isinstance(cookies, dict):
+        if _maybe_refresh_cookies(cookies):
+            response = requests.get(url, cookies=cookies, **kwargs)
+    return response
 
 class NetworkManager:
 
@@ -35,7 +89,7 @@ class NetworkManager:
         """
         api_url = f"{CHZZK_API}/service/v2/videos/{video_no}"
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(api_url, cookies=cookies, headers=headers)
+        response = _get_with_auth_retry(api_url, cookies=cookies, headers=headers)
         response.raise_for_status()
 
         content = response.json().get('content', {})
@@ -159,7 +213,7 @@ class NetworkManager:
         """
         api_url = f"{CHZZK_API}/service/v1/clips/{clip_no}/detail?optionalProperties=OWNER_CHANNEL"
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(api_url, cookies=cookies, headers=headers)
+        response = _get_with_auth_retry(api_url, cookies=cookies, headers=headers)
         response.raise_for_status()
 
         content = response.json().get('content', {})
@@ -184,7 +238,7 @@ class NetworkManager:
         """
         manifest_url = f"{VIDEOHUB_API}/shortformhub/feeds/v3/card?serviceType=CHZZK&seedMediaId={clip_id}&mediaType=VOD"
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(manifest_url, cookies=cookies, headers=headers)
+        response = _get_with_auth_retry(manifest_url, cookies=cookies, headers=headers)
         response.raise_for_status()
 
         data = response.json()
