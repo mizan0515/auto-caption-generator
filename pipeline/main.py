@@ -196,9 +196,13 @@ def process_vod(
 
         highlights = []
         if chats:
-            highlights = find_edit_points(chats)
-            result.highlights = highlights
-            logger.info(f"✓ 하이라이트 분석 완료: {len(highlights)}개 구간")
+            try:
+                highlights = find_edit_points(chats)
+                result.highlights = highlights
+                logger.info(f"✓ 하이라이트 분석 완료: {len(highlights)}개 구간")
+            except Exception as e:
+                logger.error(f"채팅 하이라이트 분석 실패 (빈 highlights로 계속): {e}")
+                highlights = []
         else:
             logger.warning("채팅 없음 → 하이라이트 분석 건너뜀")
 

@@ -28,7 +28,7 @@
 
 ## 우선순위 P1 — 안정성 (중요)
 
-- [ ] **B04 find_edit_points 에러 핸들링**
+- [x] **B04 find_edit_points 에러 핸들링**
   - 파일: `pipeline/main.py:199`
   - 현상: 채팅 분석 실패 시 전체 파이프라인 크래시
   - 목표: try/except로 감싸고 빈 highlights로 fallback
@@ -89,4 +89,5 @@
 | B01 | 2026-04-17 | ✅ 10h VOD: 377K→124K chars (67% 절감), 13→5 chunks, 시간커버리지 유지 | chunker.py + main.py + config.py |
 | B02 | 2026-04-17 | ✅ Tier2: 메트릭 누출 0건, 순위→설명 변환 검증 | chat_analyzer.py + summarizer.py |
 | B03 | 2026-04-17 | ✅ Tier2: bisect 슬라이싱 84x 속도향상 (5.07→0.06ms), edge case 통과 | summarizer.py |
+| B04 | 2026-04-17 | ✅ Tier2: KeyError 크래시 확인 후 try/except 보호 | main.py |
 | — | — | — | — |
