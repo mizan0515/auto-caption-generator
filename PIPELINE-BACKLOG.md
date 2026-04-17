@@ -55,7 +55,7 @@
   - 현상: find_subtitle_peaks()와 build_community_signal()이 각각 parse_srt() 호출
   - 목표: cues를 한 번 파싱하고 두 함수에 전달
 
-- [ ] **B09 HTML 파싱 fallback 강화**
+- [x] **B09 HTML 파싱 fallback 강화**
   - 파일: `pipeline/summarizer.py:383-497`
   - 현상: Claude 출력이 예상 포맷에서 벗어나면 파싱 실패 → 빈 타임라인
   - 목표: 유연한 파싱 + 항상 raw_fallback 유지
@@ -94,4 +94,5 @@
 | B06 | 2026-04-17 | ✅ Tier2: cleanup OSError 격리 + 잠긴 stale 파일 → 명시적 RuntimeError | downloader.py (3c2f518에서 bare pass 선제거, 잔여 cleanup 안정화) |
 | B07 | 2026-04-17 | ✅ Tier2: known/unknown channel/global cfg 비변형 3 시나리오 검증 | main.py (streamers_by_channel 인덱스 + _build_streamer_cfg 헬퍼) |
 | B08 | 2026-04-17 | ✅ Tier2: cues 공유 시 parse_srt 호출 0회, 미공유 fallback 1회 검증 | summarizer.py + subtitle_analyzer.py + community_matcher.py |
+| B09 | 2026-04-17 | ✅ Tier2: strict/no-emoji/loose-bracket/total-fail 4 변형 + raw_fallback 항상 유지 | summarizer.py (_parse_summary_sections + _generate_html) |
 | — | — | — | — |

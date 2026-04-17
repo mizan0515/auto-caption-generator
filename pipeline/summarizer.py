@@ -457,19 +457,38 @@ def _parse_summary_sections(md: str) -> dict:
     if m:
         out["pull_quote"] = m.group(1).strip().strip('"')
 
-    # 타임라인 섹션 추출
+    # 타임라인 섹션 추출 (B09: 헤더 emoji optional, 엔트리 패턴 다중 fallback)
     tl_match = re.search(
-        r"###\s*📍[^\n]*타임라인[^\n]*\n(.+?)(?=\n###\s|\Z)",
+        r"###\s*(?:📍\s*)?[^\n]*타임라인[^\n]*\n(.+?)(?=\n###\s|\Z)",
         md, flags=re.S
     )
     if tl_match:
         tl_body = tl_match.group(1)
-        entries = re.split(r"\n(?=\s*-\s*\*\*\s*\[\d{2}:\d{2}:\d{2}\])", tl_body)
+        # 분리: HH:MM:SS 가 들어간 새 bullet 라인을 경계로
+        # 분리: HH:MM:SS 가 들어간 새 bullet 라인 경계
+        # 허용 형태: `- **[HH:MM:SS]`, `- [HH:MM:SS]`, `- HH:MM:SS`, `* **[HH:MM:SS]`
+        entries = re.split(r"\n(?=\s*[-*]\s*\**\s*\[?\d{2}:\d{2}:\d{2}\]?)", tl_body)
+        # 엔트리 패턴 (strict → loose 순으로 시도)
+        _entry_patterns = [
+            # strict: - **[HH:MM:SS] title**
+            re.compile(
+                r"\s*[-*]\s*\*\*\s*\[(\d{2}:\d{2}:\d{2})\]\s*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?"
+            ),
+            # loose A: - [HH:MM:SS] **title** (분위기: ...)
+            re.compile(
+                r"\s*[-*]\s*\[?(\d{2}:\d{2}:\d{2})\]?\s*\*\*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?"
+            ),
+            # loose B: - [HH:MM:SS] title — desc (no bold, dash separator)
+            re.compile(
+                r"\s*[-*]\s*\[?(\d{2}:\d{2}:\d{2})\]?\s*(.+?)(?:\s*[—\-–]\s*|$)(?:\(분위기:\s*(.+?)\))?"
+            ),
+        ]
         for ent in entries:
-            em = re.match(
-                r"\s*-\s*\*\*\s*\[(\d{2}:\d{2}:\d{2})\]\s*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?",
-                ent
-            )
+            em = None
+            for pat in _entry_patterns:
+                em = pat.match(ent)
+                if em:
+                    break
             if not em:
                 continue
             tc, title, mood_raw = em.group(1), em.group(2).strip(), (em.group(3) or "").strip()
@@ -500,9 +519,9 @@ def _parse_summary_sections(md: str) -> dict:
                 "evidence": evidence_text,
             })
 
-    # 하이라이트 섹션
+    # 하이라이트 섹션 (B09: 헤더 emoji optional)
     hl_match = re.search(
-        r"###\s*🎬[^\n]*하이라이트[^\n]*\n(.+?)(?=\n###\s|\Z)",
+        r"###\s*(?:🎬\s*)?[^\n]*하이라이트[^\n]*\n(.+?)(?=\n###\s|\Z)",
         md, flags=re.S
     )
     if hl_match:
@@ -524,9 +543,9 @@ def _parse_summary_sections(md: str) -> dict:
                 "reason": reason,
             })
 
-    # 에디터 후기 섹션
+    # 에디터 후기 섹션 (B09: 헤더 emoji optional)
     ed_match = re.search(
-        r"###\s*📝[^\n]*(?:에디터|후기)[^\n]*\n(.+?)(?=\n###\s|\Z)",
+        r"###\s*(?:📝\s*)?[^\n]*(?:에디터|후기)[^\n]*\n(.+?)(?=\n###\s|\Z)",
         md, flags=re.S
     )
     if ed_match:
@@ -652,16 +671,28 @@ def _generate_html(
   <div class="card-body"><div class="notes">{paras}</div></div>
 </div>'''
 
-    # ── 파싱 실패 fallback (구조화 결과가 전부 비어있으면)
-    fallback_html = ""
-    if not any([sec["timeline"], sec["highlights"], sec["editor_notes"]]):
-        import re
-        body = _html_escape(summary_md)
-        body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)
-        body = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", body, flags=re.M)
-        body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
-        body = body.replace("\n\n", "</p><p>")
-        fallback_html = f'<div class="card"><div class="card-body"><div class="notes"><p>{body}</p></div></div></div>'
+    # ── Raw markdown fallback (B09: 항상 렌더링하되 구조화 실패 여부에 따라 표시 방식 변경)
+    #    - 전체 파싱 실패: 펼친 카드로 표시 (사용자가 곧장 본문 확인)
+    #    - 부분 파싱: <details> 로 접어두기 (raw 원본 보존, 필요 시 펼침)
+    import re
+    body = _html_escape(summary_md)
+    body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)
+    body = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", body, flags=re.M)
+    body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
+    body = body.replace("\n\n", "</p><p>")
+
+    all_empty = not any([sec["timeline"], sec["highlights"], sec["editor_notes"]])
+    if all_empty:
+        fallback_html = (
+            f'<div class="card"><div class="card-head"><h2>📄 원본 요약 (구조화 파싱 실패)</h2></div>'
+            f'<div class="card-body"><div class="notes"><p>{body}</p></div></div></div>'
+        )
+    else:
+        fallback_html = (
+            f'<div class="card"><div class="card-body"><details><summary style="cursor:pointer;color:var(--muted);font-family:monospace;font-size:13px">'
+            f'📄 원본 요약 마크다운 보기</summary>'
+            f'<div class="notes" style="margin-top:16px"><p>{body}</p></div></details></div></div>'
+        )
 
     # ── 날짜 포맷 정돈
     pub_display = vod_info.publish_date
