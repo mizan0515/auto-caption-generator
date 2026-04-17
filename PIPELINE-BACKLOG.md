@@ -72,11 +72,14 @@
 
 ## 우선순위 P3 — 실험/튜닝
 
-- [ ] **B12 하이라이트 필터 파라미터 최적화 실험**
+- [x] **B12 하이라이트 필터 파라미터 최적화 실험**
   - highlight_radius_sec: [180, 300, 420, 600]
   - cold_sample_sec: [15, 30, 60]
   - 측정: 필터 후 자수, 요약 품질 (타임라인 항목 수, 시간 커버리지), 호출 수
   - 기준: 전체 방송 시간의 80% 이상 타임라인에 표현되어야 함
+  - 결과: 30분 클립은 차이 미미 (highlight 10개 → 자막의 70%가 hot zone),
+    3시간 클립에서 radius=180s + cold=60s 가 70.4% 절감 + 커버리지 98.3% 로 최적.
+    풀 VOD 검증 권장.
 
 - [ ] **B13 chunk_max_chars 최적화 실험**
   - 후보: [15000, 20000, 30000, 50000]
@@ -97,4 +100,5 @@
 | B09 | 2026-04-17 | ✅ Tier2: strict/no-emoji/loose-bracket/total-fail 4 변형 + raw_fallback 항상 유지 | summarizer.py (_parse_summary_sections + _generate_html) |
 | B10 | 2026-04-17 | ✅ Tier2: 첫 호출/TTL 내 재호출/TTL 만료/reset 4 시나리오 검증 (메인 방문 1→1→2→3) | scraper.py (_SESSION_CACHE + _get_or_create_session + reset_fmkorea_session) |
 | B11 | 2026-04-17 | ✅ Tier2: recent/old/disabled/unparseable 4 시나리오 + naive datetime 처리 검증 | main.py (_vod_age_hours + _should_skip_fmkorea) + config.py (fmkorea_max_age_hours=48) |
+| B12 | 2026-04-17 | ✅ Tier3: 1800s/10800s 클립 4×3 sweep, 3h 클립 radius=180/cold=60에서 70.4% 절감 + 98.3% 커버리지 추천 | experiments/b12_highlight_filter_sweep.py + results/2026-04-17_b12_*.{json,md} |
 | — | — | — | — |
