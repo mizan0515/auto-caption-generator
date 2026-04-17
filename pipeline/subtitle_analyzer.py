@@ -66,8 +66,15 @@ def _score_text(text: str) -> tuple[float, dict]:
             score += weight * len(matches)
             detail["laughter"] += len(matches)
 
-    # 인용문 (따옴표)
-    quote_count = text.count('"') // 2 + text.count('"') // 2 + text.count("'") // 2
+    # 인용문 (따옴표) — ASCII " 와 Unicode curly quotes 를 각각 한 번만 집계
+    # (이전: text.count('"') 가 두 번 중복되어 ASCII 인용문이 2배로 점수화되던 버그)
+    curly_double = text.count("\u201c") + text.count("\u201d")
+    curly_single = text.count("\u2018") + text.count("\u2019")
+    quote_count = (
+        text.count('"') // 2
+        + curly_double // 2
+        + (text.count("'") + curly_single) // 2
+    )
     if quote_count:
         score += 0.5 * quote_count
         detail["quotes"] = quote_count

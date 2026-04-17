@@ -102,6 +102,19 @@
 
 ## 우선순위 P1 — 안정성 (자가발굴)
 
+- [x] **B19 subtitle_analyzer quote_count 중복 집계 버그 수정**
+  - 파일: `pipeline/subtitle_analyzer.py:70`
+  - 현상: `_score_text()` 의 인용문 집계 라인이
+    `text.count('"') // 2 + text.count('"') // 2 + text.count("'") // 2`
+    으로 ASCII `"` 를 두 번 집계 (복붙 오타). ASCII 쌍따옴표 1쌍에 대해
+    `quotes=2` 로 과다 집계되어 score +=1.0 (정확히는 +0.5 이어야 함).
+    동시에 Unicode curly quotes (U+201C/U+201D, U+2018/U+2019) 는
+    전혀 집계되지 않아 실제 한국어 자막의 대사 인용이 누락됨.
+    => 자막 기반 하이라이트 peak 선정에 편향 발생.
+  - 목표: ASCII 와 Unicode curly quotes 를 각각 올바르게 1회씩 집계.
+  - 검증: `experiments/b19_quote_count_typo.py` 로 ASCII 1쌍/2쌍, curly 1쌍,
+    혼합, single+curly single 혼합, 인용 없음, 홀수 개 + score 회귀 8 케이스.
+
 - [x] **B18 claude_cli subprocess FileNotFoundError/OSError 가드**
   - 파일: `pipeline/claude_cli.py:236-244`
   - 현상: `_call_claude_cli()` 가 `shutil.which("claude")` 로 선행 체크 후
@@ -168,4 +181,5 @@
 | B16 | 2026-04-17 | ✅ Tier1: grep 으로 nonexistent app.py/gui.py 참조 0건 확인, tray_app.py (실재) 만 잔존 | .prompts/00-autonomous-dev-loop.md (§3 step1, §5 재작성) |
 | B17 | 2026-04-17 | ✅ Tier2: 4/4 happy+trailing RESOLUTION+빈 경로+미매칭 오프라인 검증 (requests.get monkeypatch) | content/network.py get_video_m3u8_base_url bound check + experiments/b17_m3u8_indexerror_guard.py |
 | B18 | 2026-04-17 | ✅ Tier2: 5/5 FileNotFound race/Permission/OSError/which-missing baseline/TimeoutExpired passthrough | pipeline/claude_cli.py subprocess try-except + experiments/b18_claude_cli_oserror_guard.py |
+| B19 | 2026-04-17 | ✅ Tier2: 8/8 ASCII 1쌍/2쌍/curly 1쌍/혼합/single+curly/빈/홀수 개+score 회귀 | pipeline/subtitle_analyzer.py _score_text quote 집계 수정 + experiments/b19_quote_count_typo.py |
 | — | — | — | — |
