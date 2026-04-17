@@ -100,6 +100,19 @@
     인라인 코드도 헬퍼로 교체.
   - 검증: 3개 entrypoint --help 또는 syntax compile 모두 한글 정상.
 
+## 우선순위 P1 — 안정성 (자가발굴)
+
+- [x] **B17 m3u8 해상도 파서 IndexError 방어**
+  - 파일: `content/network.py:138-145`
+  - 현상: `get_video_m3u8_base_url()` 의 `for i, line in enumerate(content)` 루프에서
+    RESOLUTION 매칭 라인이 m3u8 응답의 마지막 라인인 경우 `content[i + 1]` 접근이
+    `IndexError` 로 크래시. Chzzk 가 EOL 줄바꿈 없이 마지막 스트림을 보내거나
+    잘린 응답이 들어올 때 복구 불가능한 예외로 파이프라인 중단.
+  - 목표: `i + 1 >= len(content)` 와 빈 문자열 경로를 명시적 `ValueError` 로 변환.
+    호출자는 기존에도 `ValueError("해상도 스트림을 찾을 수 없습니다")` 를 처리 중.
+  - 검증: `experiments/b17_m3u8_indexerror_guard.py` 로 happy path + trailing
+    RESOLUTION + 빈 경로 + 미매칭 4 케이스 오프라인 검증 (requests.get monkeypatch).
+
 ## 우선순위 P3 — 실험/튜닝
 
 - [x] **B12 하이라이트 필터 파라미터 최적화 실험**
@@ -138,4 +151,5 @@
 | B14 | 2026-04-17 | ✅ Tier3: `python -m pipeline.main --help` 한글 정상 출력 (cp949 콘솔에서도 깨짐 0건) | pipeline/main.py 진입부 sys.stdout/stderr UTF-8 reconfigure |
 | B15 | 2026-04-17 | ✅ Tier3: 3개 entrypoint --help/compile 모두 한글 정상, B14 인라인 → DRY 헬퍼 교체 | pipeline/_io_encoding.py + main.py/transcribe.py/tray_app.py |
 | B16 | 2026-04-17 | ✅ Tier1: grep 으로 nonexistent app.py/gui.py 참조 0건 확인, tray_app.py (실재) 만 잔존 | .prompts/00-autonomous-dev-loop.md (§3 step1, §5 재작성) |
+| B17 | 2026-04-17 | ✅ Tier2: 4/4 happy+trailing RESOLUTION+빈 경로+미매칭 오프라인 검증 (requests.get monkeypatch) | content/network.py get_video_m3u8_base_url bound check + experiments/b17_m3u8_indexerror_guard.py |
 | — | — | — | — |
