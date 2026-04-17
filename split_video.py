@@ -26,6 +26,18 @@ FFPROBE = find_bin("ffprobe")
 FFMPEG = find_bin("ffmpeg")
 
 
+def _creationflags() -> int:
+    """Windows: CREATE_NO_WINDOW 로 ffmpeg/ffprobe 를 조용히 띄운다.
+
+    긴 VOD 를 다수 파트로 빠르게 연속 처리할 때 Windows 가 child 프로세스
+    콘솔 subsystem 초기화를 거부하며 0xC0000142 를 내는 경우가 있어
+    예방적으로 적용.
+    """
+    if sys.platform != "win32":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
 def get_duration(input_path):
     """ffprobe로 영상 총 길이(초)를 가져온다."""
     result = subprocess.run(
@@ -36,6 +48,7 @@ def get_duration(input_path):
             input_path,
         ],
         capture_output=True, text=True,
+        creationflags=_creationflags(),
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -74,7 +87,9 @@ def split_video(input_path, segment_seconds=3600):
             output_path,
         ]
         print(f"[{i+1}/{total_parts}] {output_path}")
-        result = subprocess.run(cmd, capture_output=True)
+        result = subprocess.run(
+            cmd, capture_output=True, creationflags=_creationflags()
+        )
         if result.returncode != 0:
             raise RuntimeError(
                 f"ffmpeg 분할 실패 [{i+1}/{total_parts}] (returncode={result.returncode})"

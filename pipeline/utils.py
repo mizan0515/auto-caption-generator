@@ -110,6 +110,7 @@ def clip_video(src_path: str, dst_path: str, duration_sec: int) -> str:
         dst_path
     """
     import subprocess
+    import sys
     logger = logging.getLogger("pipeline")
     logger.info(f"영상 자르기: {duration_sec}초 (→ {dst_path})")
 
@@ -123,8 +124,12 @@ def clip_video(src_path: str, dst_path: str, duration_sec: int) -> str:
         dst_path,
     ]
     try:
+        cflags = 0
+        if sys.platform == "win32":
+            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         result = subprocess.run(
             cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            creationflags=cflags,
         )
         if result.returncode != 0:
             raise RuntimeError(f"ffmpeg 실패 (code={result.returncode}): {result.stderr[-500:]}")
