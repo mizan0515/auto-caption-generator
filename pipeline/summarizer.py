@@ -217,12 +217,22 @@ def merge_results(
         highlight_text = "\n".join(hl_lines)
 
     # ── Multi-signal 하이라이트 후보 (자막 + 커뮤니티 매칭) ──
+    # B08: SRT 를 1회만 파싱해서 두 분석에 공유 (find_subtitle_peaks +
+    # build_community_signal 가 각각 parse_srt 하던 중복 제거).
     subtitle_signal_text = ""
     community_signal_text = ""
     if srt_path:
+        shared_cues = None
+        try:
+            from .chunker import parse_srt
+            shared_cues = parse_srt(srt_path)
+            logger.info(f"  SRT 파싱 (공유): {len(shared_cues)}개 cue")
+        except Exception as e:
+            logger.warning(f"SRT 사전 파싱 실패 (각 분석이 자체 파싱하도록 fallback): {e}")
+
         try:
             from .subtitle_analyzer import find_subtitle_peaks, format_subtitle_signal_for_prompt
-            peaks = find_subtitle_peaks(srt_path, window_sec=60, top_n=15)
+            peaks = find_subtitle_peaks(srt_path, window_sec=60, top_n=15, cues=shared_cues)
             subtitle_signal_text = format_subtitle_signal_for_prompt(peaks)
             logger.info(f"  자막 드라마틱 시그널: 상위 {len(peaks)}개 구간")
         except Exception as e:
@@ -231,7 +241,7 @@ def merge_results(
         if community_posts:
             try:
                 from .community_matcher import build_community_signal, format_community_signal_for_prompt
-                comm_sig = build_community_signal(community_posts, srt_path)
+                comm_sig = build_community_signal(community_posts, srt_path, cues=shared_cues)
                 community_signal_text = format_community_signal_for_prompt(comm_sig)
             except Exception as e:
                 logger.warning(f"커뮤니티 매칭 분석 실패 (무시): {e}")
