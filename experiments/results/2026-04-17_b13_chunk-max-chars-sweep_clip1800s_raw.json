@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-04-17T11:53:38",
+  "vod": "12702452",
+  "limit_sec": 1800,
+  "duration_sec": 1800,
+  "srt": "12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip1800s.srt",
+  "overlap_sec": 30,
+  "n_chats": 2285,
+  "n_highlights": 10,
+  "filter_off": {
+    "n_cues": 211,
+    "total_chars": 13402,
+    "cells": [
+      {
+        "n_chunks": 1,
+        "chars_avg": 13402,
+        "chars_max": 13402,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 15000,
+        "timeout_risk": "low"
+      },
+      {
+        "n_chunks": 1,
+        "chars_avg": 13402,
+        "chars_max": 13402,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 20000,
+        "timeout_risk": "low"
+      },
+      {
+        "n_chunks": 1,
+        "chars_avg": 13402,
+        "chars_max": 13402,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 30000,
+        "timeout_risk": "low"
+      },
+      {
+        "n_chunks": 1,
+        "chars_avg": 13402,
+        "chars_max": 13402,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 50000,
+        "timeout_risk": "low"
+      }
+    ]
+  },
+  "filter_on_b12": {
+    "radius_sec": 180,
+    "cold_sample_sec": 60,
+    "n_cues": 185,
+    "total_chars": 11897,
+    "cells": [
+      {
+        "n_chunks": 1,
+        "chars_avg": 11897,
+        "chars_max": 11897,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 15000,
+        "timeout_risk": "low"
+      },
+      {
+        "n_chunks": 1,
+        "chars_avg": 11897,
+        "chars_max": 11897,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 20000,
+        "timeout_risk": "low"
+      },
+      {
+        "n_chunks": 1,
+        "chars_avg": 11897,
+        "chars_max": 11897,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 30000,
+        "timeout_risk": "low"
+      },
+      {
+        "n_chunks": 1,
+        "chars_avg": 11897,
+        "chars_max": 11897,
+        "minutes_avg": 30.1,
+        "minutes_max": 30.1,
+        "chunk_max_chars": 50000,
+        "timeout_risk": "low"
+      }
+    ]
+  },
+  "timeout_risk_thresholds_chars_max": {
+    "low": "< 20000",
+    "medium": "< 40000",
+    "high": "< 80000",
+    "very-high": ">= 80000"
+  }
+}

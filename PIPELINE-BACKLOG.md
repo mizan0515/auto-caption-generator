@@ -81,9 +81,12 @@
     3시간 클립에서 radius=180s + cold=60s 가 70.4% 절감 + 커버리지 98.3% 로 최적.
     풀 VOD 검증 권장.
 
-- [ ] **B13 chunk_max_chars 최적화 실험**
+- [x] **B13 chunk_max_chars 최적화 실험**
   - 후보: [15000, 20000, 30000, 50000]
   - 측정: 타임아웃 발생 여부, 요약 밀도(항목/시간), 총 호출 수
+  - 결과: 30분 클립은 영향 없음 (단일 청크). 3시간 클립 + B12 추천 필터에서
+    chunk_max_chars=15000 이 risk=low + 청크 2개로 최적. 50000 은 chars_max
+    22K 단일청크 (medium risk). 풀 VOD + 실호출 검증 권장.
 
 ## 완료 기록
 
@@ -101,4 +104,5 @@
 | B10 | 2026-04-17 | ✅ Tier2: 첫 호출/TTL 내 재호출/TTL 만료/reset 4 시나리오 검증 (메인 방문 1→1→2→3) | scraper.py (_SESSION_CACHE + _get_or_create_session + reset_fmkorea_session) |
 | B11 | 2026-04-17 | ✅ Tier2: recent/old/disabled/unparseable 4 시나리오 + naive datetime 처리 검증 | main.py (_vod_age_hours + _should_skip_fmkorea) + config.py (fmkorea_max_age_hours=48) |
 | B12 | 2026-04-17 | ✅ Tier3: 1800s/10800s 클립 4×3 sweep, 3h 클립 radius=180/cold=60에서 70.4% 절감 + 98.3% 커버리지 추천 | experiments/b12_highlight_filter_sweep.py + results/2026-04-17_b12_*.{json,md} |
+| B13 | 2026-04-17 | ✅ Tier3: 1800s/10800s × filter on/off × 4 chunk 후보 sweep, filter ON 기준 chunk_max_chars=15000 risk=low 추천 | experiments/b13_chunk_max_chars_sweep.py + results/2026-04-17_b13_*.{json,md} |
 | — | — | — | — |
