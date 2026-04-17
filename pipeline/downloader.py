@@ -170,10 +170,13 @@ def _download_m3u8(m3u8_url: str, dest_path: str, progress_func=None) -> str:
         return dest_path
 
     except Exception:
-        # 실패 시 불완전 파일 삭제
+        # 실패 시 불완전 파일 삭제 (cleanup 실패가 원본 예외를 가리지 않도록 OSError 보호)
         if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-            logger.info(f"  불완전 다운로드 파일 삭제: {tmp_path}")
+            try:
+                os.remove(tmp_path)
+                logger.info(f"  불완전 다운로드 파일 삭제: {tmp_path}")
+            except OSError as e:
+                logger.warning(f"  불완전 파일 삭제 실패: {e}")
         raise
 
 
@@ -199,10 +202,18 @@ def download_vod_144p(
     filename = f"{video_no}_{title}_144p.mp4"
     dest_path = os.path.join(output_dir, filename)
 
-    # 불완전 다운로드 파일 정리
-    if os.path.exists(dest_path + ".downloading"):
-        os.remove(dest_path + ".downloading")
-        logger.info(f"이전 불완전 다운로드 삭제: {dest_path}.downloading")
+    # 이전 실행에서 남은 불완전 다운로드 파일 정리
+    stale_tmp = dest_path + ".downloading"
+    if os.path.exists(stale_tmp):
+        try:
+            os.remove(stale_tmp)
+            logger.info(f"이전 불완전 다운로드 삭제: {stale_tmp}")
+        except OSError as e:
+            # 파일이 잠겨있으면 이번 실행은 새 임시 이름으로 진행하기보다 즉시 실패시킨다
+            # (잠긴 파일을 그대로 두면 다음 실행에서도 같은 문제 반복).
+            raise RuntimeError(
+                f"이전 불완전 다운로드 파일을 삭제할 수 없습니다: {stale_tmp} ({e})"
+            )
 
     if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
         logger.info(f"이미 다운로드됨: {dest_path}")

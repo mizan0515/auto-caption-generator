@@ -38,7 +38,7 @@
   - 현상: Whisper가 행(hang) 걸리면 무한 대기
   - 목표: 타임아웃 설정 + 에러 시 graceful 실패
 
-- [ ] **B06 다운로더 bare pass 제거**
+- [x] **B06 다운로더 bare pass 제거**
   - 파일: `pipeline/downloader.py:107-115`
   - 현상: 다운로드 실패를 조용히 무시, 불완전 파일 남김
   - 목표: 실패 시 파일 정리 + 명시적 에러 발생
@@ -91,4 +91,5 @@
 | B03 | 2026-04-17 | ✅ Tier2: bisect 슬라이싱 84x 속도향상 (5.07→0.06ms), edge case 통과 | summarizer.py |
 | B04 | 2026-04-17 | ✅ Tier2: KeyError 크래시 확인 후 try/except 보호 | main.py |
 | B05 | 2026-04-17 | ✅ Tier2: stall/overall timeout/pre-progress 3 시나리오 watchdog 검증 | transcriber.py + main.py + config.py |
+| B06 | 2026-04-17 | ✅ Tier2: cleanup OSError 격리 + 잠긴 stale 파일 → 명시적 RuntimeError | downloader.py (3c2f518에서 bare pass 선제거, 잔여 cleanup 안정화) |
 | — | — | — | — |
