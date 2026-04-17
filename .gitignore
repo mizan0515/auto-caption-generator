@@ -19,6 +19,9 @@ pipeline_config.json
 # 정적 사이트 빌더 산출물 (publish/builder/build_site.py)
 site/
 
+# Wrangler 로컬 캐시 (account_id, 이메일 포함 — commit 금지)
+.wrangler/
+
 # 아카이브 (이전 프로젝트)
 _archive/
 
