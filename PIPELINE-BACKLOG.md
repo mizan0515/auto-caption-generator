@@ -33,7 +33,7 @@
   - 현상: 채팅 분석 실패 시 전체 파이프라인 크래시
   - 목표: try/except로 감싸고 빈 highlights로 fallback
 
-- [ ] **B05 Whisper 실행 타임아웃/에러 핸들링**
+- [x] **B05 Whisper 실행 타임아웃/에러 핸들링**
   - 파일: `pipeline/transcriber.py`
   - 현상: Whisper가 행(hang) 걸리면 무한 대기
   - 목표: 타임아웃 설정 + 에러 시 graceful 실패
@@ -90,4 +90,5 @@
 | B02 | 2026-04-17 | ✅ Tier2: 메트릭 누출 0건, 순위→설명 변환 검증 | chat_analyzer.py + summarizer.py |
 | B03 | 2026-04-17 | ✅ Tier2: bisect 슬라이싱 84x 속도향상 (5.07→0.06ms), edge case 통과 | summarizer.py |
 | B04 | 2026-04-17 | ✅ Tier2: KeyError 크래시 확인 후 try/except 보호 | main.py |
+| B05 | 2026-04-17 | ✅ Tier2: stall/overall timeout/pre-progress 3 시나리오 watchdog 검증 | transcriber.py + main.py + config.py |
 | — | — | — | — |

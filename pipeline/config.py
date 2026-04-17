@@ -40,6 +40,11 @@ DEFAULT_CONFIG = {
     #   "haiku" = 경량 테스트용, "sonnet" = 기본, "opus" = 최고 품질
     "claude_model": "",
     "claude_timeout_sec": 300,
+    # Whisper watchdog (B05):
+    #   whisper_stall_sec: 진행 콜백이 N초간 없으면 hang 으로 판정 → TimeoutError
+    #   whisper_timeout_sec: 전체 실행 시간 상한. 0 = 무제한 (긴 VOD 보호 비활성).
+    "whisper_stall_sec": 600,
+    "whisper_timeout_sec": 0,
     "auto_cleanup": True,
     "fmkorea_max_pages": 3,
     "fmkorea_max_posts": 20,
