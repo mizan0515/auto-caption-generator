@@ -102,6 +102,16 @@
 
 ## 우선순위 P1 — 안정성 (자가발굴)
 
+- [x] **B20 _io_encoding 회귀 테스트 추가**
+  - 파일: `experiments/b20_io_encoding_tests.py` (신규)
+  - 현상: B14/B15 에서 도입된 `pipeline/_io_encoding.force_utf8_stdio()` DRY
+    헬퍼가 3개 entrypoint + 전체 실험 스크립트에서 사용되지만 전용 회귀
+    테스트가 없음. reconfigure 폴백 경로 (pythonw/리다이렉트/구버전 Python)
+    가 조용히 부서져도 감지 불가.
+  - 목표: 7 케이스 오프라인 테스트 (sys.stdout/stderr monkeypatch).
+  - 검증: happy_path / None 스트림 / reconfigure 미지원 / OSError / ValueError /
+    멱등성 / 실제 io.TextIOWrapper 전환.
+
 - [x] **B19 subtitle_analyzer quote_count 중복 집계 버그 수정**
   - 파일: `pipeline/subtitle_analyzer.py:70`
   - 현상: `_score_text()` 의 인용문 집계 라인이
@@ -182,4 +192,5 @@
 | B17 | 2026-04-17 | ✅ Tier2: 4/4 happy+trailing RESOLUTION+빈 경로+미매칭 오프라인 검증 (requests.get monkeypatch) | content/network.py get_video_m3u8_base_url bound check + experiments/b17_m3u8_indexerror_guard.py |
 | B18 | 2026-04-17 | ✅ Tier2: 5/5 FileNotFound race/Permission/OSError/which-missing baseline/TimeoutExpired passthrough | pipeline/claude_cli.py subprocess try-except + experiments/b18_claude_cli_oserror_guard.py |
 | B19 | 2026-04-17 | ✅ Tier2: 8/8 ASCII 1쌍/2쌍/curly 1쌍/혼합/single+curly/빈/홀수 개+score 회귀 | pipeline/subtitle_analyzer.py _score_text quote 집계 수정 + experiments/b19_quote_count_typo.py |
+| B20 | 2026-04-17 | ✅ Tier2: 7/7 happy/None/legacy/OSError/ValueError/멱등/실제TextIOWrapper | experiments/b20_io_encoding_tests.py (force_utf8_stdio 회귀 커버리지) |
 | — | — | — | — |
