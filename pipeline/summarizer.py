@@ -1,4 +1,11 @@
-"""2단계 요약 오케스트레이션: 청크별 분석 → 통합 리포트"""
+"""2단계 요약 오케스트레이션: 청크별 분석 → 통합 리포트
+
+토큰 효율화 (2026-04-17 리팩토링):
+  - Anthropic SDK 직접 호출 + 프롬프트 캐싱 (claude_cli.call_claude_cached)
+  - 시스템 프롬프트(지시문)를 user 프롬프트(데이터)에서 분리
+  - 시스템 프롬프트는 cache_control=ephemeral → 청크 간 캐싱 (input token ~90% 절감)
+  - CLI fallback 시에는 합쳐서 전송 (기존 동작과 동일)
+"""
 
 import json
 import logging
@@ -7,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .chat_analyzer import format_chat_highlights_for_prompt, get_chats_in_range
-from .claude_cli import call_claude
+from .claude_cli import call_claude_cached
 from .models import VODInfo, CommunityPost
 from .scraper import format_community_for_prompt
 from .utils import sec_to_hms
@@ -56,13 +63,34 @@ def _default_merge_prompt() -> str:
 """
 
 
-def _build_chunk_prompt(
+# ── 청크 분석 시스템 프롬프트 (캐싱 대상) ──────────────────────
+
+CHUNK_SYSTEM_PROMPT = """너는 한국 라이브 방송 분석 전문가야. 사용자가 제공하는 방송 자막과 채팅 데이터를 분석하여 해당 구간의 주요 순간을 타임라인으로 정리한다.
+
+## 선정 기준 — 종합적으로 판단:
+- 자막 내용이 드라마틱하거나 반전이 있거나 핵심 철학·인용이 나오는 순간
+- 채팅 반응이 뜨거웠던 순간 (다만 채팅 피크만을 기준으로 삼지 말 것)
+- 밈·유행어·별명이 탄생하거나 반복되는 순간
+- 느슨한 잡담 구간도 맥락상 의미있으면 포함 (분위기 💬로)
+
+## 포맷 (엄수)
+- **[HH:MM:SS] 짧고 함축적인 세션명** (분위기: 🔥/💬/💤)
+    - 내용: 1~2문장으로 무슨 일이 있었는지. 대표 발화 인용 OK. (`**`로 본문 안 강조 금지)
+    - 근거: 실제 채팅 반응 2~3개를 짧은 따옴표로. "...", "..." 형식.
+
+## 금지
+- 내부 메트릭(점수, 확률, 퍼센트, 채팅수 등)을 근거에 노출하지 말 것
+- 한 줄에 `**` 굵은 강조를 2회 이상 사용 금지 (제목 한 번만)
+- 채팅 인용 외 "채팅 41개", "종합점수 0.7" 같은 숫자 근거 금지"""
+
+
+def _build_chunk_user_prompt(
     chunk: dict,
     highlights: list[dict],
     chats: list[dict],
     vod_info: VODInfo,
 ) -> str:
-    """개별 청크 분석용 프롬프트 생성"""
+    """개별 청크의 데이터-only 프롬프트 (시스템 프롬프트와 분리)"""
     start_sec = chunk["start_ms"] / 1000
     end_sec = chunk["end_ms"] / 1000
 
@@ -77,33 +105,13 @@ def _build_chunk_prompt(
     if relevant_highlights and chats:
         chat_section = format_chat_highlights_for_prompt(relevant_highlights, chats, context_sec=20)
 
-    prompt = f"""너는 한국 라이브 방송 분석 전문가야. 아래는 "{vod_info.title}" 방송의 일부 구간 ({chunk['start_hhmmss']} ~ {chunk['end_hhmmss']}) 자막과 채팅 데이터야.
+    prompt = f"""방송 "{vod_info.title}" 의 구간 ({chunk['start_hhmmss']} ~ {chunk['end_hhmmss']}) 분석:
 
 ## 채팅 하이라이트 (이 구간)
 {chat_section if chat_section else "(채팅 데이터 없음)"}
 
 ## 자막 (Transcript)
-{chunk['text']}
-
-## 작업
-이 구간의 주요 순간을 타임라인으로 정리해줘.
-
-**선정 기준 — 종합적으로 판단**:
-- 자막 내용이 드라마틱하거나 반전이 있거나 핵심 철학·인용이 나오는 순간
-- 채팅 반응이 뜨거웠던 순간 (다만 채팅 피크만을 기준으로 삼지 말 것)
-- 밈·유행어·별명이 탄생하거나 반복되는 순간
-- 느슨한 잡담 구간도 맥락상 의미있으면 포함 (분위기 💬로)
-
-## 포맷 (엄수)
-- **[HH:MM:SS] 짧고 함축적인 세션명** (분위기: 🔥/💬/💤)
-    - 내용: 1~2문장으로 무슨 일이 있었는지. 대표 발화 인용 OK. (`**`로 본문 안 강조 금지)
-    - 근거: 실제 채팅 반응 2~3개를 짧은 따옴표로. "...", "..." 형식.
-
-## 금지
-- 내부 메트릭(점수, 확률, 퍼센트, 채팅수 등)을 근거에 노출하지 말 것
-- 한 줄에 `**` 굵은 강조를 2회 이상 사용 금지 (제목 한 번만)
-- 채팅 인용 외 "채팅 41개", "종합점수 0.7" 같은 숫자 근거 금지
-"""
+{chunk['text']}"""
     return prompt
 
 
@@ -113,19 +121,30 @@ def process_chunks(
     chats: list[dict],
     vod_info: VODInfo,
     claude_timeout: int = 300,
+    claude_model: str = "",
 ) -> list[str]:
-    """각 청크를 독립적으로 Claude에 전달하여 분석"""
+    """각 청크를 Claude에 전달하여 분석.
+
+    시스템 프롬프트(지시문)는 캐싱되어 첫 호출 이후 input token 비용 ~90% 절감.
+    claude_model: 빈 문자열이면 기본 모델, "haiku" 등으로 경량 모델 지정 가능.
+    """
     chunk_results = []
 
     for chunk in chunks:
-        prompt = _build_chunk_prompt(chunk, highlights, chats, vod_info)
+        user_prompt = _build_chunk_user_prompt(chunk, highlights, chats, vod_info)
         logger.info(
             f"  청크 {chunk['index']}/{len(chunks)} 분석 중 "
-            f"({chunk['start_hhmmss']}~{chunk['end_hhmmss']}, {chunk['char_count']:,}자)..."
+            f"({chunk['start_hhmmss']}~{chunk['end_hhmmss']}, {chunk['char_count']:,}자, "
+            f"model={claude_model or 'default'})..."
         )
 
         try:
-            result = call_claude(prompt, timeout=claude_timeout)
+            result = call_claude_cached(
+                user_prompt=user_prompt,
+                system_prompt=CHUNK_SYSTEM_PROMPT,
+                timeout=claude_timeout,
+                model=claude_model,
+            )
             chunk_results.append(f"## chunk_{chunk['index']:02d} ({chunk['start_hhmmss']}~{chunk['end_hhmmss']})\n\n{result}")
             logger.info(f"  청크 {chunk['index']} 분석 완료 ({len(result):,}자)")
         except Exception as e:
@@ -142,13 +161,9 @@ def merge_results(
     highlights: list[dict],
     claude_timeout: int = 300,
     srt_path: str = "",
+    claude_model: str = "",
 ) -> str:
-    """모든 청크 결과를 통합하여 최종 리포트 생성.
-
-    Args:
-        srt_path: 자막 파일 경로. 주어지면 자막 기반 드라마틱 시그널 + 커뮤니티 매칭을
-                  multi-signal 하이라이트 후보로 프롬프트에 주입한다.
-    """
+    """모든 청크 결과를 통합하여 최종 리포트 생성."""
     logger.info("최종 통합 요약 생성 중...")
 
     # 통합 프롬프트 로드
@@ -164,7 +179,7 @@ def merge_results(
             + all_results
         )
 
-    # 커뮤니티 데이터 (방송 시작 시각을 전달하여 시간축 추론 가능하게)
+    # 커뮤니티 데이터
     community_text = format_community_for_prompt(
         community_posts,
         broadcast_start=vod_info.publish_date,
@@ -180,13 +195,6 @@ def merge_results(
                 f"종합점수 {h['composite']:.4f}"
             )
         highlight_text = "\n".join(hl_lines)
-
-    # 프롬프트 조립
-    if "{CHUNK_RESULTS_ALL}" not in merge_template:
-        logger.warning("통합 프롬프트에 {CHUNK_RESULTS_ALL} 플레이스홀더가 없습니다. 직접 조립합니다.")
-        prompt = f"# 방송 분석 통합\n\n{all_results}"
-    else:
-        prompt = merge_template.replace("{CHUNK_RESULTS_ALL}", all_results)
 
     # ── Multi-signal 하이라이트 후보 (자막 + 커뮤니티 매칭) ──
     subtitle_signal_text = ""
@@ -208,9 +216,8 @@ def merge_results(
             except Exception as e:
                 logger.warning(f"커뮤니티 매칭 분석 실패 (무시): {e}")
 
-    # 추가 컨텍스트 삽입
-    context_section = f"""
-## 방송 정보
+    # ── 시스템 프롬프트 (캐싱) = 통합 지시문 + 메타 컨텍스트 ──
+    merge_system = f"""## 방송 정보
 - 방송 제목: {vod_info.title}
 - 채널: {vod_info.channel_name}
 - 카테고리: {vod_info.category}
@@ -234,59 +241,86 @@ def merge_results(
 ---
 
 ## 방송중 커뮤니티 글 원문 (시간 축 불일치 — 맥락 참고용)
-{community_text}
-"""
-    # 컨텍스트를 프롬프트 앞에 삽입
-    prompt = context_section + "\n" + prompt
+{community_text}"""
+
+    # ── 유저 프롬프트 = 청크 결과 데이터 ──
+    if "{CHUNK_RESULTS_ALL}" not in merge_template:
+        logger.warning("통합 프롬프트에 {CHUNK_RESULTS_ALL} 플레이스홀더가 없습니다. 직접 조립합니다.")
+        user_prompt = f"# 방송 분석 통합\n\n{all_results}"
+    else:
+        user_prompt = merge_template.replace("{CHUNK_RESULTS_ALL}", all_results)
 
     # 토큰 초과 대응: 10개 이상 청크면 2라운드 병합
     if len(chunk_results) > 10:
         logger.info(f"  청크 {len(chunk_results)}개 → 2라운드 병합")
-        return _two_round_merge(chunk_results, prompt, vod_info, community_posts, highlights, claude_timeout)
+        return _two_round_merge(
+            chunk_results, merge_template, merge_system,
+            vod_info, community_posts, highlights, claude_timeout,
+            claude_model=claude_model,
+        )
 
     try:
-        result = call_claude(prompt, timeout=claude_timeout)
+        result = call_claude_cached(
+            user_prompt=user_prompt,
+            system_prompt=merge_system,
+            timeout=claude_timeout,
+            model=claude_model,
+        )
         logger.info(f"최종 리포트 생성 완료 ({len(result):,}자)")
         return result
     except Exception as e:
         logger.error(f"최종 리포트 생성 실패: {e}")
-        # 폴백: 청크 결과를 단순 연결
         return f"# {vod_info.title} — 자동 요약 (통합 실패)\n\n{all_results}"
 
 
 def _two_round_merge(
     chunk_results: list[str],
-    merge_prompt: str,
+    merge_template: str,
+    merge_system: str,
     vod_info: VODInfo,
     community_posts: list[CommunityPost],
     highlights: list[dict],
     claude_timeout: int,
+    claude_model: str = "",
 ) -> str:
-    """청크가 많을 때 2라운드 병합"""
-    # 1라운드: 5개씩 중간 요약
+    """청크가 많을 때 2라운드 병합.
+
+    Round 1: 5개씩 묶어 중간 요약 (시스템 프롬프트 캐싱)
+    Round 2: 중간 요약을 최종 통합
+    """
     batch_size = 5
+    mid_system = f"""너는 방송 "{vod_info.title}" 의 청크 분석 결과를 통합하는 편집자다.
+입력된 타임라인 항목들을 하나의 연속된 요약으로 통합하라.
+중복을 제거하고 시간순으로 정리하라. 새로운 사건을 창작하지 말라."""
+
     mid_results = []
     for i in range(0, len(chunk_results), batch_size):
         batch = chunk_results[i:i + batch_size]
         batch_text = "\n\n---\n\n".join(batch)
-        mid_prompt = f"""아래는 방송 "{vod_info.title}"의 일부 청크 분석 결과이다.
-이를 하나의 연속된 요약으로 통합해줘. 중복을 제거하고 시간순으로 정리해줘.
-
-{batch_text}"""
         try:
-            mid_result = call_claude(mid_prompt, timeout=claude_timeout)
+            mid_result = call_claude_cached(
+                user_prompt=batch_text,
+                system_prompt=mid_system,
+                timeout=claude_timeout,
+                model=claude_model,
+            )
             mid_results.append(mid_result)
         except Exception as e:
             logger.warning(f"  중간 병합 실패: {e}")
             mid_results.append(batch_text[:3000])
 
     # 2라운드: 최종 통합
-    final_prompt = merge_prompt.replace(
+    final_user = merge_template.replace(
         "{CHUNK_RESULTS_ALL}",
         "\n\n---\n\n".join(mid_results)
     )
     try:
-        return call_claude(final_prompt, timeout=claude_timeout)
+        return call_claude_cached(
+            user_prompt=final_user,
+            system_prompt=merge_system,
+            timeout=claude_timeout,
+            model=claude_model,
+        )
     except Exception as e:
         logger.error(f"2라운드 최종 병합 실패: {e}")
         return "\n\n---\n\n".join(mid_results)
@@ -385,7 +419,6 @@ def _parse_summary_sections(md: str) -> dict:
     m = re.search(r"핵심 요약[:\*\s]*(.+)", md)
     if m:
         tags = re.findall(r"[`#]+([\w가-힣]+)", m.group(1))
-        # 중복 제거 + 순서 유지
         seen = set()
         out["hashtags"] = [t for t in tags if not (t in seen or seen.add(t))]
 
@@ -401,8 +434,6 @@ def _parse_summary_sections(md: str) -> dict:
     )
     if tl_match:
         tl_body = tl_match.group(1)
-        # 각 엔트리: - **[HH:MM:SS] 제목** (분위기: 🔥)  followed by indented 내용/근거 lines
-        # 엔트리 시작을 기준으로 분할
         entries = re.split(r"\n(?=\s*-\s*\*\*\s*\[\d{2}:\d{2}:\d{2}\])", tl_body)
         for ent in entries:
             em = re.match(
@@ -413,7 +444,6 @@ def _parse_summary_sections(md: str) -> dict:
                 continue
             tc, title, mood_raw = em.group(1), em.group(2).strip(), (em.group(3) or "").strip()
 
-            # mood 정규화
             mood = "chill"
             if "🔥🔥" in mood_raw:
                 mood = "veryhot"
@@ -424,13 +454,11 @@ def _parse_summary_sections(md: str) -> dict:
             elif "💤" in mood_raw:
                 mood = "chill"
 
-            # 내용 / 근거 추출
             summary_lines = re.findall(r"내용\s*[:：]\s*(.+)", ent)
             evidence_lines = re.findall(r"근거\s*[:：]\s*(.+)", ent)
             summary_text = " ".join(s.strip() for s in summary_lines) or ""
             evidence_text = " ".join(e.strip() for e in evidence_lines) or ""
 
-            # 제목 끝의 남은 마크다운 기호만 정리 (따옴표는 유지 — 인용이 제목에 포함될 수 있음)
             title = title.rstrip(" *`").strip()
 
             out["timeline"].append({
@@ -455,7 +483,6 @@ def _parse_summary_sections(md: str) -> dict:
         ):
             tc_range = em.group(2)
             title_raw = em.group(3).strip()
-            # 제목과 이유 분리 — "(추천 이유: ...)" 패턴
             rm = re.match(r"(.+?)\s*\(?추천 이유[:：]\s*(.+?)\)?\s*$", title_raw)
             if rm:
                 title, reason = rm.group(1).strip(" *"), rm.group(2).strip(" *")
@@ -474,7 +501,6 @@ def _parse_summary_sections(md: str) -> dict:
     )
     if ed_match:
         body = ed_match.group(1).strip()
-        # 문단 = 빈 줄 기준
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
         out["editor_notes"] = paragraphs
 
@@ -599,7 +625,6 @@ def _generate_html(
     # ── 파싱 실패 fallback (구조화 결과가 전부 비어있으면)
     fallback_html = ""
     if not any([sec["timeline"], sec["highlights"], sec["editor_notes"]]):
-        # 원본 Markdown을 단순 렌더
         import re
         body = _html_escape(summary_md)
         body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)

@@ -228,6 +228,9 @@ def process_vod(
             overlap_sec=cfg.get("chunk_overlap_sec", 30),
             max_tokens=cfg.get("chunk_max_tokens"),
             tokenizer_encoding=cfg.get("chunk_tokenizer_encoding", "cl100k_base"),
+            highlights=highlights,
+            highlight_radius_sec=cfg.get("highlight_radius_sec", 300),
+            cold_sample_sec=cfg.get("cold_sample_sec", 30),
         )
         logger.info(f"✓ 청크 분할 완료: {len(chunks)}개")
 
@@ -252,13 +255,17 @@ def process_vod(
         state.update(vod.video_no, status="summarizing", channel_id=vod.channel_id)
 
         claude_timeout = cfg.get("claude_timeout_sec", 300)
+        claude_model = cfg.get("claude_model", "")
 
-        chunk_results = process_chunks(chunks, highlights, chats, vod, claude_timeout)
+        chunk_results = process_chunks(
+            chunks, highlights, chats, vod, claude_timeout,
+            claude_model=claude_model,
+        )
         logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
 
         summary = merge_results(
             chunk_results, vod, community_posts, highlights, claude_timeout,
-            srt_path=srt_path,
+            srt_path=srt_path, claude_model=claude_model,
         )
         logger.info(f"✓ 통합 요약 생성 완료")
 
