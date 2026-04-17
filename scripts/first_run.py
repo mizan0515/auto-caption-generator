@@ -228,31 +228,120 @@ def open_settings_ui() -> bool:
         return False
 
 
-def launch_tray() -> bool:
-    _section("8. 트레이 앱 실행")
-    pythonw = shutil.which("pythonw") or sys.executable.replace("python.exe", "pythonw.exe")
-    tray = PROJECT_ROOT / "tray_app.py"
-    if not tray.exists():
-        _err(f"tray_app.py 없음: {tray}")
-        return False
+def _tray_lockfile() -> Path:
+    """tray_app 이 쓰는 lockfile 경로와 동일 규칙 — output_dir/pipeline.tray.lock."""
     try:
-        # Detached 실행 — 이 프로세스가 끝나도 트레이는 계속
+        from pipeline.config import load_config  # type: ignore
+
+        cfg = load_config()
+        out_dir = Path(cfg.get("output_dir", "output"))
+        if not out_dir.is_absolute():
+            out_dir = PROJECT_ROOT / out_dir
+    except Exception:  # noqa: BLE001
+        out_dir = PROJECT_ROOT / "output"
+    return out_dir / "pipeline.tray.lock"
+
+
+def _pid_alive_win(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform != "win32":
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+    try:
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        h = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not h:
+            return False
+        ctypes.windll.kernel32.CloseHandle(h)
+        return True
+    except Exception:  # noqa: BLE001
+        return True  # 의심스러우면 살아있다고 가정 (중복 기동 회피)
+
+
+def tray_already_running() -> int:
+    """살아있는 트레이 PID 반환, 없으면 0."""
+    lock = _tray_lockfile()
+    if not lock.exists():
+        return 0
+    try:
+        pid = int(lock.read_text(encoding="utf-8").split(",", 1)[0].strip())
+    except (OSError, ValueError):
+        return 0
+    return pid if _pid_alive_win(pid) else 0
+
+
+def _spawn_detached(args: list[str]) -> bool:
+    try:
         creationflags = 0
         if sys.platform == "win32":
             creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
                 subprocess, "CREATE_NEW_PROCESS_GROUP", 0
             )
         subprocess.Popen(
-            [pythonw, str(tray)],
+            args,
             cwd=str(PROJECT_ROOT),
             creationflags=creationflags,
             close_fds=True,
         )
-        _ok("트레이 아이콘을 확인하세요 (Windows 작업표시줄 오른쪽)")
         return True
     except Exception as e:  # noqa: BLE001
-        _err(f"트레이 실행 실패: {e}")
+        _err(f"프로세스 런치 실패 ({args[0]}): {e}")
         return False
+
+
+def open_dashboard() -> bool:
+    """별도 pythonw 프로세스로 pipeline.dashboard 모듈 실행."""
+    pythonw = shutil.which("pythonw") or sys.executable.replace("python.exe", "pythonw.exe")
+    if not Path(pythonw).exists():
+        _err(f"pythonw 를 찾지 못함: {pythonw}")
+        return False
+    return _spawn_detached([pythonw, "-m", "pipeline.dashboard"])
+
+
+def launch_tray() -> bool:
+    _section("8. 트레이 앱 실행")
+
+    # 이미 실행 중이면 트레이를 다시 띄우지 않고 대시보드만 연다 (아이콘은 Windows 11
+    # 오버플로우 chevron 에 숨겨져 있을 가능성이 크므로 사용자에게 보이는 창 제공).
+    running_pid = tray_already_running()
+    if running_pid:
+        _ok(f"트레이가 이미 실행 중입니다 (PID={running_pid}) — 대시보드를 엽니다.")
+        if open_dashboard():
+            _ok("대시보드 창을 확인하세요. 트레이 종료는 대시보드의 [설정] 또는 트레이 아이콘 우클릭.")
+            return True
+        _err("대시보드 실행에 실패했습니다. 작업관리자에서 pythonw 프로세스를 확인하세요.")
+        return False
+
+    pythonw = shutil.which("pythonw") or sys.executable.replace("python.exe", "pythonw.exe")
+    tray = PROJECT_ROOT / "tray_app.py"
+    if not tray.exists():
+        _err(f"tray_app.py 없음: {tray}")
+        return False
+    if not _spawn_detached([pythonw, str(tray)]):
+        return False
+    _ok("트레이 실행 요청 완료.")
+    print("     * Windows 11 은 트레이 아이콘을 기본적으로 숨깁니다.")
+    print("     * 작업표시줄 오른쪽 '^' (오버플로우) 버튼을 눌러 'Chzzk VOD 파이프라인' 아이콘을 확인하세요.")
+    print("     * 한 눈에 보이는 창이 필요하면 지금 대시보드를 엽니다...")
+
+    # 트레이 초기화 (lockfile 생성) 까지 잠시 대기 후 대시보드 동반 실행
+    import time
+
+    for _ in range(30):  # 최대 ~3초
+        time.sleep(0.1)
+        if _tray_lockfile().exists():
+            break
+    if open_dashboard():
+        _ok("대시보드 창이 열렸습니다 — 여기서 로그/상태/비용/설정을 볼 수 있습니다.")
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:

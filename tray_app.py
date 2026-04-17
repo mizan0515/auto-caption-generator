@@ -426,16 +426,44 @@ def main():
         )
         sys.exit(2)
     except AlreadyRunningError as e:
-        # B25: 이미 실행 중인 인스턴스 감지 — 중복 기동 silent race 방지.
-        _show_fatal_dialog(
-            "Chzzk 파이프라인 — 이미 실행 중",
-            f"다른 트레이 인스턴스가 이미 실행 중입니다.\n\n"
-            f"PID: {e.pid}\n"
-            f"잠금 파일: {e.lock_path}\n\n"
-            f"기존 트레이 창에서 종료한 뒤 다시 실행하세요.\n"
-            f"기존 프로세스가 이미 죽어 있다고 확신되면 위 잠금 파일을 삭제하고 재실행하세요.",
-        )
-        sys.exit(3)
+        # B25: 이미 실행 중인 인스턴스 감지. 에러 대화상자로 막기보다, 사용자의
+        # 실제 의도(보이는 창 필요)에 맞춰 대시보드를 자동으로 띄워준다.
+        # Windows 11 의 트레이 오버플로우에 아이콘이 숨겨졌을 때 특히 유용.
+        try:
+            import subprocess as _sp
+
+            pythonw = sys.executable
+            if sys.platform == "win32" and pythonw.lower().endswith("python.exe"):
+                candidate = pythonw[:-10] + "pythonw.exe"
+                if os.path.exists(candidate):
+                    pythonw = candidate
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = getattr(_sp, "DETACHED_PROCESS", 0) | getattr(
+                    _sp, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+            _sp.Popen(
+                [pythonw, "-m", "pipeline.dashboard"],
+                creationflags=creationflags,
+                close_fds=True,
+            )
+            # 짧은 안내만 띄워 "왜 새 트레이가 안 떴는지" 를 명시.
+            _show_fatal_dialog(
+                "Chzzk 파이프라인 — 이미 실행 중",
+                f"트레이가 이미 실행 중이어서 대시보드만 새로 열었습니다.\n\n"
+                f"기존 PID: {e.pid}\n"
+                f"(Windows 11 은 트레이 아이콘을 기본적으로 오버플로우 '^' 에 숨깁니다.)",
+            )
+            sys.exit(0)
+        except Exception:  # noqa: BLE001
+            _show_fatal_dialog(
+                "Chzzk 파이프라인 — 이미 실행 중",
+                f"다른 트레이 인스턴스가 이미 실행 중입니다.\n\n"
+                f"PID: {e.pid}\n"
+                f"잠금 파일: {e.lock_path}\n\n"
+                f"기존 트레이에서 종료한 뒤 다시 실행하세요.",
+            )
+            sys.exit(3)
     app.run()
 
 
