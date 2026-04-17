@@ -21,7 +21,7 @@
   - 문제: Claude 지시문이 "내부 메트릭 노출 금지"라고 하면서 프롬프트에서 메트릭을 주입
   - 목표: highlight 정보를 타임코드 + 설명적 표현으로 변환
 
-- [ ] **B03 전체 채팅 리스트 반복 필터링 제거**
+- [x] **B03 전체 채팅 리스트 반복 필터링 제거**
   - 파일: `pipeline/main.py`, `pipeline/summarizer.py`
   - 현상: process_chunks()에 50K개 채팅 전체를 전달 → 매 청크마다 전체 스캔
   - 목표: main.py에서 청크별 채팅을 미리 슬라이싱하여 전달
@@ -88,4 +88,5 @@
 |----|--------|------|------|
 | B01 | 2026-04-17 | ✅ 10h VOD: 377K→124K chars (67% 절감), 13→5 chunks, 시간커버리지 유지 | chunker.py + main.py + config.py |
 | B02 | 2026-04-17 | ✅ Tier2: 메트릭 누출 0건, 순위→설명 변환 검증 | chat_analyzer.py + summarizer.py |
+| B03 | 2026-04-17 | ✅ Tier2: bisect 슬라이싱 84x 속도향상 (5.07→0.06ms), edge case 통과 | summarizer.py |
 | — | — | — | — |

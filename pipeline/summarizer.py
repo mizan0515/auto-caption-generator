@@ -115,6 +115,20 @@ def _build_chunk_user_prompt(
     return prompt
 
 
+def _preslice_chats(chats: list[dict], start_ms: int, end_ms: int, margin_ms: int = 30_000) -> list[dict]:
+    """청크 시간 범위에 해당하는 채팅만 추출 (bisect 사용, O(log n)).
+
+    margin_ms: 하이라이트 context_sec 여유분 (기본 30초).
+    chats는 ms 기준 정렬되어 있어야 한다.
+    """
+    import bisect
+    if not chats:
+        return []
+    lo = bisect.bisect_left(chats, start_ms - margin_ms, key=lambda c: c["ms"])
+    hi = bisect.bisect_right(chats, end_ms + margin_ms, key=lambda c: c["ms"])
+    return chats[lo:hi]
+
+
 def process_chunks(
     chunks: list[dict],
     highlights: list[dict],
@@ -127,11 +141,18 @@ def process_chunks(
 
     시스템 프롬프트(지시문)는 캐싱되어 첫 호출 이후 input token 비용 ~90% 절감.
     claude_model: 빈 문자열이면 기본 모델, "haiku" 등으로 경량 모델 지정 가능.
+
+    B03: chats를 청크별로 미리 슬라이싱하여 전달 (50K 전체 스캔 방지).
     """
+    # 채팅을 ms 기준 정렬 (보통 이미 정렬되어 있지만 보장)
+    sorted_chats = sorted(chats, key=lambda c: c["ms"]) if chats else []
+
     chunk_results = []
 
     for chunk in chunks:
-        user_prompt = _build_chunk_user_prompt(chunk, highlights, chats, vod_info)
+        # 청크 시간 범위의 채팅만 추출 (O(log n))
+        chunk_chats = _preslice_chats(sorted_chats, chunk["start_ms"], chunk["end_ms"])
+        user_prompt = _build_chunk_user_prompt(chunk, highlights, chunk_chats, vod_info)
         logger.info(
             f"  청크 {chunk['index']}/{len(chunks)} 분석 중 "
             f"({chunk['start_hhmmss']}~{chunk['end_hhmmss']}, {chunk['char_count']:,}자, "
