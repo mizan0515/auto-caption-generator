@@ -210,7 +210,19 @@ def process_vod(
         result.stage = "transcribing"
         state.update(vod.video_no, status="transcribing", channel_id=vod.channel_id)
 
-        srt_path = transcribe_video(video_path)
+        # B05: 타임아웃/스톨 watchdog. cfg 미지정시 transcriber 의 기본값 사용.
+        try:
+            srt_path = transcribe_video(
+                video_path,
+                stall_sec=cfg.get("whisper_stall_sec", 600),
+                timeout_sec=cfg.get("whisper_timeout_sec", 0),
+            )
+        except TimeoutError as e:
+            logger.error(f"Whisper 타임아웃 → VOD 실패 처리: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Whisper 실행 실패 → VOD 실패 처리: {e}")
+            raise
         result.srt_path = srt_path
         logger.info(f"✓ 자막 생성 완료: {srt_path}")
 
