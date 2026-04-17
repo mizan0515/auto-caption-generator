@@ -158,6 +158,8 @@ class Dashboard:
         self._tail: Optional[_LogTail] = None
         self._cost_tree: Optional[ttk.Treeview] = None
         self._breakdown_tree: Optional[ttk.Treeview] = None
+        self._trend_canvas: Optional[tk.Canvas] = None
+        self._trend_summary: Optional[ttk.Label] = None
         self._model_status: Optional[ttk.Label] = None
         self._stats_summary: Optional[ttk.Label] = None
 
@@ -385,6 +387,24 @@ class Dashboard:
         )
         self._stats_summary.pack(anchor="w")
 
+        # ---- 최근 14일 트렌드 ----
+        trend_group = ttk.LabelFrame(
+            frame, text="최근 14일 비용 트렌드 (실측 USD)", padding=12
+        )
+        trend_group.pack(fill="x", pady=(0, 12))
+        self._trend_canvas = tk.Canvas(
+            trend_group,
+            height=140,
+            highlightthickness=0,
+            background="#1a1b26",
+        )
+        self._trend_canvas.pack(fill="x", expand=True)
+        self._trend_canvas.bind("<Configure>", lambda _e: self._render_trend_chart())
+        self._trend_summary = ttk.Label(
+            trend_group, text="", foreground="#8a8a8a"
+        )
+        self._trend_summary.pack(anchor="w", pady=(6, 0))
+
         # ---- 모델별 예상 비용 표 ----
         proj_group = ttk.LabelFrame(
             frame, text="모델별 예상 비용 (현재까지의 토큰 workload 동일 가정)", padding=12
@@ -563,6 +583,102 @@ class Dashboard:
                         f"{format_usd(haiku)} / {format_usd(sonnet)} / {format_usd(opus)}",
                     ),
                 )
+
+        # 트렌드 차트 렌더
+        self._render_trend_chart()
+
+    def _render_trend_chart(self) -> None:
+        """최근 14일 실측 비용을 Canvas 막대그래프로 렌더."""
+        if self._trend_canvas is None:
+            return
+        canvas = self._trend_canvas
+        canvas.delete("all")
+
+        try:
+            from pipeline.cost_estimator import format_usd
+            from pipeline.cost_trend import aggregate_by_day
+        except Exception:  # noqa: BLE001
+            return
+
+        series = aggregate_by_day(self.log_path, days=14)
+        if not series:
+            return
+
+        width = max(canvas.winfo_width(), 400)
+        height = max(canvas.winfo_height(), 120)
+        pad_left, pad_right = 40, 16
+        pad_top, pad_bottom = 12, 26
+        plot_w = max(width - pad_left - pad_right, 100)
+        plot_h = max(height - pad_top - pad_bottom, 40)
+
+        max_cost = max((d.actual_cost_usd for d in series), default=0.0)
+        total_cost = sum(d.actual_cost_usd for d in series)
+        total_calls = sum(d.calls for d in series)
+
+        # 배경 + 축선
+        canvas.create_line(
+            pad_left,
+            pad_top + plot_h,
+            pad_left + plot_w,
+            pad_top + plot_h,
+            fill="#3b4261",
+        )
+        # y축 상한 레이블
+        if max_cost > 0:
+            canvas.create_text(
+                pad_left - 6,
+                pad_top,
+                text=format_usd(max_cost),
+                fill="#7a86a8",
+                anchor="e",
+                font=("Segoe UI", 8),
+            )
+            canvas.create_text(
+                pad_left - 6,
+                pad_top + plot_h,
+                text="$0",
+                fill="#7a86a8",
+                anchor="e",
+                font=("Segoe UI", 8),
+            )
+
+        n = len(series)
+        slot = plot_w / n
+        bar_w = max(slot * 0.62, 4)
+
+        for i, d in enumerate(series):
+            cx = pad_left + slot * (i + 0.5)
+            if max_cost > 0 and d.actual_cost_usd > 0:
+                h = (d.actual_cost_usd / max_cost) * plot_h
+            else:
+                h = 0
+            x0 = cx - bar_w / 2
+            x1 = cx + bar_w / 2
+            y0 = pad_top + plot_h - h
+            y1 = pad_top + plot_h
+            color = "#7aa2f7" if d.actual_cost_usd > 0 else "#2a2e42"
+            if h > 0:
+                canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
+            # 날짜 라벨: 매 2일마다 혹은 마지막 날
+            if i % 2 == 0 or i == n - 1:
+                canvas.create_text(
+                    cx,
+                    pad_top + plot_h + 12,
+                    text=d.day.strftime("%m-%d"),
+                    fill="#7a86a8",
+                    font=("Segoe UI", 8),
+                )
+
+        if self._trend_summary is not None:
+            if total_calls == 0:
+                txt = "최근 14일간 기록된 호출이 없습니다."
+            else:
+                avg = total_cost / 14
+                txt = (
+                    f"합계 {format_usd(total_cost)} · 호출 {total_calls}회 · "
+                    f"일평균 {format_usd(avg)} · 최고일 {format_usd(max_cost)}"
+                )
+            self._trend_summary.config(text=txt)
 
     def _build_settings_tab(self, nb: ttk.Notebook) -> None:
         frame = ttk.Frame(nb, padding=24)
