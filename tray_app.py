@@ -227,6 +227,27 @@ class PipelineTray:
 
         open_settings(on_save=_on_save)
 
+    def _on_refresh_cookies(self, icon, item):
+        """브라우저(Chrome/Edge/Firefox)에서 NID_AUT/NID_SES 를 읽어 config 갱신"""
+        try:
+            from pipeline.cookie_refresh import refresh_cookies
+        except ImportError as e:
+            if self.icon:
+                self.icon.notify(f"browser_cookie3 미설치: {e}", "쿠키 새로고침 실패")
+            return
+
+        ok, reason = refresh_cookies()
+        if ok:
+            from pipeline.config import load_config
+            self.cfg = load_config()
+            logger.info(f"쿠키 갱신: {reason}")
+            if self.icon:
+                self.icon.notify(reason, "쿠키 새로고침")
+        else:
+            logger.warning(f"쿠키 갱신 실패: {reason}")
+            if self.icon:
+                self.icon.notify(reason, "쿠키 새로고침 실패")
+
     def _on_pause_resume(self, icon, item):
         """일시정지 / 재개"""
         if self._paused:
@@ -350,6 +371,7 @@ class PipelineTray:
             pystray.MenuItem("로그 열기", self._on_open_log),
             pystray.MenuItem("출력 폴더 열기", self._on_open_output),
             pystray.MenuItem("설정 파일 직접 편집", self._on_open_config),
+            pystray.MenuItem("쿠키 새로고침 (브라우저에서)", self._on_refresh_cookies),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(self._get_pause_text, self._on_pause_resume),
             pystray.MenuItem("종료", self._on_quit),
