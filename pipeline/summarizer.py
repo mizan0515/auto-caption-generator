@@ -185,15 +185,14 @@ def merge_results(
         broadcast_start=vod_info.publish_date,
     )
 
-    # 하이라이트 요약
+    # 하이라이트 요약 (내부 메트릭 노출 금지 — B02)
     highlight_text = ""
     if highlights:
+        from .chat_analyzer import _describe_intensity
         hl_lines = []
         for h in highlights[:10]:
-            hl_lines.append(
-                f"- [{sec_to_hms(h['sec'])}] 채팅수 {h['count']}개, "
-                f"종합점수 {h['composite']:.4f}"
-            )
+            intensity = _describe_intensity(h)
+            hl_lines.append(f"- [{sec_to_hms(h['sec'])}] 채팅 반응 {intensity}")
         highlight_text = "\n".join(hl_lines)
 
     # ── Multi-signal 하이라이트 후보 (자막 + 커뮤니티 매칭) ──

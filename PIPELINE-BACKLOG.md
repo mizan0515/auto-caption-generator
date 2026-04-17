@@ -15,7 +15,7 @@
   - 검증: 실제 SRT + 채팅으로 필터 전후 크기 비교, 시간 커버리지 100% 확인
   - 주의: 필터링 후에도 전체 시간축이 빠짐없이 표현되어야 함 (cold 구간도 샘플 포함)
 
-- [ ] **B02 chunk prompt에서 내부 메트릭 제거**
+- [x] **B02 chunk prompt에서 내부 메트릭 제거**
   - 파일: `pipeline/summarizer.py`
   - 현상: merge 프롬프트에 "채팅수 {count}, 종합점수 {composite:.4f}" 포함
   - 문제: Claude 지시문이 "내부 메트릭 노출 금지"라고 하면서 프롬프트에서 메트릭을 주입
@@ -87,4 +87,5 @@
 | ID | 완료일 | 검증 | 비고 |
 |----|--------|------|------|
 | B01 | 2026-04-17 | ✅ 10h VOD: 377K→124K chars (67% 절감), 13→5 chunks, 시간커버리지 유지 | chunker.py + main.py + config.py |
+| B02 | 2026-04-17 | ✅ Tier2: 메트릭 누출 0건, 순위→설명 변환 검증 | chat_analyzer.py + summarizer.py |
 | — | — | — | — |

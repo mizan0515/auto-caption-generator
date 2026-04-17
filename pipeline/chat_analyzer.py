@@ -151,6 +151,23 @@ def get_chats_in_range(chats: list[dict], start_sec: float, end_sec: float) -> l
     return [c for c in chats if start_ms <= c["ms"] <= end_ms]
 
 
+def _describe_intensity(h: dict) -> str:
+    """하이라이트의 순위/강도를 설명적 표현으로 변환.
+
+    내부 메트릭(composite, count)을 직접 노출하지 않고
+    Claude가 맥락적으로 판단할 수 있는 상대 표현을 사용한다.
+    """
+    rank = h.get("rank", 99)
+    if rank <= 3:
+        return "폭발 🔥"
+    elif rank <= 7:
+        return "활발"
+    elif rank <= 12:
+        return "보통"
+    else:
+        return "소폭"
+
+
 def format_chat_highlights_for_prompt(
     highlights: list[dict], chats: list[dict], context_sec: int = 30
 ) -> str:
@@ -163,7 +180,9 @@ def format_chat_highlights_for_prompt(
         end = sec + context_sec
         nearby = get_chats_in_range(chats, start, end)
 
-        lines.append(f"### [{sec_to_hms(sec)}] 하이라이트 (종합점수: {h['composite']:.4f}, 채팅수: {h['count']})")
+        # 순위 기반 설명적 표현 (내부 메트릭 노출 금지 — B02)
+        intensity = _describe_intensity(h)
+        lines.append(f"### [{sec_to_hms(sec)}] 채팅 반응 {intensity}")
         sample = nearby[:30]  # 최대 30개 채팅 샘플
         for c in sample:
             ts = sec_to_hms(c["ms"] / 1000.0)
