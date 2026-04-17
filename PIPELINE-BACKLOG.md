@@ -65,7 +65,7 @@
   - 현상: 매 scrape마다 세션 생성 + 메인 페이지 방문
   - 목표: 데몬 모드에서 세션 재사용
 
-- [ ] **B11 오래된 VOD FM코리아 자동 스킵**
+- [x] **B11 오래된 VOD FM코리아 자동 스킵**
   - 파일: `pipeline/main.py`, `pipeline/scraper.py`
   - 현상: 20일 전 VOD도 FM코리아 검색 시도 → 의미없는 네트워크 호출
   - 목표: VOD publish_date가 48시간 이전이면 fmkorea 스킵
@@ -96,4 +96,5 @@
 | B08 | 2026-04-17 | ✅ Tier2: cues 공유 시 parse_srt 호출 0회, 미공유 fallback 1회 검증 | summarizer.py + subtitle_analyzer.py + community_matcher.py |
 | B09 | 2026-04-17 | ✅ Tier2: strict/no-emoji/loose-bracket/total-fail 4 변형 + raw_fallback 항상 유지 | summarizer.py (_parse_summary_sections + _generate_html) |
 | B10 | 2026-04-17 | ✅ Tier2: 첫 호출/TTL 내 재호출/TTL 만료/reset 4 시나리오 검증 (메인 방문 1→1→2→3) | scraper.py (_SESSION_CACHE + _get_or_create_session + reset_fmkorea_session) |
+| B11 | 2026-04-17 | ✅ Tier2: recent/old/disabled/unparseable 4 시나리오 + naive datetime 처리 검증 | main.py (_vod_age_hours + _should_skip_fmkorea) + config.py (fmkorea_max_age_hours=48) |
 | — | — | — | — |
