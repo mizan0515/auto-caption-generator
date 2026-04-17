@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -140,13 +142,71 @@ def auto_publish_after_vod(
 
     if result is None:
         log.warning("자동 퍼블리시 실패 또는 스킵")
-    else:
-        log.info(
-            f"✓ 자동 퍼블리시 완료: site_dir={result['site_dir']}, "
-            f"vods={result['vod_count']}, streamers={result['streamer_count']}"
+        return result
+
+    log.info(
+        f"✓ 자동 퍼블리시 완료: site_dir={result['site_dir']}, "
+        f"vods={result['vod_count']}, streamers={result['streamer_count']}"
+    )
+
+    if cfg.get("publish_autodeploy", False):
+        deploy_to_cloudflare_safe(
+            site_dir=result["site_dir"],
+            project_name=cfg.get("publish_cloudflare_project", ""),
+            logger_override=log,
         )
 
     return result
+
+
+def deploy_to_cloudflare_safe(
+    site_dir: Path | str,
+    project_name: str,
+    logger_override=None,
+) -> bool:
+    """wrangler pages deploy 로 site/ 를 Cloudflare Pages 에 업로드.
+
+    전제: 사용자가 사전에 `wrangler login` 을 완료했고 wrangler 가 PATH 에 있음.
+    실패 시 예외를 흘리지 않고 False 반환 (파이프라인 계속 진행).
+    """
+    log = logger_override or logger
+
+    wrangler = shutil.which("wrangler")
+    if not wrangler:
+        log.warning("자동 배포 스킵: wrangler 가 PATH 에 없음 (`npm i -g wrangler` 후 `wrangler login`)")
+        return False
+
+    if not project_name:
+        log.warning("자동 배포 스킵: publish_cloudflare_project 가 비어 있음")
+        return False
+
+    site_path = Path(site_dir)
+    if not site_path.is_dir():
+        log.warning(f"자동 배포 스킵: site_dir 없음 — {site_path}")
+        return False
+
+    cmd = [wrangler, "pages", "deploy", str(site_path), f"--project-name={project_name}", "--commit-dirty=true"]
+    log.info(f"Cloudflare Pages 배포 시작: {project_name}")
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.warning(f"자동 배포 실패 (무시): {e}")
+        return False
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-5:]
+        log.warning(f"자동 배포 실패 (exit={proc.returncode}): {' | '.join(tail)}")
+        return False
+
+    log.info(f"✓ Cloudflare Pages 배포 완료: {project_name}")
+    return True
 
 
 def main() -> int:

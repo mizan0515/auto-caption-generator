@@ -62,6 +62,11 @@ DEFAULT_CONFIG = {
     # 자동 퍼블리시: VOD 처리 성공 후 site/ 재빌드
     "publish_autorebuild": True,
     "publish_site_dir": "./site",
+    # 자동 배포: rebuild 성공 후 Cloudflare Pages 에 wrangler 로 업로드.
+    # 활성화 전제: `wrangler login` 완료, PATH 에 wrangler 실행 가능.
+    # 실패해도 pipeline 은 계속 진행 (rebuild_site_safe 와 동일 정책).
+    "publish_autodeploy": False,
+    "publish_cloudflare_project": "auto-caption-generator-site",
     # B12/B13 실험 기본값:
     #   experiments/ 스크립트가 sweep 돌릴 때 참조하는 테스트 VOD.
     #   experiment_test_vod  : 다운로드 + 자막이 work/<video_no>/ 에 이미 있어야 함
