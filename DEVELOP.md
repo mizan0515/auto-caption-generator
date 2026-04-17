@@ -25,6 +25,42 @@ Think hard. (복잡한 설계 판단이면 ULTRATHINK)
 - **백로그에 UX 관련 항목이 없어도 능동적으로 탐색**해서 1개 이상 추가 후 구현 (P0.5 UX 결함 카테고리 활용). 코드스멜/테스트 누락/dead code/보안만 보지 말고 **"실제 사용자가 부딪힐 마찰"을 우선**한다.
 - 회전을 끝낼 때 "이번에 UX 축을 1도라도 좁혔는가?"를 자문하고 보고에 한 줄 포함한다.
 
+# 브레인스토밍 점화 (매 회전 시작 ~30초, 백로그에 끌려다니지 말 것)
+선택하기 전에 **후보 5개를 한 줄씩** 즉흥 dump 한다. UX 1개 + 안정성 1개 + 품질 1개 +
+"저장소 정적 점검으로 찾은 것" 1개 + "유사 사례 웹 검색으로 얻은 것" 1개 가 기본 비율.
+그 다음 북극성(UX) 가중치로 1개를 고른다. 백로그 `[ ]` 항목도 이 5개 후보 중 하나로
+포함되며, 자동 1순위가 아니다.
+
+- 목적: 자가발굴이 맨날 같은 축(콘솔 인코딩, 파서 버그 등)만 파게 되는 회전 편향 방지.
+- 산출: 선택되지 않은 4개 후보는 PIPELINE-BACKLOG.md 에 한 줄씩 추가해 다음 회전 밑천으로.
+
+# 루프 자가 개선 (DEVELOP.md 자체도 개선 대상)
+회전 도중 DEVELOP.md / PROJECT-RULES.md / .prompts/ 가 실제 동작과 괴리되는 것을
+발견하면 **같은 회전에서 닫거나**, 당장 못 닫으면 "B-ops-{번호} loop 자가 개선"
+항목으로 백로그에 등록한다. 예시 신호:
+- step n 지시가 실측에서 안 먹힘 (`--delete-branch` 처럼)
+- 금지 문구 오해로 반복 오동작 ("자동 스케줄 금지" v4 에피소드)
+- Tier 구분이 지금 저장소 현실과 어긋남
+- 신규 부작용/낭비 패턴 (이번 회전의 "bad_config probe 가 daemon 을 깨움" 같은 것)
+P0.5 와 같은 수준의 우선순위로 취급한다. 루프가 스스로 루프를 개선하지 못하면 썩는다.
+
+# 유사 사례 웹 검색 (선택적, 회전당 최대 1회)
+자가발굴 3단계에서 막히거나, 저장소 내부만 봐서는 가설이 안 설 때:
+- `WebSearch` 로 `"whisper large-v3-turbo hang timeout"`, `"claude code subprocess FileNotFoundError windows"`,
+  `"chzzk vod m3u8 parser edge case"` 같이 **좁은 쿼리 1~2개**를 시도.
+- 목적은 새 백로그 항목 1개 씨앗. 해결책을 그대로 베끼지 말고, 우리 코드의 실제
+  실패 지점에 맞는 형태로 번역해서 백로그에 기록.
+- 검색 결과만으로 코드 수정하지 말 것. 반드시 본 저장소에서 실증 후 진행.
+
+# 저장소 정적 점검 루틴 (백로그 비었을 때 자가발굴용)
+다음 프로브를 순서대로 돌려 "지금 저장소가 실제로 썩고 있는 부분"을 드러낸다:
+- `git grep -n "TODO\|FIXME\|XXX\|HACK"` — 잊힌 표식
+- `python -m compileall -q pipeline content transcribe.py tray_app.py split_video.py` — 숨은 syntax/import 에러
+- `git ls-files '*.py' | xargs -r python -m pyflakes 2>&1 | head -40` (있으면) — 미사용 import/var
+- `git log --since="14 days ago" --stat | tail -40` — 최근 변경 집중 영역 (회귀 발생 후보)
+- 깊이 1 의존성 스모크: `python -c "import pipeline.main, pipeline.summarizer, pipeline.chunker, pipeline.scraper, content.network; print('ok')"`
+- `ls experiments/*.py | wc -l` vs `ls tests/*.py 2>/dev/null` — 회귀 커버리지 비대칭
+
 # 조기 종료 문구 금지 (Stop-Phrase Guard)
 다음 표현이 네 답변에 나타나면 즉시 자기 점검하고 범위를 되돌려라:
 - "simplest fix", "가장 단순한", "일단 이 정도", "이쯤에서 멈추자"
@@ -35,17 +71,21 @@ Think hard. (복잡한 설계 판단이면 ULTRATHINK)
 # Loop (매 실행마다 1회전)
 
 ## 1. 상태 파악
-- PIPELINE-BACKLOG.md를 읽고 `[ ]` (미완료) 항목 중 가장 위의 것을 선택한다.
+- **먼저 브레인스토밍 점화**(위 섹션 참조): 후보 5개를 한 줄씩 dump → 1개 선택. 비선택 4개는 PIPELINE-BACKLOG.md 에 넣고 간다.
+- PIPELINE-BACKLOG.md를 읽고 `[ ]` (미완료) 항목은 **5개 후보 중 1개로만** 다룬다. 자동 1순위 금지.
 - BLOCKED 표시된 항목은 건너뛴다 (해결책이 보이면 시도해도 됨).
-- **선택 직전 UX 체크**: 선택 후보가 UX축이 아니면, 백로그 전체에서 "P0.5 UX 결함" 항목이 하나라도 있는지 먼저 확인. 있으면 그 항목을 우선한다 (북극성 반영).
-- 모든 항목이 `[x]`이면 **순서대로 시도**:
+- **UX 가중치**: 브레인스토밍 5개 중 UX 축 후보가 있고 같은 비용이면 UX 를 우선 (북극성 반영).
+- 백로그가 비어서 후보를 만들어야 할 때 **자가발굴 순서**:
   1. **UX 자가발굴 (우선)**: 실제 CLI/tray_app/요약 리포트(output/)/설정 실패 시나리오를 직접 돌려보고 관리자·엔드유저 마찰 1건을 P0.5로 신규 등록.
      - CLI: `python -m pipeline.main --help`, `python transcribe.py --help`, 잘못된 인자 입력 시 메시지 가독성
      - 요약물: `output/` 하위 최근 md/html 실제 열람 → 빈 섹션/깨진 링크/시간 축 혼란/raw_fallback 노출 여부
-     - 설정 오류 재현: `pipeline_config.json` 망가뜨려 traceback 친절도 확인
+     - 설정 오류 재현: `pipeline_config.json` 망가뜨려 traceback 친절도 확인 — **`--once`/`--process` 는 daemon/다운로드를 깨우므로 설정 검증만 필요하면 `python -c "from pipeline.config import load_config; load_config()"` 로 제한**
      - tray: tray_app.py 상태 메시지, 종료 경로
   2. 코드 품질 자가발굴: 코드스멜, 미싱 테스트, doc drift, dead code, 보안 스멜 1건을 P1~P3로 신규 등록.
-  3. `python -m pipeline.main --process <가장최근VOD> --limit-duration 1800` 실행해서 실제 문제 발견.
+  3. **저장소 정적 점검 루틴** (위 섹션의 프로브 세트 실행) → 잊힌 TODO/숨은 import 에러/커버리지 비대칭 중 1건.
+  4. **유사 사례 웹 검색** (위 섹션 규칙, 회전당 최대 1회): 좁은 쿼리로 새 백로그 씨앗 1개.
+  5. 최후: `python -m pipeline.main --process <가장최근VOD> --limit-duration 1800` 실행해서 실제 문제 발견 (네트워크/GPU/쿠키 전제).
+- **루프 자가 개선 체크**: 이번 회전에서 DEVELOP.md/.prompts/ 와 실제 동작이 어긋나는 지점을 봤으면 (위 "루프 자가 개선" 섹션 규칙대로) 같은 회전에서 닫거나 B-ops-{번호} 로 등록.
 - git status로 이전 실행에서 미커밋된 **현재 회전 소관** 변경이 있으면 먼저 커밋. **무관한 dirty 파일**이 섞여 있으면 stash/reset 금지하고 명시적으로 보고 후 범위 분리.
 - 현재 브랜치를 확인한다. main이면 task branch를 생성한다.
 
@@ -296,3 +336,4 @@ VOD 감지 → 다운로드 → 채팅 수집 → 하이라이트 분석
 | 2026-04-17 | v5 — 루프 지속성 + UX 축: (1) "1회전 = 1세션" 명시, `/loop` ScheduleWakeup 허용으로 dynamic 모드 가동, (2) 북극성 섹션 신설 — 관리자/엔드유저 UX 엉망이 고정 전제, (3) 상태 파악에 UX 자가발굴(CLI/리포트/설정실패/tray) 루틴 주입, (4) 자기 평가에 "UX 축 좁힘" 한 줄 강제, (5) 사용법을 /loop 공식 동작(자율 페이싱·고정 cron·수동)에 맞춰 재작성 + CronDelete 정지 + session-scoped 주의, (6) 무관 dirty 파일 stash 금지 명시 |
 | 2026-04-17 | v5.1 — post-merge cleanup 강제: (1) `gh pr merge` 에 `--delete-branch` 필수, (2) main 복귀 후 `git fetch --prune origin` + gone local branch 일괄 삭제 절차 박음. 기존엔 remote/local 양쪽 브랜치가 누적되어 `git branch -vv` 가시성이 망가지던 이슈 해결. |
 | 2026-04-17 | v5.2 — v5.1 보강: (1) `--delete-branch`가 실측에서 안 먹히는 케이스 확인 → step 6a에 `git push origin --delete <브랜치>` 명시적 fallback 추가, (2) `git checkout origin/main` 이 worktree 에러 내던 문제 → `--detach` 플래그 명시화. |
+| 2026-04-17 | v5.3 — 자가 개선 동력 주입: (1) 매 회전 시작에 "브레인스토밍 점화" — 5개 후보(UX/안정성/품질/정적점검/웹검색) 강제 dump, 백로그 자동 1순위 금지. (2) "루프 자가 개선" 섹션 신설 — DEVELOP.md 자체의 실측 괴리를 B-ops-{번호} 로 자가 수정. (3) 자가발굴 순서에 **저장소 정적 점검 루틴**(grep TODO/compileall/pyflakes/최근 변경/import smoke/커버리지 비대칭) + **유사 사례 웹 검색**(WebSearch, 좁은 쿼리, 회전당 최대 1회) 단계 주입. (4) 이번 회전에서 `--once` 로 daemon 깨운 사고 → 설정 검증만 필요하면 `python -c "from pipeline.config import load_config; load_config()"` 로 제한하라는 규칙 명시. |
