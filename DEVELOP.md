@@ -130,9 +130,21 @@ Think hard. (복잡한 설계 판단이면 ULTRATHINK)
    EOF
    )"
    ```
-4. PR merge: `gh pr merge --squash --auto`
+4. PR merge (원격 브랜치도 즉시 삭제): `gh pr merge --squash --auto --delete-branch`
+   - **`--delete-branch` 필수**. 없이 머지하면 원격 브랜치가 살아남아 `git fetch --prune`으로도 못 지움 → stale refs 누적.
 5. main 복귀: `git fetch origin main && git checkout origin/main`
    (main 브랜치가 자매 워크트리에 있으므로 detached HEAD로 복귀)
+6. **Post-merge cleanup (필수, 재발 방지)**:
+   ```
+   git fetch --prune origin
+   # 위 `--delete-branch` 경로를 탔으면 여기서 해당 remote-tracking ref가 prune됨.
+   # gone된 local branch 제거:
+   git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D
+   # 확인: 잔여 0건이어야 함
+   git branch -vv | grep -c ': gone]' || true
+   ```
+   - bash 없는 환경(Windows 순수 cmd 등)은 `git branch -vv`로 `: gone]` 라인을 직접 확인하고 수동 `git branch -D <name>`.
+   - 이 회전에서 건드린 브랜치가 아닌 **다른 gone** 브랜치가 보이면 같이 청소한다 (누적 stale은 다음 회전의 가시성을 해친다).
 
 ## 5. 자기 평가 & 다음 작업 판단 (간결하게)
 - 이번 회전 보고는 **10줄 이하**로:
@@ -280,3 +292,4 @@ VOD 감지 → 다운로드 → 채팅 수집 → 하이라이트 분석
 | 2026-04-17 | v3 — Haiku 전체 청크 테스트 허용, claude_model 설정 추가, PR→merge 자동 워크플로, 모델별 비용표 |
 | 2026-04-17 | v4 — 토큰 누수/품질 저하 대응: (1) 1회전 강제 정지·"indefinitely" 금지, (2) Stop-Phrase Guard, (3) Read-First 강화(호출자 1단계 포함), (4) B-항목 1커밋 크기 초과 시 분할, (5) Tier 3 Haiku 상한(단일 청크 3회), (6) 최종 보고 10줄 제한, (7) 프롬프트 상단에 "Think hard / ULTRATHINK" 명시 |
 | 2026-04-17 | v5 — 루프 지속성 + UX 축: (1) "1회전 = 1세션" 명시, `/loop` ScheduleWakeup 허용으로 dynamic 모드 가동, (2) 북극성 섹션 신설 — 관리자/엔드유저 UX 엉망이 고정 전제, (3) 상태 파악에 UX 자가발굴(CLI/리포트/설정실패/tray) 루틴 주입, (4) 자기 평가에 "UX 축 좁힘" 한 줄 강제, (5) 사용법을 /loop 공식 동작(자율 페이싱·고정 cron·수동)에 맞춰 재작성 + CronDelete 정지 + session-scoped 주의, (6) 무관 dirty 파일 stash 금지 명시 |
+| 2026-04-17 | v5.1 — post-merge cleanup 강제: (1) `gh pr merge` 에 `--delete-branch` 필수, (2) main 복귀 후 `git fetch --prune origin` + gone local branch 일괄 삭제 절차 박음. 기존엔 remote/local 양쪽 브랜치가 누적되어 `git branch -vv` 가시성이 망가지던 이슈 해결. |
