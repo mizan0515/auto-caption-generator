@@ -373,6 +373,18 @@ def run_daemon(cfg: dict):
             break
 
         try:
+            # B07: 스트리머별 cfg 빌더. 신규 폴링과 재시도가 동일 규칙을 공유한다.
+            def _build_streamer_cfg(streamer: dict) -> dict:
+                scfg = dict(cfg)
+                if streamer.get("search_keywords"):
+                    scfg["fmkorea_search_keywords"] = streamer["search_keywords"]
+                if streamer.get("name"):
+                    scfg["streamer_name"] = streamer["name"]
+                return scfg
+
+            # channel_id → streamer 인덱스 (재시도 시 cfg 복원용, B07)
+            streamers_by_channel = {s["channel_id"]: s for s in streamers if s.get("channel_id")}
+
             for streamer in streamers:
                 if state.should_stop():
                     break
@@ -380,10 +392,7 @@ def run_daemon(cfg: dict):
                 logger.info(f"── 스트리머 폴링: {streamer['name']} ({channel_id[:8]}...) ──")
 
                 # 스트리머별 검색 키워드를 cfg 에 임시 주입 (fmkorea 용)
-                streamer_cfg = dict(cfg)
-                if streamer.get("search_keywords"):
-                    streamer_cfg["fmkorea_search_keywords"] = streamer["search_keywords"]
-                    streamer_cfg["streamer_name"] = streamer["name"]
+                streamer_cfg = _build_streamer_cfg(streamer)
 
                 new_vods = check_new_vods(channel_id, cookies, state, cfg=streamer_cfg)
 
@@ -413,7 +422,17 @@ def run_daemon(cfg: dict):
                         category=metadata.get("category", ""),
                         streamer_id=derive_streamer_id(retry_channel_id, metadata.get("channelName", "")),
                     )
-                    process_vod(vod, cfg, state, logger)
+                    # B07: 재시도 시에도 해당 스트리머 cfg 복원 (검색 키워드 등 유실 방지)
+                    retry_streamer = streamers_by_channel.get(retry_channel_id)
+                    if retry_streamer:
+                        retry_cfg = _build_streamer_cfg(retry_streamer)
+                    else:
+                        # 알 수 없는 channel_id (스트리머 목록에서 제거됨) → 글로벌 cfg fallback
+                        logger.warning(
+                            f"재시도 채널 {retry_channel_id[:8]}... 이 현재 streamers 목록에 없음 → 글로벌 cfg 사용"
+                        )
+                        retry_cfg = cfg
+                    process_vod(vod, retry_cfg, state, logger)
                 except Exception as e:
                     logger.error(f"재시도 VOD 정보 조회 실패: {e}")
 
