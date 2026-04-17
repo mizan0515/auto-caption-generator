@@ -65,6 +65,23 @@ def check_python() -> bool:
         print("     https://www.python.org/downloads/ 에서 최신 설치 후 재시도")
         return False
     _ok(f"Python {v.major}.{v.minor}.{v.micro}")
+
+    # MS Store Python 감지 — App Container 샌드박스에서 Shell_NotifyIcon 이
+    # 실제 트레이에 표시되지 않는 사례가 있다. 데몬/대시보드는 정상 동작하지만
+    # 트레이 아이콘 가시성 문제로 사용자 오해를 부른다.
+    prefix = sys.executable.lower()
+    if "windowsapps" in prefix or "packages\\python" in prefix:
+        print(
+            "     [경고] Microsoft Store Python 감지 — 트레이 아이콘이 표시되지 "
+            "않을 수 있습니다."
+        )
+        print(
+            "     대시보드 창에서 모든 기능(일시정지/재개/종료)을 사용할 수 있으므로 "
+            "문제가 되지 않습니다."
+        )
+        print(
+            "     트레이 아이콘이 꼭 필요하면 python.org 정식 설치본으로 교체하세요."
+        )
     return True
 
 

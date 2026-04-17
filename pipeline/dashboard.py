@@ -716,6 +716,116 @@ class Dashboard:
             width=20,
         ).pack(side="left")
 
+        # ---- 파이프라인 제어 (트레이 아이콘이 안 떠도 여기서 제어) ----
+        ctrl_group = ttk.LabelFrame(
+            frame, text="파이프라인 제어", padding=12
+        )
+        ctrl_group.pack(fill="x", pady=(24, 8))
+        ttk.Label(
+            ctrl_group,
+            text=(
+                "트레이 아이콘이 Windows 11 오버플로우에 숨겨지거나 MS Store Python 환경에서 "
+                "등록이 실패한 경우에도 여기서 파이프라인을 제어할 수 있습니다."
+            ),
+            foreground="#8a8a8a",
+            wraplength=820,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        ctrl_row = ttk.Frame(ctrl_group)
+        ctrl_row.pack(anchor="w")
+        ttk.Button(
+            ctrl_row,
+            text="일시정지",
+            command=lambda: self._send_control("pause"),
+            width=14,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            ctrl_row,
+            text="재개",
+            command=lambda: self._send_control("resume"),
+            width=14,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            ctrl_row,
+            text="트레이 종료",
+            command=lambda: self._send_control("quit"),
+            width=14,
+        ).pack(side="left", padx=(0, 8))
+
+        self._ctrl_status = ttk.Label(
+            ctrl_group, text="", foreground="#7a86a8"
+        )
+        self._ctrl_status.pack(anchor="w", pady=(10, 0))
+
+    def _send_control(self, action: str) -> None:
+        """대시보드 → 트레이 제어 명령 전송 (파일 기반 IPC)."""
+        try:
+            from pipeline.control import write_command
+
+            out_dir = self.cfg.get("output_dir", "output")
+            token = write_command(out_dir, action)
+            label_ko = {"pause": "일시정지", "resume": "재개", "quit": "종료"}.get(action, action)
+            if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
+                self._ctrl_status.config(
+                    text=f"명령 전송됨: {label_ko} (token={token}) — 트레이 응답 대기…"
+                )
+            # 1초 뒤 ack 확인
+            if self.root is not None:
+                self.root.after(1500, lambda t=token, a=action: self._check_ack(t, a))
+        except Exception as e:  # noqa: BLE001
+            if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
+                self._ctrl_status.config(text=f"명령 전송 실패: {e}")
+
+    def _check_ack(self, token: int, action: str) -> None:
+        try:
+            from pipeline.control import read_ack
+
+            out_dir = self.cfg.get("output_dir", "output")
+            ack = read_ack(out_dir)
+            if ack and int(ack.get("token", -1)) >= token:
+                label_ko = {"pause": "일시정지", "resume": "재개", "quit": "종료"}.get(
+                    action, action
+                )
+                if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
+                    self._ctrl_status.config(
+                        text=f"✓ 트레이가 '{label_ko}' 를 처리했습니다."
+                    )
+            else:
+                # 아직 응답 없음 — 더 기다린다 (최대 5초)
+                if self.root is not None:
+                    self.root.after(1500, lambda t=token, a=action: self._check_ack_retry(t, a, 1))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _check_ack_retry(self, token: int, action: str, attempt: int) -> None:
+        if attempt >= 4:
+            if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
+                self._ctrl_status.config(
+                    text="⚠ 트레이 응답이 없습니다. 트레이 프로세스가 종료됐거나 락이 풀렸을 수 있습니다."
+                )
+            return
+        try:
+            from pipeline.control import read_ack
+
+            out_dir = self.cfg.get("output_dir", "output")
+            ack = read_ack(out_dir)
+            if ack and int(ack.get("token", -1)) >= token:
+                label_ko = {"pause": "일시정지", "resume": "재개", "quit": "종료"}.get(
+                    action, action
+                )
+                if hasattr(self, "_ctrl_status") and self._ctrl_status is not None:
+                    self._ctrl_status.config(
+                        text=f"✓ 트레이가 '{label_ko}' 를 처리했습니다."
+                    )
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        if self.root is not None:
+            self.root.after(
+                1500, lambda t=token, a=action, n=attempt + 1: self._check_ack_retry(t, a, n)
+            )
+
     # ---------- 로그 ----------
     def _append_log_lines(self, lines: list[str]) -> None:
         if self.log_widget is None:
