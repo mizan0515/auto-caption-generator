@@ -81,13 +81,16 @@ def _score_text(text: str) -> tuple[float, dict]:
     return score, detail
 
 
-def analyze_subtitle(srt_path: str, window_sec: int = 60) -> list[dict]:
+def analyze_subtitle(srt_path: str, window_sec: int = 60, cues: list | None = None) -> list[dict]:
     """SRT를 윈도우별로 스캔하여 드라마틱 점수 시계열 생성.
 
     반환: [{"window_start_sec": int, "window_hms": str, "score": float,
             "cue_count": int, "top_lines": [str, ...]}] — score 내림차순
+
+    B08: cues 인자 제공 시 parse_srt 스킵 (호출자에서 1회 파싱 후 재사용).
     """
-    cues = parse_srt(srt_path)
+    if cues is None:
+        cues = parse_srt(srt_path)
     if not cues:
         return []
 
@@ -124,9 +127,14 @@ def analyze_subtitle(srt_path: str, window_sec: int = 60) -> list[dict]:
     return result
 
 
-def find_subtitle_peaks(srt_path: str, window_sec: int = 60, top_n: int = 15) -> list[dict]:
-    """자막 점수 상위 N개 윈도우 반환 (채팅 피크와 대응)"""
-    windows = analyze_subtitle(srt_path, window_sec)
+def find_subtitle_peaks(
+    srt_path: str, window_sec: int = 60, top_n: int = 15, cues: list | None = None
+) -> list[dict]:
+    """자막 점수 상위 N개 윈도우 반환 (채팅 피크와 대응).
+
+    B08: cues 재사용 지원.
+    """
+    windows = analyze_subtitle(srt_path, window_sec, cues=cues)
     windows.sort(key=lambda w: w["score"], reverse=True)
     peaks = windows[:top_n]
     peaks.sort(key=lambda w: w["window_start_sec"])  # 시간순 재정렬

@@ -50,7 +50,7 @@
 
 ## 우선순위 P2 — 품질 (개선)
 
-- [ ] **B08 SRT 반복 파싱 제거**
+- [x] **B08 SRT 반복 파싱 제거**
   - 파일: `pipeline/summarizer.py:197-212`
   - 현상: find_subtitle_peaks()와 build_community_signal()이 각각 parse_srt() 호출
   - 목표: cues를 한 번 파싱하고 두 함수에 전달
@@ -93,4 +93,5 @@
 | B05 | 2026-04-17 | ✅ Tier2: stall/overall timeout/pre-progress 3 시나리오 watchdog 검증 | transcriber.py + main.py + config.py |
 | B06 | 2026-04-17 | ✅ Tier2: cleanup OSError 격리 + 잠긴 stale 파일 → 명시적 RuntimeError | downloader.py (3c2f518에서 bare pass 선제거, 잔여 cleanup 안정화) |
 | B07 | 2026-04-17 | ✅ Tier2: known/unknown channel/global cfg 비변형 3 시나리오 검증 | main.py (streamers_by_channel 인덱스 + _build_streamer_cfg 헬퍼) |
+| B08 | 2026-04-17 | ✅ Tier2: cues 공유 시 parse_srt 호출 0회, 미공유 fallback 1회 검증 | summarizer.py + subtitle_analyzer.py + community_matcher.py |
 | — | — | — | — |

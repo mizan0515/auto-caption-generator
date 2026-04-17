@@ -54,12 +54,16 @@ def extract_keywords(posts: Iterable[CommunityPost], top_n: int = 15, min_freq: 
 def match_keywords_to_subtitle(
     srt_path: str,
     keywords: list[str],
+    cues: list | None = None,
 ) -> dict[str, list[dict]]:
     """자막에서 각 키워드가 등장하는 시점 리스트 반환.
 
     반환: {"키워드": [{"tc": "00:12:34", "line": "...발화 내용..."}, ...]}
+
+    B08: cues 인자 제공 시 parse_srt 스킵.
     """
-    cues = parse_srt(srt_path)
+    if cues is None:
+        cues = parse_srt(srt_path)
     results: dict[str, list[dict]] = {kw: [] for kw in keywords}
 
     for cue in cues:
@@ -86,6 +90,7 @@ def build_community_signal(
     posts: list[CommunityPost],
     srt_path: str,
     max_keywords: int = 10,
+    cues: list | None = None,
 ) -> dict:
     """커뮤니티 키워드 매칭 결과를 요약 프롬프트용으로 패키징.
 
@@ -104,7 +109,7 @@ def build_community_signal(
         return {"keywords": [], "matches": [], "hot_segments": []}
 
     keywords = [k for k, _ in keywords_with_freq]
-    matches = match_keywords_to_subtitle(srt_path, keywords)
+    matches = match_keywords_to_subtitle(srt_path, keywords, cues=cues)
 
     summary = []
     for kw, freq in keywords_with_freq:
