@@ -102,6 +102,21 @@
 
 ## 우선순위 P1 — 안정성 (자가발굴)
 
+- [x] **B18 claude_cli subprocess FileNotFoundError/OSError 가드**
+  - 파일: `pipeline/claude_cli.py:236-244`
+  - 현상: `_call_claude_cli()` 가 `shutil.which("claude")` 로 선행 체크 후
+    `subprocess.run()` 을 호출하지만, (a) TOCTOU (체크와 실행 사이 삭제),
+    (b) Windows 에서 `.cmd`/`.bat` shim 과 `.exe` 전환, (c) 실행 권한 손상
+    등으로 실제 실행 순간에 `FileNotFoundError` / `PermissionError` 가 발생
+    가능. 현재 retry 데코레이터는 `(RuntimeError, TimeoutExpired)` 만 잡으므로
+    이런 예외는 그대로 전파돼 파이프라인을 난해한 traceback 으로 중단시킴.
+  - 목표: `subprocess.run` 호출을 `try/except FileNotFoundError / OSError` 로
+    감싸고 사용자 친화적 메시지를 가진 `RuntimeError` 로 변환. 기존
+    `TimeoutExpired` 전파 경로는 보존 (retry 대상).
+  - 검증: `experiments/b18_claude_cli_oserror_guard.py` 로 5 케이스 오프라인
+    검증 (FileNotFound race / PermissionError / 일반 OSError / which 미설치
+    baseline / TimeoutExpired passthrough).
+
 - [x] **B17 m3u8 해상도 파서 IndexError 방어**
   - 파일: `content/network.py:138-145`
   - 현상: `get_video_m3u8_base_url()` 의 `for i, line in enumerate(content)` 루프에서
@@ -152,4 +167,5 @@
 | B15 | 2026-04-17 | ✅ Tier3: 3개 entrypoint --help/compile 모두 한글 정상, B14 인라인 → DRY 헬퍼 교체 | pipeline/_io_encoding.py + main.py/transcribe.py/tray_app.py |
 | B16 | 2026-04-17 | ✅ Tier1: grep 으로 nonexistent app.py/gui.py 참조 0건 확인, tray_app.py (실재) 만 잔존 | .prompts/00-autonomous-dev-loop.md (§3 step1, §5 재작성) |
 | B17 | 2026-04-17 | ✅ Tier2: 4/4 happy+trailing RESOLUTION+빈 경로+미매칭 오프라인 검증 (requests.get monkeypatch) | content/network.py get_video_m3u8_base_url bound check + experiments/b17_m3u8_indexerror_guard.py |
+| B18 | 2026-04-17 | ✅ Tier2: 5/5 FileNotFound race/Permission/OSError/which-missing baseline/TimeoutExpired passthrough | pipeline/claude_cli.py subprocess try-except + experiments/b18_claude_cli_oserror_guard.py |
 | — | — | — | — |
