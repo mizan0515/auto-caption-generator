@@ -49,6 +49,10 @@ DEFAULT_CONFIG = {
     "fmkorea_max_pages": 3,
     "fmkorea_max_posts": 20,
     "fmkorea_enabled": True,
+    # B11: VOD publish_date 가 N시간 이전이면 fmkorea 검색 스킵 (오래된 방송은
+    # 커뮤니티 화제 자료가 거의 없어 네트워크 비용 대비 가치 낮음).
+    # 0 이하면 시간 제한 비활성화 (모든 VOD 에 대해 fmkorea 시도).
+    "fmkorea_max_age_hours": 48,
     # 최초 실행 시 기존 VOD 처리 정책
     #   null      : 첫 실행 때 대화형 질문 (TTY 없으면 skip_all로 폴백)
     #   "skip_all": 기존 VOD 모두 스킵, 이후 새 VOD만 처리

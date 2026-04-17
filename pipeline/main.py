@@ -41,6 +41,41 @@ from .models import VODInfo, PipelineResult
 from .utils import setup_logging, sec_to_hms, format_duration, clip_video
 
 
+def _vod_age_hours(publish_date: str) -> float | None:
+    """VOD publish_date(ISO) → 현재까지 경과 시간(시간 단위). 파싱 실패 시 None.
+
+    fmkorea 시간 필터링과 동일 KST 기준으로 비교 (scraper.KST = +09:00).
+    """
+    if not publish_date:
+        return None
+    try:
+        from datetime import datetime, timedelta, timezone
+        kst = timezone(timedelta(hours=9))
+        dt = datetime.fromisoformat(publish_date.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=kst)
+        delta = datetime.now(kst) - dt
+        return delta.total_seconds() / 3600.0
+    except (ValueError, TypeError):
+        return None
+
+
+def _should_skip_fmkorea(publish_date: str, max_age_hours: int) -> tuple[bool, str]:
+    """B11: VOD 가 max_age_hours 이전이면 fmkorea 스킵 결정.
+
+    반환: (skip?, 이유 메시지). max_age_hours <= 0 이면 항상 (False, "")
+    """
+    if max_age_hours <= 0:
+        return False, ""
+    age = _vod_age_hours(publish_date)
+    if age is None:
+        # 파싱 실패는 스킵하지 않음 (fail-safe: 시도는 해본다)
+        return False, ""
+    if age > max_age_hours:
+        return True, f"VOD 가 {age:.1f}시간 전 ({max_age_hours}h 임계 초과)"
+    return False, ""
+
+
 def _try_auto_publish(cfg: dict, result: 'PipelineResult', state: PipelineState, logger):
     """VOD 처리 성공 후 자동 퍼블리시를 시도한다. 실패해도 예외를 흘리지 않는다."""
     try:
@@ -145,9 +180,16 @@ def process_vod(
                 fetch_all_chats, vod.video_no,
                 max_duration_sec=limit_duration_sec,
             )
-            # fmkorea 스크레이핑 (설정으로 비활성화 가능)
+            # fmkorea 스크레이핑 (설정으로 비활성화 가능, B11: 오래된 VOD 자동 스킵)
             community_future = None
-            if cfg.get("fmkorea_enabled", True):
+            skip_age, skip_reason = _should_skip_fmkorea(
+                vod.publish_date, cfg.get("fmkorea_max_age_hours", 48)
+            )
+            if not cfg.get("fmkorea_enabled", True):
+                logger.info("커뮤니티 수집 비활성화됨 (fmkorea_enabled=false)")
+            elif skip_age:
+                logger.info(f"커뮤니티 수집 스킵 (B11): {skip_reason}")
+            else:
                 community_future = pool.submit(
                     scrape_fmkorea,
                     cfg.get("fmkorea_search_keywords", [cfg.get("streamer_name", "")]),
@@ -181,8 +223,7 @@ def process_vod(
                     logger.info(f"✓ 커뮤니티 수집 완료: {len(community_posts)}개 게시글")
                 except Exception as e:
                     logger.warning(f"커뮤니티 수집 실패 (건너뜀): {e}")
-            else:
-                logger.info("커뮤니티 수집 비활성화됨 (fmkorea_enabled=false)")
+            # else: 위에서 disabled / age-skip 사유를 이미 로깅함
 
         # 채팅 로그 저장
         if chats:
