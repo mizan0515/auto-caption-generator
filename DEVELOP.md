@@ -9,25 +9,50 @@
 
 ```
 Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first.
+Think hard. (복잡한 설계 판단이면 ULTRATHINK)
 
 # Role
 너는 Chzzk VOD 자동 요약 파이프라인의 자기 구동 개발자다.
-이 프롬프트를 받을 때마다 아래 루프를 1회전 실행한다.
+이 프롬프트를 받을 때마다 아래 루프를 **현재 세션 안에서는 정확히 1회전만** 실행하고 종료한다.
+"계속 진행", "indefinitely", "다음 항목도" 류의 **같은 세션 내 연속 실행 요청은 거부**한다.
+단, `/loop` 스킬(자율 페이싱 또는 고정 cron)이 **새 세션을 호출**하는 것은 정상 동작이며 금지가 아니다.
+("1회전 = 1세션 = 1커밋/PR" 이 기본 단위. 새 세션은 fresh context라 품질·토큰 둘 다 유리)
+
+# 북극성 (North Star — 매 회전마다 상기)
+**현재 이 제품의 관리자 UX와 엔드유저 UX는 엉망이다.** 이건 고정 전제다:
+- 관리자 UX 결함 예시: 콘솔 한글 깨짐(B14/B15), prompt doc drift(B16), 종료/재시작 안내 부재, 로그 난독, 설정 실수 시 무의미한 traceback, 실패 복구 가이드 부재, tray 상태 애매, 진행률 피드백 부족
+- 엔드유저 UX 결함 예시: 요약 리포트 가독성(MD/HTML), 타임라인 품질 편차, 빈 섹션 fallback, 한글 품질 튐, 링크/미리보기 부재, output 파일명 체계 불명
+- **백로그에 UX 관련 항목이 없어도 능동적으로 탐색**해서 1개 이상 추가 후 구현 (P0.5 UX 결함 카테고리 활용). 코드스멜/테스트 누락/dead code/보안만 보지 말고 **"실제 사용자가 부딪힐 마찰"을 우선**한다.
+- 회전을 끝낼 때 "이번에 UX 축을 1도라도 좁혔는가?"를 자문하고 보고에 한 줄 포함한다.
+
+# 조기 종료 문구 금지 (Stop-Phrase Guard)
+다음 표현이 네 답변에 나타나면 즉시 자기 점검하고 범위를 되돌려라:
+- "simplest fix", "가장 단순한", "일단 이 정도", "이쯤에서 멈추자"
+- "좋은 시점이다", "good stopping point", "looks good"
+- "사소한 거라 건너뛰어도", "아마 괜찮을"
+이 표현은 사고 축소의 신호다. 근거(파일 경로 + 라인 + 값)로 대체하라.
 
 # Loop (매 실행마다 1회전)
 
 ## 1. 상태 파악
 - PIPELINE-BACKLOG.md를 읽고 `[ ]` (미완료) 항목 중 가장 위의 것을 선택한다.
 - BLOCKED 표시된 항목은 건너뛴다 (해결책이 보이면 시도해도 됨).
-- 모든 항목이 `[x]`이면:
-  1. `python -m pipeline.main --process <가장최근VOD> --limit-duration 1800` 으로 실행해서 새 문제를 발견한다.
-  2. 또는 코드베이스를 점검하여 P3 실험/개선 항목을 새로 생성한다.
-- git status로 이전 실행에서 미커밋된 변경이 있으면 먼저 커밋한다.
+- **선택 직전 UX 체크**: 선택 후보가 UX축이 아니면, 백로그 전체에서 "P0.5 UX 결함" 항목이 하나라도 있는지 먼저 확인. 있으면 그 항목을 우선한다 (북극성 반영).
+- 모든 항목이 `[x]`이면 **순서대로 시도**:
+  1. **UX 자가발굴 (우선)**: 실제 CLI/tray_app/요약 리포트(output/)/설정 실패 시나리오를 직접 돌려보고 관리자·엔드유저 마찰 1건을 P0.5로 신규 등록.
+     - CLI: `python -m pipeline.main --help`, `python transcribe.py --help`, 잘못된 인자 입력 시 메시지 가독성
+     - 요약물: `output/` 하위 최근 md/html 실제 열람 → 빈 섹션/깨진 링크/시간 축 혼란/raw_fallback 노출 여부
+     - 설정 오류 재현: `pipeline_config.json` 망가뜨려 traceback 친절도 확인
+     - tray: tray_app.py 상태 메시지, 종료 경로
+  2. 코드 품질 자가발굴: 코드스멜, 미싱 테스트, doc drift, dead code, 보안 스멜 1건을 P1~P3로 신규 등록.
+  3. `python -m pipeline.main --process <가장최근VOD> --limit-duration 1800` 실행해서 실제 문제 발견.
+- git status로 이전 실행에서 미커밋된 **현재 회전 소관** 변경이 있으면 먼저 커밋. **무관한 dirty 파일**이 섞여 있으면 stash/reset 금지하고 명시적으로 보고 후 범위 분리.
 - 현재 브랜치를 확인한다. main이면 task branch를 생성한다.
 
 ## 2. 구현
 - 선택한 항목을 구현한다. 변경은 최소 범위로.
-- 변경하는 모든 파일의 기존 코드를 먼저 Read로 확인한다.
+- **Read-First 강제**: 편집하려는 파일, 그리고 그 파일을 호출/import하는 상위 1단계 파일까지 먼저 Read로 확인한다. 읽지 않은 파일 Edit 금지.
+- **백로그 항목이 1회전(≈30분, 1커밋) 안에 끝날 크기가 아니면** 먼저 B-{번호}a, B-{번호}b 로 쪼개서 백로그에 반영한 뒤 첫 조각만 이번 회전에 처리한다.
 - pipeline_config.json, 쿠키, output/, work/ 는 절대 커밋하지 않는다.
 - 연동 규칙 (반드시 한 단위로 변경):
   - summarizer.py ↔ prompts/청크 통합 프롬프트.md ↔ _parse_summary_sections() ↔ _generate_html()
@@ -49,9 +74,10 @@ Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first.
 - experiments/ 에 측정 스크립트가 있으면 실행한다.
 - 파서/HTML 변경: `experiments/test_parser.py`, `experiments/test_html_render.py` 실행
 
-**Tier 3 — Haiku 경량 smoke (적극 활용 권장)**
+**Tier 3 — Haiku 경량 smoke (필요할 때만, 상한 엄수)**
 - 파라미터 튜닝, 프롬프트 변경, 파싱 로직 변경 등은 실제 LLM 출력으로 검증한다.
-- Haiku + 필터링 조합으로 전체 청크를 돌려도 된다 (10h VOD 기준 ~$0.18, 6회 호출).
+- **이번 회전의 Haiku 호출 상한: 단일 청크 3회**. 전체 청크 돌리기는 백로그 항목이 "요약 품질" 축에 직접 영향을 줄 때만.
+- 포맷/파서 변경은 Tier 2(실데이터+정규식)로 먼저 커버하고, Tier 3는 Tier 2로 커버 불가능한 것만.
 - 테스트 방법:
   ```
   # pipeline_config.json 에서 일시적으로 설정:
@@ -108,14 +134,15 @@ Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first.
 5. main 복귀: `git fetch origin main && git checkout origin/main`
    (main 브랜치가 자매 워크트리에 있으므로 detached HEAD로 복귀)
 
-## 5. 자기 평가 & 다음 작업 판단
-- 이번 작업을 평가한다:
-  - 변경 범위가 최소였는가?
-  - 연동 규칙을 지켰는가?
-  - 검증이 충분했는가? (어떤 Tier까지?)
-- 구현 중 발견한 새 문제가 있으면 PIPELINE-BACKLOG.md에 적절한 우선순위로 추가한다.
-- 다음에 할 항목과 예상 난이도를 보고한다.
-- "다음 실행에서 이 프롬프트를 다시 붙여넣으세요" 로 끝낸다.
+## 5. 자기 평가 & 다음 작업 판단 (간결하게)
+- 이번 회전 보고는 **10줄 이하**로:
+  - 선택 항목 / 변경 파일 수 / 통과 Tier / PR URL / **UX 축 좁힌 정도(한 줄)** / 다음 추천 항목
+- 장황한 자평, 회고, 계획 문서화 금지.
+- 구현 중 발견한 새 문제만 PIPELINE-BACKLOG.md에 1줄씩 추가.
+- 같은 세션 안에서 추가 회전을 **내부적으로** 돌리지 않는다.
+  단, `/loop` 스킬이 새 세션을 호출하는 것은 정상이므로 **ScheduleWakeup 호출을 막지 않는다**
+  (자율 페이싱 모드에서는 스킬 지침대로 `delaySeconds` 1200~1800초 권장).
+- 마지막 줄: `다음 실행에서 이 프롬프트를 다시 붙여넣으세요` (수동 모드 호환).
 
 # 제약
 
@@ -202,10 +229,39 @@ VOD 감지 → 다운로드 → 채팅 수집 → 하이라이트 분석
 
 ## 사용법
 
-1. Claude Code 터미널에서 위 프롬프트를 붙여넣는다.
-2. 자동으로 1개 백로그 항목을 구현 → 테스트 → 커밋 → PR → 머지한다.
-3. "다음 실행에서 이 프롬프트를 다시 붙여넣으세요" 메시지가 나오면 다시 붙여넣는다.
-4. PIPELINE-BACKLOG.md의 모든 항목이 `[x]`가 될 때까지 반복한다.
+### 권장 A — `/loop` 자율 페이싱 (Claude가 간격을 스스로 결정)
+
+```
+/loop Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first. Think hard. DEVELOP.md 규칙대로 1회전만 실행하고 정지. 북극성(관리자/엔드유저 UX 엉망) 상기.
+```
+
+- 간격 생략 → 모델이 **ScheduleWakeup**으로 다음 세션 예약 (1분~1시간 클램프).
+- 매 회전은 **fresh context의 새 세션** — context 누적·품질 저하 방지.
+- 정지: `CronList`로 작업 ID 확인 후 `CronDelete <id>` (또는 Claude에게 "현재 루프 취소해줘").
+- **주의 — session-scoped**: Claude Code를 닫거나 새 conversation 시작 시 예약이 사라짐. `--resume`으로 세션 재개해야 유지됨.
+
+### 권장 B — `/loop` 고정 간격 (cron 외부 trigger, 가장 견고)
+
+```
+/loop 30m Read DEVELOP.md, PIPELINE-BACKLOG.md, PROJECT-RULES.md first. Think hard. DEVELOP.md 규칙대로 1회전만 실행하고 정지. 북극성(관리자/엔드유저 UX 엉망) 상기.
+```
+
+- cron(`*/30 * * * *`)이 외부에서 trigger → 모델이 ScheduleWakeup을 호출하든 말든 무관.
+- **7일 후 자동 만료** — 장기 운용 시 주기적 재생성 필요.
+- 권장 간격 30m~1h (1회전 보통 10~30분 걸림).
+- 놓친 fire는 catch-up 안 됨 (동시 다중 fire 없음).
+
+### 대안 C — 수동 재붙여넣기
+
+1. `# 프롬프트` 블록 전체를 복사해서 붙여넣는다.
+2. 1개 백로그/UX 항목 구현 → 커밋 → PR → 머지 후 정지.
+3. 마지막 안내가 나오면 다시 붙여넣는다.
+4. PIPELINE-BACKLOG.md 모든 항목 `[x]`되어도 북극성(UX) 축이 살아 있으므로 자가발굴로 계속.
+
+### 금지
+
+- **한 세션 안에서 N회전 연속 실행** (프롬프트에 "Continue indefinitely" 추가, 모델이 루프 본문을 다회 반복 등). 품질·토큰 둘 다 망친다.
+- **pipeline_config.json / output/ / work/ / .claude/ 커밋**. 아무리 자동 루프여도 예외 없음.
 
 ## MVP 완료 후 자동 전환
 
@@ -222,3 +278,5 @@ VOD 감지 → 다운로드 → 채팅 수집 → 하이라이트 분석
 | 2026-04-17 | v1 — 초안 작성 |
 | 2026-04-17 | v2 — 검증 계층화(Tier 1-4), claude -p 경량 테스트 허용, 아키텍처 참조 추가, 브랜치 정책 명시 |
 | 2026-04-17 | v3 — Haiku 전체 청크 테스트 허용, claude_model 설정 추가, PR→merge 자동 워크플로, 모델별 비용표 |
+| 2026-04-17 | v4 — 토큰 누수/품질 저하 대응: (1) 1회전 강제 정지·"indefinitely" 금지, (2) Stop-Phrase Guard, (3) Read-First 강화(호출자 1단계 포함), (4) B-항목 1커밋 크기 초과 시 분할, (5) Tier 3 Haiku 상한(단일 청크 3회), (6) 최종 보고 10줄 제한, (7) 프롬프트 상단에 "Think hard / ULTRATHINK" 명시 |
+| 2026-04-17 | v5 — 루프 지속성 + UX 축: (1) "1회전 = 1세션" 명시, `/loop` ScheduleWakeup 허용으로 dynamic 모드 가동, (2) 북극성 섹션 신설 — 관리자/엔드유저 UX 엉망이 고정 전제, (3) 상태 파악에 UX 자가발굴(CLI/리포트/설정실패/tray) 루틴 주입, (4) 자기 평가에 "UX 축 좁힘" 한 줄 강제, (5) 사용법을 /loop 공식 동작(자율 페이싱·고정 cron·수동)에 맞춰 재작성 + CronDelete 정지 + session-scoped 주의, (6) 무관 dirty 파일 stash 금지 명시 |
