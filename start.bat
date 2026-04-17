@@ -1,8 +1,9 @@
 @echo off
 REM ASCII-only launcher. Korean UI is printed by first_run.py under UTF-8 stdio.
-REM Prefers python.org / winget Python (NOT Microsoft Store sandboxed Python)
-REM because the MS Store Python App Container blocks Shell_NotifyIcon from
-REM actually rendering the tray icon.
+REM Prefers python.org / winget Python if present. The tray icon was removed
+REM in favor of a dashboard-owns-the-daemon architecture, so MS Store Python
+REM now works fine too -- but python.org install is still preferred for
+REM cleaner behavior around App Execution Alias shadowing.
 chcp 65001 >nul
 cd /d "%~dp0"
 
@@ -39,6 +40,6 @@ if %RC% neq 0 (
 )
 echo.
 echo Done. A dashboard window has opened - all controls live there.
-echo The tray icon (if visible) is under the '^^' overflow on the taskbar.
+echo Closing the dashboard window will also stop the pipeline.
 echo This window will close in 5 seconds - you can close it now.
 timeout /t 5 >nul

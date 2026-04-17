@@ -12,10 +12,6 @@ beautifulsoup4>=4.12.0
 lxml>=5.0.0
 requests>=2.31.0
 
-# Pipeline: 시스템 트레이
-pystray>=0.19.0
-Pillow>=10.0.0
-
 # Pipeline: 쿠키 자동 갱신 (브라우저 쿠키 DB 에서 NID_AUT/NID_SES 추출)
 browser_cookie3>=0.20.0
 

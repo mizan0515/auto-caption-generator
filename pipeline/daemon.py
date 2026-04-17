@@ -1,0 +1,194 @@
+"""파이프라인 백그라운드 데몬.
+
+이전에는 `tray_app.py` 의 `PipelineTray` 안에 데몬 루프가 내장돼 있었고,
+대시보드는 별도 프로세스로 떠서 파일 기반 IPC (`pipeline/control.py`) 로
+제어했다. Windows 11 이 새 앱의 트레이 아이콘을 기본적으로 숨기는 바람에
+트레이가 "있으나 안 보이는" UX 문제가 반복돼 트레이를 아예 제거하고
+대시보드 프로세스가 데몬을 직접 소유하도록 재구성함.
+
+대시보드 창이 닫히면 `stop()` 으로 종료한다. 파일 IPC 는 필요 없다 —
+대시보드가 데몬 인스턴스 메서드를 직접 호출한다.
+"""
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from typing import Callable, Optional
+
+logger = logging.getLogger("pipeline")
+
+
+class PipelineDaemon:
+    """파이프라인 폴링 루프를 별도 스레드로 실행.
+
+    `Dashboard` 가 생성 시점에 인스턴스화하고 `start()` 를 호출한다. GUI 종료 시
+    `stop()` 으로 정리.
+    """
+
+    def __init__(self, cfg: dict, state, log_dir: str,
+                 notify: Optional[Callable[[str, str], None]] = None):
+        """
+        Args:
+            cfg: pipeline_config.json 로드 결과
+            state: PipelineState 인스턴스 (이미 생성된 것을 주입받음)
+            log_dir: setup_logging 에 넘길 로그 디렉터리
+            notify: (title, message) 받는 GUI 알림 콜백. 없으면 무시.
+        """
+        self.cfg = cfg
+        self.state = state
+        self.log_dir = log_dir
+        self._notify = notify or (lambda title, msg: None)
+
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
+        self._paused = False
+        self._log_logger: Optional[logging.Logger] = None
+
+    # ---------- public API ----------
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._running = True
+        self._paused = False
+        self.state.clear_stop()
+        self._thread = threading.Thread(
+            target=self._run_loop, daemon=True, name="pipeline-daemon"
+        )
+        self._thread.start()
+
+    def pause(self) -> None:
+        if self._paused:
+            return
+        self._paused = True
+        self.state.request_stop()
+        logger.info("파이프라인 일시정지됨")
+        self._notify("일시정지", "파이프라인이 일시정지되었습니다.")
+
+    def resume(self) -> None:
+        if not self._paused:
+            return
+        self._paused = False
+        self.state.clear_stop()
+        logger.info("파이프라인 재개됨")
+        self._notify("재개", "파이프라인이 재개되었습니다.")
+        # 스레드가 루프 조건으로 빠져나간 상태면 새로 띄움
+        if not (self._thread and self._thread.is_alive()):
+            self.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """GUI 종료 시 호출. 루프 종료 요청 + join (timeout)."""
+        self._running = False
+        self.state.request_stop()
+        th = self._thread
+        if th and th.is_alive():
+            th.join(timeout=timeout)
+
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def get_status_text(self) -> str:
+        if self._paused:
+            return "일시정지됨"
+        if not self.is_running():
+            return "중지됨"
+        data = self.state._load()
+        processing = []
+        for vno, entry in data.get("processed_vods", {}).items():
+            status = entry.get("status", "")
+            if status in (
+                "collecting", "analyzing", "transcribing",
+                "chunking", "summarizing", "saving",
+            ):
+                processing.append(f"[{vno}] {status}")
+        if processing:
+            return "처리 중: " + ", ".join(processing)
+        return "대기 중 (모니터링)"
+
+    def update_config(self, new_cfg: dict) -> None:
+        """설정 GUI 에서 저장 후 호출. 다음 폴링부터 적용."""
+        self.cfg = new_cfg
+        logger.info("데몬 설정 갱신 — 다음 폴링부터 적용")
+
+    # ---------- internal ----------
+
+    def _run_loop(self) -> None:
+        from pipeline.config import get_cookies, validate_cookies
+        from pipeline.monitor import check_new_vods
+        from pipeline.main import process_vod
+        from pipeline.models import VODInfo
+        from pipeline.utils import setup_logging
+
+        log_logger = setup_logging(self.log_dir)
+        self._log_logger = log_logger
+        channel_id = self.cfg["target_channel_id"]
+        poll_interval = self.cfg.get("poll_interval_sec", 300)
+        cookies = get_cookies(self.cfg)
+
+        log_logger.info("=" * 60)
+        log_logger.info("  파이프라인 데몬 시작 (대시보드 내장 모드)")
+        log_logger.info(f"  채널: {channel_id}")
+        log_logger.info(f"  스트리머: {self.cfg.get('streamer_name', '?')}")
+        log_logger.info(f"  폴링 간격: {poll_interval}초")
+        log_logger.info("=" * 60)
+
+        if not validate_cookies(self.cfg):
+            log_logger.error("쿠키가 설정되지 않았습니다.")
+            self._notify(
+                "오류",
+                "쿠키가 설정되지 않았습니다.\npipeline_config.json의 cookies를 설정하세요.",
+            )
+            return
+
+        while self._running and not self._paused:
+            if self.state.should_stop():
+                log_logger.info("종료 요청 감지")
+                break
+            try:
+                new_vods = check_new_vods(channel_id, cookies, self.state)
+                for vod in new_vods:
+                    if not self._running or self._paused:
+                        break
+                    self._notify("새 VOD", f"새 VOD 처리 시작: {vod.title[:40]}")
+                    process_vod(vod, self.cfg, self.state, log_logger)
+                    self._notify("완료", f"VOD 처리 완료: {vod.title[:40]}")
+
+                # 실패 VOD 재시도
+                failed = self.state.get_failed_vods(max_retries=3)
+                for video_no in failed:
+                    if not self._running or self._paused:
+                        break
+                    log_logger.info(f"실패 VOD 재시도: {video_no}")
+                    self.state.increment_retry(video_no)
+                    try:
+                        from content.network import NetworkManager
+                        _, _, _, _, _, metadata = NetworkManager.get_video_info(
+                            video_no, cookies
+                        )
+                        vod = VODInfo(
+                            video_no=video_no,
+                            title=metadata.get("title", ""),
+                            channel_id=channel_id,
+                            channel_name=metadata.get("channelName", ""),
+                            duration=metadata.get("duration", 0),
+                            publish_date=metadata.get("createdDate", ""),
+                            category=metadata.get("category", ""),
+                        )
+                        process_vod(vod, self.cfg, self.state, log_logger)
+                    except Exception as e:  # noqa: BLE001
+                        log_logger.error(f"재시도 실패: {e}")
+
+            except Exception as e:  # noqa: BLE001
+                log_logger.error(f"메인 루프 오류: {e}")
+
+            # 폴링 대기 (1초 단위로 끊어서 종료 감지)
+            for _ in range(int(poll_interval)):
+                if not self._running or self._paused:
+                    break
+                time.sleep(1)
+
+        log_logger.info("파이프라인 데몬 루프 종료")
