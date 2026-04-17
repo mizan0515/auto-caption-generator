@@ -85,12 +85,28 @@
   - 검증: `experiments/b22_merge_failure_ux.py` 7 케이스 (성공/실패 머지 × 실패 청크 유무, helper
     단독, reason 다중줄 traceback 숨김).
 
+- [x] **B23 `--config` CLI 인자가 load_config() 에서 무시되던 silent override 제거**
+  - 파일: `pipeline/config.py`, `pipeline/main.py`, `experiments/b23_config_path_arg.py` (신규)
+  - 현상: `pipeline/main.py` 는 argparse 로 `--config` 경로를 받지만 그 뒤 `cfg = load_config()`
+    를 **무인자로** 호출. 결과적으로 사용자가 `python -m pipeline.main --config prod.json`
+    으로 명시 지정해도 조용히 기본 `pipeline_config.json` 이 로드된다. help 에는 "설정 파일
+    경로 (기본: pipeline_config.json)" 이라 약속되어 있어 silent override UX 최악.
+    B21 의 `ConfigError` 메시지도 `_config_path()` 기본 경로만 찍고 있어 "어느 파일이 틀렸는지"
+    까지 오도하는 2차 결함.
+  - 목표: (a) `load_config(config_path=None)` / `save_config(..., config_path=None)` 도입,
+    커스텀 경로를 실제로 사용, (b) `validate_config(..., source_path=...)` 로 오류 메시지에
+    실제 파일 경로 노출, (c) 없는 경로에는 기존 동작(DEFAULT 자동 생성)을 그 경로로 적용.
+  - 검증: `experiments/b23_config_path_arg.py` 7 케이스 (기본 None 경로/커스텀 경로 값 반영/
+    없는 경로에 DEFAULT 저장/커스텀 경로 save/ConfigError 메시지에 실제 경로 포함/
+    상대→절대 resolve/save→load 왕복). B21 회귀(13/13) 도 동시 유지.
+
 ## 다음 회전 후보 (v5.3 브레인스토밍 밑천)
 
 - [ ] **B-ux-next tray_app KeyboardInterrupt 안내 부재** — Ctrl+C 시 tray 스레드 종료 경로와 "daemon 을 어떻게 끄는가" 안내 부재 재현/수정
 - [ ] **B-quality-next 타임라인 시간 포맷 일관성** — MD/HTML 리포트에서 `[HH:MM:SS]` vs `[MM:SS]` 혼재 여부 실측 후 정규화
 - [ ] **B-static-next transcribe.py --cleanup 실동작 검증** — 플래그 존재하지만 호출 흐름에서 실제 동작하는지 smoke
 - [ ] **B-websearch-next claude CLI code=1 원인 분류** — WebSearch 로 code=1 대표 원인(인증 만료/네트워크/토큰 한도) 좁힌 후 친절 에러 메시지 매핑 백로그화
+- [ ] **B-ops-next tray_app ConfigError unhandled** — B21 의 `ConfigError` 를 `tray_app.py` 가 잡지 않아 잘못된 cfg 에서 tray 부팅 시 messagebox 없이 traceback. B21b 로 처리
 
 
 - [x] **B14 CLI 한글 깨짐 (Windows cp949 stdout)**
@@ -233,4 +249,5 @@
 | B20 | 2026-04-17 | ✅ Tier2: 7/7 happy/None/legacy/OSError/ValueError/멱등/실제TextIOWrapper | experiments/b20_io_encoding_tests.py (force_utf8_stdio 회귀 커버리지) |
 | B21 | 2026-04-17 | ✅ Tier2: 13/13 default happy/claude_model 오타/문자열 수/음수/0 허용/None/enum 오타/cookies·list 타입/다중 aggregate/bool 거부/load_config 전파 | pipeline/config.py `ConfigError` + `validate_config()` + main.py 친절 종료 + experiments/b21_config_validation.py |
 | B22 | 2026-04-17 | ✅ Tier2: 7/7 성공/실패 머지 × prompt leak/복구 가이드/helper 단독/traceback 숨김 | pipeline/summarizer.py `_format_failure_notice_for_llm` + `_build_failure_report` + experiments/b22_merge_failure_ux.py |
+| B23 | 2026-04-17 | ✅ Tier2: 7/7 default None/커스텀 경로 반영/없는 경로 DEFAULT 생성/save/ConfigError 메시지 실제 경로/상대→절대 resolve/save·load 왕복 + B21 13/13 회귀 유지 | pipeline/config.py `_resolve_config_path` + `load_config(config_path=)` + `save_config(config_path=)` + `validate_config(source_path=)` + main.py `load_config(config_path=args.config)` + experiments/b23_config_path_arg.py |
 | — | — | — | — |
