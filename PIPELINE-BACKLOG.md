@@ -82,6 +82,15 @@
     (가능한 경우) 적용. CLI/데몬 양쪽 안전.
   - 검증: `python -m pipeline.main --help` 출력에 깨진 글자 0개.
 
+- [x] **B15 transcribe.py / tray_app.py 동일 cp949 결함 + DRY 헬퍼**
+  - 파일: `transcribe.py`, `tray_app.py`, `pipeline/_io_encoding.py` (신규)
+  - 현상: B14 와 동일한 한글 깨짐이 `python transcribe.py --help`,
+    `python tray_app.py` 콘솔 메시지에서도 발생.
+  - 목표: `pipeline/_io_encoding.force_utf8_stdio()` 헬퍼 추출 후 3개
+    entrypoint (pipeline.main / transcribe / tray_app) 모두 호출. B14
+    인라인 코드도 헬퍼로 교체.
+  - 검증: 3개 entrypoint --help 또는 syntax compile 모두 한글 정상.
+
 ## 우선순위 P3 — 실험/튜닝
 
 - [x] **B12 하이라이트 필터 파라미터 최적화 실험**
@@ -118,4 +127,5 @@
 | B12 | 2026-04-17 | ✅ Tier3: 1800s/10800s 클립 4×3 sweep, 3h 클립 radius=180/cold=60에서 70.4% 절감 + 98.3% 커버리지 추천 | experiments/b12_highlight_filter_sweep.py + results/2026-04-17_b12_*.{json,md} |
 | B13 | 2026-04-17 | ✅ Tier3: 1800s/10800s × filter on/off × 4 chunk 후보 sweep, filter ON 기준 chunk_max_chars=15000 risk=low 추천 | experiments/b13_chunk_max_chars_sweep.py + results/2026-04-17_b13_*.{json,md} |
 | B14 | 2026-04-17 | ✅ Tier3: `python -m pipeline.main --help` 한글 정상 출력 (cp949 콘솔에서도 깨짐 0건) | pipeline/main.py 진입부 sys.stdout/stderr UTF-8 reconfigure |
+| B15 | 2026-04-17 | ✅ Tier3: 3개 entrypoint --help/compile 모두 한글 정상, B14 인라인 → DRY 헬퍼 교체 | pipeline/_io_encoding.py + main.py/transcribe.py/tray_app.py |
 | — | — | — | — |

@@ -22,6 +22,10 @@ _ROOT = str(Path(__file__).resolve().parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+# B15: Windows cp949 콘솔 한글 깨짐 방지 (트레이 메뉴 로그/콘솔 메시지)
+from pipeline._io_encoding import force_utf8_stdio  # noqa: E402
+force_utf8_stdio()
+
 try:
     import pystray
     from PIL import Image

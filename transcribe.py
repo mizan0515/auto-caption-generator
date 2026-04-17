@@ -11,6 +11,10 @@ import numpy as np
 import wave
 from collections import Counter
 
+# B15: Windows cp949 콘솔 한글 깨짐 방지 (--help / 진행 로그)
+from pipeline._io_encoding import force_utf8_stdio
+force_utf8_stdio()
+
 # 모든 경고/로그 숨기기
 warnings.filterwarnings("ignore")
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
