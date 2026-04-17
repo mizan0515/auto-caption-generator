@@ -228,6 +228,9 @@ def process_vod(
             overlap_sec=cfg.get("chunk_overlap_sec", 30),
             max_tokens=cfg.get("chunk_max_tokens"),
             tokenizer_encoding=cfg.get("chunk_tokenizer_encoding", "cl100k_base"),
+            highlights=highlights,
+            highlight_radius_sec=cfg.get("highlight_radius_sec", 300),
+            cold_sample_sec=cfg.get("cold_sample_sec", 30),
         )
         logger.info(f"✓ 청크 분할 완료: {len(chunks)}개")
 

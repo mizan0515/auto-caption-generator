@@ -30,6 +30,11 @@ DEFAULT_CONFIG = {
     "chunk_max_tokens": None,
     "chunk_tokenizer_encoding": "cl100k_base",
     "chunk_overlap_sec": 30,
+    # 채팅 하이라이트 기반 자막 필터링 (B01):
+    #   highlight_radius_sec: 하이라이트 ±N초 구간은 모든 자막 유지
+    #   cold_sample_sec: 나머지 구간에서 N초당 1개 샘플링
+    "highlight_radius_sec": 300,
+    "cold_sample_sec": 30,
     "claude_timeout_sec": 300,
     "auto_cleanup": True,
     "fmkorea_max_pages": 3,

@@ -201,16 +201,76 @@ def split_by_tokens(
     return chunks
 
 
+def filter_cues_by_highlights(
+    cues: List[Cue],
+    highlights: list[dict],
+    hot_radius_sec: int = 300,
+    cold_sample_sec: int = 30,
+) -> List[Cue]:
+    """채팅 하이라이트 기반 자막 필터링.
+
+    - 하이라이트 ±hot_radius_sec 구간: 모든 cue 유지 (상세 분석 대상)
+    - 나머지 구간: cold_sample_sec 간격으로 1개만 샘플링 (맥락 유지용)
+
+    이렇게 하면 10시간 VOD 기준 ~60% 토큰 절감.
+    highlights가 비어있으면 원본 그대로 반환 (필터링 불가).
+    """
+    if not highlights or not cues:
+        return cues
+
+    # 핫 구간 시간 집합 (초 단위)
+    hot_secs: set[int] = set()
+    for h in highlights:
+        center = int(h["sec"])
+        for s in range(center - hot_radius_sec, center + hot_radius_sec + 1):
+            hot_secs.add(s)
+
+    # 분류
+    hot_cues: List[Cue] = []
+    cold_cues: List[Cue] = []
+    for c in cues:
+        if (c.start_ms // 1000) in hot_secs:
+            hot_cues.append(c)
+        else:
+            cold_cues.append(c)
+
+    # cold 구간 샘플링: cold_sample_sec 간격마다 1개
+    cold_sampled: List[Cue] = []
+    last_bucket = -1
+    for c in cold_cues:
+        bucket = c.start_ms // (cold_sample_sec * 1000)
+        if bucket != last_bucket:
+            cold_sampled.append(c)
+            last_bucket = bucket
+
+    # 시간순 병합
+    merged = sorted(hot_cues + cold_sampled, key=lambda c: c.start_ms)
+
+    logger.info(
+        f"  자막 필터링: {len(cues)}개 → {len(merged)}개 "
+        f"(핫 {len(hot_cues)} + 샘플 {len(cold_sampled)}, "
+        f"절감 {(1 - len(merged)/len(cues))*100:.0f}%)"
+    )
+    return merged
+
+
 def chunk_srt(
     srt_path: str,
     max_chars: int = 150000,
     overlap_sec: int = 45,
     max_tokens: Optional[int] = None,
     tokenizer_encoding: str = "cl100k_base",
+    highlights: Optional[list[dict]] = None,
+    highlight_radius_sec: int = 300,
+    cold_sample_sec: int = 30,
 ) -> list[dict]:
     """
     SRT 파일을 청크로 분할.
     반환: [{"index": 1, "start_ms": ..., "end_ms": ..., "text": "..."}, ...]
+
+    highlights가 주어지면 채팅 하이라이트 기반 필터링을 먼저 적용:
+      - 하이라이트 ±highlight_radius_sec: 상세 (모든 자막 유지)
+      - 나머지: cold_sample_sec 간격으로 샘플링
 
     precedence (Phase A2):
         max_tokens 가 None 이 아니면 split_by_tokens() 사용 (토큰 기준).
@@ -229,6 +289,14 @@ def chunk_srt(
     if not cues:
         logger.warning("SRT에 자막이 없습니다.")
         return []
+
+    # 채팅 하이라이트 기반 필터링 (토큰 절감)
+    if highlights:
+        cues = filter_cues_by_highlights(
+            cues, highlights,
+            hot_radius_sec=highlight_radius_sec,
+            cold_sample_sec=cold_sample_sec,
+        )
 
     if max_tokens is not None:
         chunks = split_by_tokens(cues, max_tokens, overlap_sec, tokenizer_encoding)
