@@ -72,6 +72,27 @@
 
 ## 우선순위 P0.5 — UX 결함 (Polish 단계 자가발굴)
 
+- [x] **B22 머지 실패 리포트 prompt leak + 복구 가이드 부재**
+  - 파일: `pipeline/summarizer.py`, `experiments/b22_merge_failure_ux.py` (신규)
+  - 현상: `output/12402235_...md` 가 `"## chunk_01 — 분석 실패: Claude CLI 실패 (code=1): 알 수 없는 오류"` 뒤에
+    `"해당 구간은 건너뛰고 요약해주세요"` 라는 **LLM-facing 지시문**을 그대로 노출. 이는 원래 Claude
+    에게 보낼 머지 프롬프트에 prepend 하던 문구인데, merge_results/two_round_merge 의 fallback
+    경로가 `all_results` 를 그대로 반환 → 사용자 리포트에 프롬프트 유출. 게다가 `"알 수 없는 오류"`
+    말고는 재시도 방법/로그 위치 안내가 전혀 없어 엔드유저가 뭘 해야 할지 모름.
+  - 목표: (a) LLM 지시문과 사용자 배너 분리 (`_format_failure_notice_for_llm` + `_build_failure_report`),
+    (b) fallback 시 실패 원인 요약(traceback 숨김) + `--process <video_no>` 재실행 명령 + 로그 위치 안내,
+    (c) 성공 청크 0건/전체 실패 모두 커버.
+  - 검증: `experiments/b22_merge_failure_ux.py` 7 케이스 (성공/실패 머지 × 실패 청크 유무, helper
+    단독, reason 다중줄 traceback 숨김).
+
+## 다음 회전 후보 (v5.3 브레인스토밍 밑천)
+
+- [ ] **B-ux-next tray_app KeyboardInterrupt 안내 부재** — Ctrl+C 시 tray 스레드 종료 경로와 "daemon 을 어떻게 끄는가" 안내 부재 재현/수정
+- [ ] **B-quality-next 타임라인 시간 포맷 일관성** — MD/HTML 리포트에서 `[HH:MM:SS]` vs `[MM:SS]` 혼재 여부 실측 후 정규화
+- [ ] **B-static-next transcribe.py --cleanup 실동작 검증** — 플래그 존재하지만 호출 흐름에서 실제 동작하는지 smoke
+- [ ] **B-websearch-next claude CLI code=1 원인 분류** — WebSearch 로 code=1 대표 원인(인증 만료/네트워크/토큰 한도) 좁힌 후 친절 에러 메시지 매핑 백로그화
+
+
 - [x] **B14 CLI 한글 깨짐 (Windows cp949 stdout)**
   - 파일: `pipeline/main.py`
   - 현상: `python -m pipeline.main --help` 의 한글 description/help 가
@@ -211,4 +232,5 @@
 | B19 | 2026-04-17 | ✅ Tier2: 8/8 ASCII 1쌍/2쌍/curly 1쌍/혼합/single+curly/빈/홀수 개+score 회귀 | pipeline/subtitle_analyzer.py _score_text quote 집계 수정 + experiments/b19_quote_count_typo.py |
 | B20 | 2026-04-17 | ✅ Tier2: 7/7 happy/None/legacy/OSError/ValueError/멱등/실제TextIOWrapper | experiments/b20_io_encoding_tests.py (force_utf8_stdio 회귀 커버리지) |
 | B21 | 2026-04-17 | ✅ Tier2: 13/13 default happy/claude_model 오타/문자열 수/음수/0 허용/None/enum 오타/cookies·list 타입/다중 aggregate/bool 거부/load_config 전파 | pipeline/config.py `ConfigError` + `validate_config()` + main.py 친절 종료 + experiments/b21_config_validation.py |
+| B22 | 2026-04-17 | ✅ Tier2: 7/7 성공/실패 머지 × prompt leak/복구 가이드/helper 단독/traceback 숨김 | pipeline/summarizer.py `_format_failure_notice_for_llm` + `_build_failure_report` + experiments/b22_merge_failure_ux.py |
 | — | — | — | — |

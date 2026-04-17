@@ -175,6 +175,59 @@ def process_chunks(
     return chunk_results
 
 
+def _format_failure_notice_for_llm(failed_count: int, total_count: int) -> str:
+    """Claude 입력에 prepend 할 실패 청크 지시문 (사용자에겐 보이면 안 됨).
+
+    B22: 이전에는 이 문구를 `all_results` 에 직접 prepend 해서 merge fallback
+    경로가 그대로 반환하면 사용자 리포트에 유출되었다. 이제는 호출자가
+    Claude 에게 보낼 payload 에만 수동으로 prepend.
+    """
+    if failed_count <= 0:
+        return ""
+    return (
+        f"⚠ 주의: 전체 {total_count}개 청크 중 {failed_count}개가 분석에 실패했습니다. "
+        f"실패한 구간은 '분석 실패'로 표시되어 있으며, 해당 구간은 건너뛰고 요약해주세요.\n\n"
+    )
+
+
+def _build_failure_report(
+    vod_info: VODInfo,
+    chunk_results: list[str],
+    failed_count: int,
+    total_count: int,
+    reason: str,
+) -> str:
+    """통합 머지 실패 시 사용자용 복구 가이드 리포트.
+
+    B22: 이전 동작은 "# {title} — 자동 요약 (통합 실패)\\n\\n{all_results}" 로
+    LLM 지시문("건너뛰고 요약해주세요")이 섞인 청크 덤프를 그대로 저장. 사용자는
+    깨진 리포트만 보고 무엇을 해야 할지 모름. 이제는 원인/복구 명령을 명시.
+    """
+    # 실패 이유 1줄 요약 (traceback 노출 금지 → 로그에 맡김)
+    reason_brief = (reason or "원인 미상").strip().splitlines()[0][:200]
+    partial = "\n\n---\n\n".join(chunk_results) if chunk_results else "(청크 결과 없음)"
+    return (
+        f"# {vod_info.title} — 자동 요약 (통합 실패)\n"
+        "\n"
+        f"> ⚠ **최종 통합 요약 생성에 실패했습니다.** (실패 청크: {failed_count}/{total_count})\n"
+        "\n"
+        f"- 실패 원인(요약): `{reason_brief}`\n"
+        f"- 상세 traceback 은 `output/logs/` 또는 실행 콘솔을 확인하세요.\n"
+        "\n"
+        "## 복구 방법\n"
+        "\n"
+        f"1. Claude CLI 가 설치/로그인되어 있는지 확인: `claude --version`\n"
+        f"2. 네트워크/쿠키 문제라면 `pipeline_config.json` 검토 후 재실행\n"
+        f"3. 같은 VOD 재처리: `python -m pipeline.main --process {vod_info.video_no}`\n"
+        "\n"
+        "## 부분 결과 (청크별 원문)\n"
+        "\n"
+        "아래는 통합 전 청크 결과 원문입니다. 수동으로 참고하거나 재실행 시 덮어써집니다.\n"
+        "\n"
+        f"{partial}\n"
+    )
+
+
 def merge_results(
     chunk_results: list[str],
     vod_info: VODInfo,
@@ -191,14 +244,14 @@ def merge_results(
     merge_template = _load_merge_prompt()
 
     # 청크 결과 합치기 + 실패 청크 경고
+    # B22: LLM-facing 지시문(prompt)과 user-facing 배너(report)를 분리.
+    #   이전에는 LLM 지시문("건너뛰고 요약해주세요")을 all_results 에 prepend 해서
+    #   merge 가 실패하면 line 303 fallback 이 그대로 반환 → output/*.md 에
+    #   프롬프트 문구가 유출되던 UX 결함 (실측 12402235 리포트 참조).
     failed_count = sum(1 for r in chunk_results if "분석 실패:" in r)
+    total_count = len(chunk_results)
     all_results = "\n\n---\n\n".join(chunk_results)
-    if failed_count > 0:
-        all_results = (
-            f"⚠ 주의: 전체 {len(chunk_results)}개 청크 중 {failed_count}개가 분석에 실패했습니다. "
-            f"실패한 구간은 '분석 실패'로 표시되어 있으며, 해당 구간은 건너뛰고 요약해주세요.\n\n"
-            + all_results
-        )
+    llm_failure_notice = _format_failure_notice_for_llm(failed_count, total_count)
 
     # 커뮤니티 데이터
     community_text = format_community_for_prompt(
@@ -273,12 +326,13 @@ def merge_results(
 ## 방송중 커뮤니티 글 원문 (시간 축 불일치 — 맥락 참고용)
 {community_text}"""
 
-    # ── 유저 프롬프트 = 청크 결과 데이터 ──
+    # ── 유저 프롬프트 = 청크 결과 데이터 (LLM 지시문 prepend) ──
+    chunk_payload = (llm_failure_notice + all_results) if llm_failure_notice else all_results
     if "{CHUNK_RESULTS_ALL}" not in merge_template:
         logger.warning("통합 프롬프트에 {CHUNK_RESULTS_ALL} 플레이스홀더가 없습니다. 직접 조립합니다.")
-        user_prompt = f"# 방송 분석 통합\n\n{all_results}"
+        user_prompt = f"# 방송 분석 통합\n\n{chunk_payload}"
     else:
-        user_prompt = merge_template.replace("{CHUNK_RESULTS_ALL}", all_results)
+        user_prompt = merge_template.replace("{CHUNK_RESULTS_ALL}", chunk_payload)
 
     # 토큰 초과 대응: 10개 이상 청크면 2라운드 병합
     if len(chunk_results) > 10:
@@ -300,7 +354,7 @@ def merge_results(
         return result
     except Exception as e:
         logger.error(f"최종 리포트 생성 실패: {e}")
-        return f"# {vod_info.title} — 자동 요약 (통합 실패)\n\n{all_results}"
+        return _build_failure_report(vod_info, chunk_results, failed_count, total_count, reason=str(e))
 
 
 def _two_round_merge(
@@ -353,7 +407,13 @@ def _two_round_merge(
         )
     except Exception as e:
         logger.error(f"2라운드 최종 병합 실패: {e}")
-        return "\n\n---\n\n".join(mid_results)
+        # B22: 2라운드 fallback 도 user-facing 배너 + 중간 결과로.
+        failed_count = sum(1 for r in chunk_results if "분석 실패:" in r)
+        partial = "\n\n---\n\n".join(mid_results)
+        return _build_failure_report(
+            vod_info, [partial], failed_count, len(chunk_results),
+            reason=f"2라운드 병합 실패: {e}",
+        )
 
 
 def generate_reports(
