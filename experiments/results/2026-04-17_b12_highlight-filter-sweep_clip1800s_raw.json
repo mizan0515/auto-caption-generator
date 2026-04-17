@@ -1,0 +1,129 @@
+{
+  "generated_at": "2026-04-17T11:47:17",
+  "vod": "12702452",
+  "limit_sec": 1800,
+  "duration_sec": 1800,
+  "srt": "12702452_7시 인생게임 (w. 지누,뿡,똘복) 인생에 프로란 없다. 모두 아마추어다. ٩(●'▿'●)۶_144p_clip1800s.srt",
+  "chunk_max_chars": 30000,
+  "chunk_overlap_sec": 30,
+  "n_chats_used": 2285,
+  "n_highlights": 10,
+  "baseline": {
+    "radius_sec": null,
+    "cold_sample_sec": null,
+    "n_cues": 211,
+    "total_chars": 13402,
+    "n_chunks": 1,
+    "coverage_pct": 93.5
+  },
+  "cells": [
+    {
+      "radius_sec": 180,
+      "cold_sample_sec": 15,
+      "n_cues": 196,
+      "total_chars": 12505,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 6.7
+    },
+    {
+      "radius_sec": 180,
+      "cold_sample_sec": 30,
+      "n_cues": 189,
+      "total_chars": 12136,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 9.4
+    },
+    {
+      "radius_sec": 180,
+      "cold_sample_sec": 60,
+      "n_cues": 185,
+      "total_chars": 11897,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 11.2
+    },
+    {
+      "radius_sec": 300,
+      "cold_sample_sec": 15,
+      "n_cues": 204,
+      "total_chars": 13013,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 2.9
+    },
+    {
+      "radius_sec": 300,
+      "cold_sample_sec": 30,
+      "n_cues": 201,
+      "total_chars": 12860,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 4.0
+    },
+    {
+      "radius_sec": 300,
+      "cold_sample_sec": 60,
+      "n_cues": 199,
+      "total_chars": 12745,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 4.9
+    },
+    {
+      "radius_sec": 420,
+      "cold_sample_sec": 15,
+      "n_cues": 210,
+      "total_chars": 13362,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 0.3
+    },
+    {
+      "radius_sec": 420,
+      "cold_sample_sec": 30,
+      "n_cues": 210,
+      "total_chars": 13362,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 0.3
+    },
+    {
+      "radius_sec": 420,
+      "cold_sample_sec": 60,
+      "n_cues": 210,
+      "total_chars": 13362,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 0.3
+    },
+    {
+      "radius_sec": 600,
+      "cold_sample_sec": 15,
+      "n_cues": 211,
+      "total_chars": 13402,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 0.0
+    },
+    {
+      "radius_sec": 600,
+      "cold_sample_sec": 30,
+      "n_cues": 211,
+      "total_chars": 13402,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 0.0
+    },
+    {
+      "radius_sec": 600,
+      "cold_sample_sec": 60,
+      "n_cues": 211,
+      "total_chars": 13402,
+      "n_chunks": 1,
+      "coverage_pct": 93.5,
+      "chars_saving_pct": 0.0
+    }
+  ]
+}
