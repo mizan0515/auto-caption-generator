@@ -157,6 +157,7 @@ class Dashboard:
         self.header_label: Optional[ttk.Label] = None
         self._tail: Optional[_LogTail] = None
         self._cost_tree: Optional[ttk.Treeview] = None
+        self._breakdown_tree: Optional[ttk.Treeview] = None
         self._model_status: Optional[ttk.Label] = None
         self._stats_summary: Optional[ttk.Label] = None
 
@@ -333,6 +334,10 @@ class Dashboard:
         self.report_tree.pack(fill="both", expand=True)
         self.report_tree.bind("<Double-1>", self._on_report_dblclick)
 
+        # 진행 상태 트리 우클릭 메뉴
+        self.status_tree.bind("<Button-3>", self._on_status_rightclick)
+        self.status_tree.bind("<Double-1>", self._on_status_dblclick)
+
     def _build_cost_tab(self, nb: ttk.Notebook) -> None:
         frame = ttk.Frame(nb, padding=16)
         nb.add(frame, text="  모델 & 비용  ")
@@ -413,6 +418,30 @@ class Dashboard:
             justify="left",
         ).pack(anchor="w", pady=(10, 0))
 
+        # ---- VOD별 breakdown ----
+        breakdown_group = ttk.LabelFrame(
+            frame, text="VOD별 비용 (로그 경계 기준 실측)", padding=12
+        )
+        breakdown_group.pack(fill="both", expand=True, pady=(12, 0))
+
+        bcols = ("vod", "title", "calls", "tokens", "actual", "projection")
+        self._breakdown_tree = ttk.Treeview(
+            breakdown_group, columns=bcols, show="headings", height=8
+        )
+        self._breakdown_tree.heading("vod", text="VOD")
+        self._breakdown_tree.heading("title", text="제목")
+        self._breakdown_tree.heading("calls", text="호출")
+        self._breakdown_tree.heading("tokens", text="in/out 토큰")
+        self._breakdown_tree.heading("actual", text="실측 비용")
+        self._breakdown_tree.heading("projection", text="Haiku / Sonnet / Opus")
+        self._breakdown_tree.column("vod", width=100)
+        self._breakdown_tree.column("title", width=280)
+        self._breakdown_tree.column("calls", width=60, anchor="e")
+        self._breakdown_tree.column("tokens", width=130, anchor="e")
+        self._breakdown_tree.column("actual", width=100, anchor="e")
+        self._breakdown_tree.column("projection", width=240, anchor="e")
+        self._breakdown_tree.pack(fill="both", expand=True)
+
         ttk.Button(
             frame, text="다시 계산", command=self._refresh_cost_tab, width=14
         ).pack(anchor="e", pady=(8, 0))
@@ -446,6 +475,7 @@ class Dashboard:
 
     def _refresh_cost_tab(self) -> None:
         from pipeline.cost_estimator import (
+            UsageStats,
             aggregate,
             estimate_cost,
             estimate_per_call,
@@ -498,6 +528,41 @@ class Dashboard:
                     vs,
                 ),
             )
+
+        # VOD별 breakdown
+        if self._breakdown_tree is not None:
+            from pipeline.vod_log_index import index_vods_from_log
+
+            entries = index_vods_from_log(self.log_path)
+            self._breakdown_tree.delete(*self._breakdown_tree.get_children())
+            # 최근순
+            entries_sorted = list(reversed(entries))
+            for e in entries_sorted[:50]:
+                if not e.calls:
+                    continue
+                e_stats = UsageStats(
+                    calls=len(e.calls),
+                    input_tokens=e.total_input,
+                    output_tokens=e.total_output,
+                    cache_write_tokens=e.total_cache_write,
+                    cache_read_tokens=e.total_cache_read,
+                    actual_cost_usd=e.actual_cost_usd,
+                )
+                haiku = estimate_cost(e_stats, "haiku")
+                sonnet = estimate_cost(e_stats, "sonnet")
+                opus = estimate_cost(e_stats, "opus")
+                self._breakdown_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        e.video_no,
+                        e.title[:60],
+                        len(e.calls),
+                        f"{format_tokens(e.total_input)} / {format_tokens(e.total_output)}",
+                        format_usd(e.actual_cost_usd),
+                        f"{format_usd(haiku)} / {format_usd(sonnet)} / {format_usd(opus)}",
+                    ),
+                )
 
     def _build_settings_tab(self, nb: ttk.Notebook) -> None:
         frame = ttk.Frame(nb, padding=24)
@@ -683,6 +748,162 @@ class Dashboard:
                 "", "end", values=(r["title"], ts, r["path"])
             )
 
+    def _on_status_rightclick(self, event) -> None:
+        if self.status_tree is None or self.root is None:
+            return
+        row = self.status_tree.identify_row(event.y)
+        if not row:
+            return
+        self.status_tree.selection_set(row)
+        values = self.status_tree.item(row, "values")
+        if len(values) < 2:
+            return
+        key, label = values[0], values[1]
+        status = _reverse_status_label(label)
+        info = values[3] if len(values) > 3 else ""
+
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(
+            label="재처리", command=lambda: self._action_reprocess(key)
+        )
+        if status == "error" or status == "?":
+            menu.add_command(
+                label="에러 상세 보기", command=lambda: self._show_error_details(key, info)
+            )
+        if status == "completed":
+            menu.add_command(
+                label="리포트 열기", command=lambda: self._open_report_for(key)
+            )
+        menu.add_separator()
+        menu.add_command(
+            label="상태에서 제거", command=lambda: self._remove_from_state(key)
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _on_status_dblclick(self, _event) -> None:
+        if self.status_tree is None:
+            return
+        sel = self.status_tree.selection()
+        if not sel:
+            return
+        values = self.status_tree.item(sel[0], "values")
+        if len(values) < 2:
+            return
+        key, label = values[0], values[1]
+        status = _reverse_status_label(label)
+        info = values[3] if len(values) > 3 else ""
+        if status == "completed":
+            self._open_report_for(key)
+        elif status == "error":
+            self._show_error_details(key, info)
+
+    def _action_reprocess(self, key: str) -> None:
+        """특정 VOD 를 python -m pipeline.main --process <video_no> 로 재처리."""
+        import subprocess
+        import sys as _sys
+
+        video_no = key.split(":", 1)[-1] if ":" in key else key
+        try:
+            creationflags = 0
+            if _sys.platform == "win32":
+                creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+            subprocess.Popen(
+                [_sys.executable, "-m", "pipeline.main", "--process", video_no],
+                cwd=str(self.project_root),
+                creationflags=creationflags,
+                close_fds=True,
+            )
+            self._header_flash(f"재처리 요청: {video_no}")
+        except Exception as e:  # noqa: BLE001
+            self._header_flash(f"재처리 실패: {e}")
+
+    def _open_report_for(self, key: str) -> None:
+        state = self._read_state()
+        entry = state.get("processed_vods", {}).get(key, {})
+        html = entry.get("output_html")
+        if not html:
+            self._header_flash(f"리포트 없음: {key}")
+            return
+        try:
+            webbrowser.open(Path(html).resolve().as_uri())
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _remove_from_state(self, key: str) -> None:
+        state_path = self.state_path
+        if not state_path.exists():
+            return
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if key in data.get("processed_vods", {}):
+                del data["processed_vods"][key]
+                tmp = state_path.with_suffix(state_path.suffix + ".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, state_path)
+                self._header_flash(f"상태 제거: {key}")
+                # 즉시 리프레시
+                threading.Thread(target=self._refresh_status_bg, daemon=True).start()
+        except Exception as e:  # noqa: BLE001
+            self._header_flash(f"제거 실패: {e}")
+
+    def _show_error_details(self, key: str, brief: str) -> None:
+        """팝업 창에 해당 VOD 관련 로그 tail 을 표시."""
+        if self.root is None:
+            return
+        win = tk.Toplevel(self.root)
+        win.title(f"에러 상세 — {key}")
+        win.geometry("820x520")
+
+        ttk.Label(win, text=f"VOD: {key}", font=("Segoe UI", 10, "bold")).pack(
+            anchor="w", padx=12, pady=(12, 2)
+        )
+        if brief:
+            ttk.Label(win, text=f"요약: {brief}", foreground="#e85c5c").pack(
+                anchor="w", padx=12, pady=(0, 8)
+            )
+
+        txt = tk.Text(
+            win,
+            wrap="none",
+            font=("Consolas", 9),
+            bg="#1a1b26",
+            fg="#c0caf5",
+            padx=8,
+            pady=6,
+        )
+        vsb = ttk.Scrollbar(win, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        txt.pack(fill="both", expand=True, padx=(12, 0), pady=(0, 8))
+
+        # 해당 VOD 번호를 포함한 로그 라인만 필터 (최근 300라인)
+        video_no = key.split(":", 1)[-1] if ":" in key else key
+        matched = _grep_log_for_vod(self.log_path, video_no, limit=300)
+        if not matched:
+            txt.insert("end", "이 VOD 와 관련된 로그 라인을 찾을 수 없습니다.\n")
+        else:
+            for level_tag, line in matched:
+                txt.insert("end", line + "\n", level_tag)
+        for lvl, color in _LEVEL_COLORS.items():
+            txt.tag_config(lvl, foreground=color)
+        txt.config(state="disabled")
+
+        btnbar = ttk.Frame(win)
+        btnbar.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(
+            btnbar,
+            text="클립보드 복사",
+            command=lambda: _copy_to_clipboard(self.root, txt.get("1.0", "end")),
+        ).pack(side="left")
+        ttk.Button(btnbar, text="닫기", command=win.destroy).pack(side="right")
+
     def _on_report_dblclick(self, _event) -> None:
         if self.report_tree is None:
             return
@@ -753,6 +974,35 @@ def _passes_filter(level: str, flt: str) -> bool:
     if flt == "ERROR":
         return _LEVEL_ORDER.get(level, 1) >= 3
     return True
+
+
+_STATUS_LABEL_INVERSE = {v: k for k, v in _STATUS_LABELS.items()}
+
+
+def _reverse_status_label(label: str) -> str:
+    return _STATUS_LABEL_INVERSE.get(label, "?")
+
+
+def _grep_log_for_vod(log_path: Path, video_no: str, limit: int = 300) -> list[tuple[str, str]]:
+    """log 에서 video_no 를 포함하는 라인 최근 limit 개 반환. (level_tag, line) 튜플."""
+    if not log_path.exists() or not video_no:
+        return []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = [ln.rstrip() for ln in f if video_no in ln]
+    except OSError:
+        return []
+    lines = lines[-limit:]
+    return [(_detect_level(ln), ln) for ln in lines]
+
+
+def _copy_to_clipboard(root, text: str) -> None:
+    try:
+        root.clipboard_clear()
+        root.clipboard_append(text)
+        root.update()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _short_ts(iso: str) -> str:
