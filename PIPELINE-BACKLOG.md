@@ -70,6 +70,18 @@
   - 현상: 20일 전 VOD도 FM코리아 검색 시도 → 의미없는 네트워크 호출
   - 목표: VOD publish_date가 48시간 이전이면 fmkorea 스킵
 
+## 우선순위 P0.5 — UX 결함 (Polish 단계 자가발굴)
+
+- [x] **B14 CLI 한글 깨짐 (Windows cp949 stdout)**
+  - 파일: `pipeline/main.py`
+  - 현상: `python -m pipeline.main --help` 의 한글 description/help 가
+    Windows 콘솔 (cp949) 에서 `"실행"→"����"` 등 전부 깨짐. 신규 사용자
+    첫 화면이 글자 깨짐 → first impression 0점.
+  - 원인: argparse 텍스트가 UTF-8 인데 stdout 인코딩이 cp949.
+  - 목표: `pipeline/main.py` 진입 직후 `sys.stdout.reconfigure(encoding="utf-8")`
+    (가능한 경우) 적용. CLI/데몬 양쪽 안전.
+  - 검증: `python -m pipeline.main --help` 출력에 깨진 글자 0개.
+
 ## 우선순위 P3 — 실험/튜닝
 
 - [x] **B12 하이라이트 필터 파라미터 최적화 실험**
@@ -105,4 +117,5 @@
 | B11 | 2026-04-17 | ✅ Tier2: recent/old/disabled/unparseable 4 시나리오 + naive datetime 처리 검증 | main.py (_vod_age_hours + _should_skip_fmkorea) + config.py (fmkorea_max_age_hours=48) |
 | B12 | 2026-04-17 | ✅ Tier3: 1800s/10800s 클립 4×3 sweep, 3h 클립 radius=180/cold=60에서 70.4% 절감 + 98.3% 커버리지 추천 | experiments/b12_highlight_filter_sweep.py + results/2026-04-17_b12_*.{json,md} |
 | B13 | 2026-04-17 | ✅ Tier3: 1800s/10800s × filter on/off × 4 chunk 후보 sweep, filter ON 기준 chunk_max_chars=15000 risk=low 추천 | experiments/b13_chunk_max_chars_sweep.py + results/2026-04-17_b13_*.{json,md} |
+| B14 | 2026-04-17 | ✅ Tier3: `python -m pipeline.main --help` 한글 정상 출력 (cp949 콘솔에서도 깨짐 0건) | pipeline/main.py 진입부 sys.stdout/stderr UTF-8 reconfigure |
 | — | — | — | — |

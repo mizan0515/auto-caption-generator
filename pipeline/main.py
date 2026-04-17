@@ -18,6 +18,15 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+# B14: Windows cp949 콘솔에서 한글 description/help/log 가 깨지는 문제 방지.
+# Python 3.7+ 의 reconfigure 가 있을 때만 적용 (실패 시 무음 폴백).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if _stream and hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 # 프로젝트 루트를 sys.path에 추가
 _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
