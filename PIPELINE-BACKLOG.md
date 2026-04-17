@@ -43,7 +43,7 @@
   - 현상: 다운로드 실패를 조용히 무시, 불완전 파일 남김
   - 목표: 실패 시 파일 정리 + 명시적 에러 발생
 
-- [ ] **B07 실패 VOD 재시도 시 스트리머별 설정 유실**
+- [x] **B07 실패 VOD 재시도 시 스트리머별 설정 유실**
   - 파일: `pipeline/main.py:393`
   - 현상: 재시도 시 글로벌 cfg 사용 → 스트리머별 검색 키워드 무시
   - 목표: failed_vods에 channel_id 저장 → 재시도 시 해당 스트리머 cfg 복원
@@ -92,4 +92,5 @@
 | B04 | 2026-04-17 | ✅ Tier2: KeyError 크래시 확인 후 try/except 보호 | main.py |
 | B05 | 2026-04-17 | ✅ Tier2: stall/overall timeout/pre-progress 3 시나리오 watchdog 검증 | transcriber.py + main.py + config.py |
 | B06 | 2026-04-17 | ✅ Tier2: cleanup OSError 격리 + 잠긴 stale 파일 → 명시적 RuntimeError | downloader.py (3c2f518에서 bare pass 선제거, 잔여 cleanup 안정화) |
+| B07 | 2026-04-17 | ✅ Tier2: known/unknown channel/global cfg 비변형 3 시나리오 검증 | main.py (streamers_by_channel 인덱스 + _build_streamer_cfg 헬퍼) |
 | — | — | — | — |
