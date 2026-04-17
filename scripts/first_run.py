@@ -319,9 +319,35 @@ def _spawn_detached(args: list[str]) -> bool:
         return False
 
 
+def _resolve_pythonw() -> str:
+    """현재 실행중인 python.exe 와 동일한 설치의 pythonw.exe 경로를 반환.
+
+    `shutil.which("pythonw")` 를 먼저 쓰면 Windows 의 App Execution Alias
+    (`%LOCALAPPDATA%\\Microsoft\\WindowsApps\\pythonw.exe`) 가 PATH 최상단에서
+    잡혀서 MS Store Python 으로 리다이렉트된다. MS Store Python 은 App
+    Container 샌드박스 때문에 Shell_NotifyIcon 이 동작하지 않아 트레이 아이콘이
+    표시되지 않는다. 따라서 `sys.executable` 기반 치환을 **먼저** 시도한다.
+    """
+    exe = sys.executable
+    # 1) sys.executable 이 python.exe 면 같은 폴더의 pythonw.exe 로 치환
+    if exe.lower().endswith("python.exe"):
+        candidate = exe[:-len("python.exe")] + "pythonw.exe"
+        if Path(candidate).exists():
+            return candidate
+    # 2) 이미 pythonw.exe 면 그대로
+    if exe.lower().endswith("pythonw.exe") and Path(exe).exists():
+        return exe
+    # 3) PATH 탐색 (주의: App Execution Alias 가 먼저 잡힐 수 있음)
+    which = shutil.which("pythonw")
+    if which and "windowsapps" not in which.lower():
+        return which
+    # 4) 최후: sys.executable 그대로 (콘솔 창이 같이 뜨는 단점 감수)
+    return exe
+
+
 def open_dashboard() -> bool:
     """별도 pythonw 프로세스로 pipeline.dashboard 모듈 실행."""
-    pythonw = shutil.which("pythonw") or sys.executable.replace("python.exe", "pythonw.exe")
+    pythonw = _resolve_pythonw()
     if not Path(pythonw).exists():
         _err(f"pythonw 를 찾지 못함: {pythonw}")
         return False
@@ -342,7 +368,7 @@ def launch_tray() -> bool:
         _err("대시보드 실행에 실패했습니다. 작업관리자에서 pythonw 프로세스를 확인하세요.")
         return False
 
-    pythonw = shutil.which("pythonw") or sys.executable.replace("python.exe", "pythonw.exe")
+    pythonw = _resolve_pythonw()
     tray = PROJECT_ROOT / "tray_app.py"
     if not tray.exists():
         _err(f"tray_app.py 없음: {tray}")
