@@ -82,6 +82,23 @@
     (가능한 경우) 적용. CLI/데몬 양쪽 안전.
   - 검증: `python -m pipeline.main --help` 출력에 깨진 글자 0개.
 
+- [x] **B21 pipeline_config.json early type/value validation**
+  - 파일: `pipeline/config.py`, `pipeline/main.py`, `experiments/b21_config_validation.py` (신규)
+  - 현상: `load_config()` 는 `{**DEFAULT_CONFIG, **user_json}` 로 dict merge 만 하고
+    타입/값 검사를 전혀 하지 않는다. 사용자가 `"claude_model": "haiko"` 같은 오타를
+    내거나 `"poll_interval_sec": "300"` 같이 문자열을 넣어도 파이프라인이 그대로
+    시작되어 다운로드(수백 MB) + Whisper 전사(수십 분) 를 다 돌린 뒤 Claude 호출
+    단계 혹은 더 깊은 곳에서 해독 불가능한 traceback 으로 죽는다.
+    관리자·신규 사용자의 첫 실행 UX 를 망치는 대표 결함.
+  - 목표: `validate_config()` 에서 (a) 숫자 필드 타입·양수 조건, (b) `claude_model`
+    enum(`"" / haiku / sonnet / opus`), (c) `bootstrap_mode` enum, (d) `cookies` dict,
+    (e) `fmkorea_search_keywords` list 를 검사하고 실패 시 `ConfigError` 로 모든
+    오류를 한꺼번에 보고. `pipeline/main.py` 는 traceback 없이 친절한 한국어
+    메시지를 출력하고 `sys.exit(2)`.
+  - 검증: `experiments/b21_config_validation.py` 13 케이스 (happy path, 각 enum/타입
+    오류, 0/음수 경계, bool 이 int 로 오통과하지 않는지, 다중 오류 aggregate,
+    `load_config()` 전파 포함).
+
 - [x] **B16 .prompts/00-autonomous-dev-loop.md doc drift 제거**
   - 파일: `.prompts/00-autonomous-dev-loop.md`
   - 현상: §3 step 1, §5 가 존재하지 않는 `app.py` (Streamlit) / `gui.py`
@@ -193,4 +210,5 @@
 | B18 | 2026-04-17 | ✅ Tier2: 5/5 FileNotFound race/Permission/OSError/which-missing baseline/TimeoutExpired passthrough | pipeline/claude_cli.py subprocess try-except + experiments/b18_claude_cli_oserror_guard.py |
 | B19 | 2026-04-17 | ✅ Tier2: 8/8 ASCII 1쌍/2쌍/curly 1쌍/혼합/single+curly/빈/홀수 개+score 회귀 | pipeline/subtitle_analyzer.py _score_text quote 집계 수정 + experiments/b19_quote_count_typo.py |
 | B20 | 2026-04-17 | ✅ Tier2: 7/7 happy/None/legacy/OSError/ValueError/멱등/실제TextIOWrapper | experiments/b20_io_encoding_tests.py (force_utf8_stdio 회귀 커버리지) |
+| B21 | 2026-04-17 | ✅ Tier2: 13/13 default happy/claude_model 오타/문자열 수/음수/0 허용/None/enum 오타/cookies·list 타입/다중 aggregate/bool 거부/load_config 전파 | pipeline/config.py `ConfigError` + `validate_config()` + main.py 친절 종료 + experiments/b21_config_validation.py |
 | — | — | — | — |
