@@ -156,6 +156,9 @@ class Dashboard:
         self.report_tree: Optional[ttk.Treeview] = None
         self.header_label: Optional[ttk.Label] = None
         self._tail: Optional[_LogTail] = None
+        self._cost_tree: Optional[ttk.Treeview] = None
+        self._model_status: Optional[ttk.Label] = None
+        self._stats_summary: Optional[ttk.Label] = None
 
     # ---------- 라이프사이클 ----------
     def run(self) -> None:
@@ -226,6 +229,7 @@ class Dashboard:
 
         self._build_log_tab(nb)
         self._build_status_tab(nb)
+        self._build_cost_tab(nb)
         self._build_settings_tab(nb)
 
     def _build_log_tab(self, nb: ttk.Notebook) -> None:
@@ -328,6 +332,172 @@ class Dashboard:
         self.report_tree.column("path", width=420)
         self.report_tree.pack(fill="both", expand=True)
         self.report_tree.bind("<Double-1>", self._on_report_dblclick)
+
+    def _build_cost_tab(self, nb: ttk.Notebook) -> None:
+        frame = ttk.Frame(nb, padding=16)
+        nb.add(frame, text="  모델 & 비용  ")
+
+        # ---- 모델 선택 ----
+        model_group = ttk.LabelFrame(frame, text="Claude 모델 선택", padding=12)
+        model_group.pack(fill="x", pady=(0, 12))
+
+        ttk.Label(
+            model_group,
+            text="변경 후 [저장] 버튼을 누르면 다음 VOD 처리부터 적용됩니다.",
+            foreground="#8a8a8a",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+
+        self._model_var = tk.StringVar(value=self.cfg.get("claude_model", "") or "")
+        models = [
+            ("CLI 기본", ""),
+            ("Haiku (경량·저가)", "haiku"),
+            ("Sonnet (기본·균형)", "sonnet"),
+            ("Opus (최고 품질)", "opus"),
+        ]
+        for i, (label, value) in enumerate(models):
+            ttk.Radiobutton(
+                model_group,
+                text=label,
+                variable=self._model_var,
+                value=value,
+                command=self._on_model_select,
+            ).grid(row=1, column=i, sticky="w", padx=(0, 16))
+
+        self._model_status = ttk.Label(model_group, text="", foreground="#8a8a8a")
+        self._model_status.grid(row=2, column=0, columnspan=4, sticky="w", pady=(10, 0))
+
+        ttk.Button(
+            model_group, text="저장", command=self._save_model_choice, width=12
+        ).grid(row=1, column=4, sticky="e", padx=(24, 0))
+
+        # ---- 실측 사용량 ----
+        stats_group = ttk.LabelFrame(
+            frame, text="실측 사용량 (pipeline.log 의 Claude usage 기록)", padding=12
+        )
+        stats_group.pack(fill="x", pady=(0, 12))
+        self._stats_summary = ttk.Label(
+            stats_group, text="로그 분석 중…", font=("Segoe UI", 10)
+        )
+        self._stats_summary.pack(anchor="w")
+
+        # ---- 모델별 예상 비용 표 ----
+        proj_group = ttk.LabelFrame(
+            frame, text="모델별 예상 비용 (현재까지의 토큰 workload 동일 가정)", padding=12
+        )
+        proj_group.pack(fill="both", expand=True)
+
+        cols = ("model", "per_call", "total", "vs_actual")
+        self._cost_tree = ttk.Treeview(
+            proj_group, columns=cols, show="headings", height=4
+        )
+        self._cost_tree.heading("model", text="모델")
+        self._cost_tree.heading("per_call", text="호출 1회 평균")
+        self._cost_tree.heading("total", text="누적 총합")
+        self._cost_tree.heading("vs_actual", text="실측 대비")
+        self._cost_tree.column("model", width=200)
+        self._cost_tree.column("per_call", width=160, anchor="e")
+        self._cost_tree.column("total", width=160, anchor="e")
+        self._cost_tree.column("vs_actual", width=160, anchor="e")
+        self._cost_tree.pack(fill="both", expand=True)
+
+        # 참고 주석
+        ttk.Label(
+            frame,
+            text=(
+                "참고: USD/1M tokens 기준 Haiku $1/$5 · Sonnet $3/$15 · Opus $15/$75. "
+                "캐시는 write 1.25× / read 0.10× (Anthropic 규칙). "
+                "가격 drift 시 pipeline/cost_estimator.py:PRICING 갱신."
+            ),
+            foreground="#7a7a7a",
+            wraplength=900,
+            justify="left",
+        ).pack(anchor="w", pady=(10, 0))
+
+        ttk.Button(
+            frame, text="다시 계산", command=self._refresh_cost_tab, width=14
+        ).pack(anchor="e", pady=(8, 0))
+
+        # 초기 렌더
+        self._refresh_cost_tab()
+
+    def _on_model_select(self) -> None:
+        if hasattr(self, "_model_status") and self._model_status is not None:
+            choice = self._model_var.get() or "CLI 기본"
+            self._model_status.config(text=f"선택: {choice} (저장 시 반영)")
+
+    def _save_model_choice(self) -> None:
+        from pipeline.config import load_config, save_config
+
+        chosen = self._model_var.get()
+        try:
+            cfg = load_config()
+            cfg["claude_model"] = chosen
+            save_config(cfg)
+            self.cfg = cfg
+            display = chosen or "CLI 기본"
+            if self._model_status is not None:
+                self._model_status.config(
+                    text=f"✓ 저장됨: {display} — 다음 VOD 처리부터 적용"
+                )
+            self._header_flash(f"모델 저장: {display}")
+        except Exception as e:  # noqa: BLE001
+            if self._model_status is not None:
+                self._model_status.config(text=f"저장 실패: {e}")
+
+    def _refresh_cost_tab(self) -> None:
+        from pipeline.cost_estimator import (
+            aggregate,
+            estimate_cost,
+            estimate_per_call,
+            format_tokens,
+            format_usd,
+            parse_log_file,
+            PRICING,
+        )
+
+        calls = parse_log_file(self.log_path)
+        stats = aggregate(calls)
+
+        if stats.calls == 0:
+            self._stats_summary.config(
+                text="기록된 Claude API 호출이 없습니다. VOD 를 최소 1개 처리한 뒤 [다시 계산]."
+            )
+            if self._cost_tree is not None:
+                self._cost_tree.delete(*self._cost_tree.get_children())
+            return
+
+        summary = (
+            f"총 호출: {stats.calls}  ·  "
+            f"input: {format_tokens(stats.input_tokens)}  "
+            f"output: {format_tokens(stats.output_tokens)}  "
+            f"cache write: {format_tokens(stats.cache_write_tokens)}  "
+            f"cache read: {format_tokens(stats.cache_read_tokens)}  ·  "
+            f"실측 누적: {format_usd(stats.actual_cost_usd)}"
+        )
+        self._stats_summary.config(text=summary)
+
+        if self._cost_tree is None:
+            return
+        self._cost_tree.delete(*self._cost_tree.get_children())
+        actual = stats.actual_cost_usd
+        for model in ("haiku", "sonnet", "opus"):
+            per = estimate_per_call(stats, model)
+            total = estimate_cost(stats, model)
+            if actual > 0:
+                ratio = total / actual
+                vs = f"{ratio:.2f}×"
+            else:
+                vs = "-"
+            self._cost_tree.insert(
+                "",
+                "end",
+                values=(
+                    f"{model.capitalize()}  (in ${PRICING[model]['input']:.2f} / out ${PRICING[model]['output']:.2f} per 1M)",
+                    format_usd(per),
+                    format_usd(total),
+                    vs,
+                ),
+            )
 
     def _build_settings_tab(self, nb: ttk.Notebook) -> None:
         frame = ttk.Frame(nb, padding=24)
