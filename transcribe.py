@@ -86,9 +86,28 @@ def split_video(input_path, log_func=print):
             output_path,
         ]
         log_func(f"[{i+1}/{total_parts}] 분할 중: {output_path}")
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_ffmpeg_creationflags(),
+        )
 
     return part_paths
+
+
+def _ffmpeg_creationflags() -> int:
+    """Windows 에서 ffmpeg subprocess 를 조용히 띄우기 위한 flag.
+
+    `CREATE_NO_WINDOW` (0x08000000) 로 콘솔 subsystem 할당을 건너뛰면
+    긴 VOD 를 여러 파트로 연속 처리할 때 발생하는 0xC0000142
+    (STATUS_DLL_INIT_FAILED; "DLL init failed") 의 빈도를 줄일 수 있다.
+    이 에러는 짧은 시간 내에 child 프로세스를 많이 띄우면 Windows
+    desktop heap / csrss 자원 경합으로 간헐 발생.
+    """
+    if sys.platform != "win32":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
 
 def extract_audio(video_path, log_func=print):
@@ -108,13 +127,58 @@ def extract_audio(video_path, log_func=print):
         audio_path,
     ]
     log_func(f"  음성 추출 중: {audio_path}")
-    result = subprocess.run(cmd, capture_output=True)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg 음성 추출 실패 (returncode={result.returncode}): {os.path.basename(video_path)}\n"
-            + result.stderr.decode("utf-8", errors="replace")[-400:]
+
+    # 0xC0000142 같은 Windows child-init 실패는 transient 한 경우가 많다.
+    # 최대 3회, 점증 backoff 로 재시도. stderr 가 비어있으면 cmd 원문을 같이 기록.
+    last_err: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                creationflags=_ffmpeg_creationflags(),
+            )
+        except OSError as e:
+            last_err = e
+            log_func(f"  [시도 {attempt}/3] subprocess.run OSError: {e}")
+            time.sleep(2 * attempt)
+            continue
+
+        if result.returncode == 0:
+            if attempt > 1:
+                log_func(f"  음성 추출 성공 (재시도 {attempt} 회 만에)")
+            return audio_path
+
+        stderr_tail = result.stderr.decode("utf-8", errors="replace")[-400:]
+        log_func(
+            f"  [시도 {attempt}/3] ffmpeg returncode={result.returncode} "
+            f"(0x{result.returncode & 0xFFFFFFFF:08X}) "
+            f"stderr_empty={not stderr_tail.strip()}"
         )
-    return audio_path
+        last_err = RuntimeError(
+            f"ffmpeg 음성 추출 실패 (returncode={result.returncode}): "
+            f"{os.path.basename(video_path)}\n"
+            f"cmd={cmd}\n"
+            f"stderr_tail={stderr_tail}"
+        )
+        # transient Windows child-init 실패면 backoff 후 재시도.
+        # returncode 를 signed int 로 해석하면 0xC0000142 = -1073741502 등.
+        is_windows_init_fail = (
+            sys.platform == "win32"
+            and result.returncode in (
+                -1073741502,  # 0xC0000142 DLL_INIT_FAILED
+                -1073741510,  # 0xC000013A CONTROL_C_EXIT
+                3221225794,   # 0xC0000142 unsigned
+                1073807364,   # 0x40010004 DBG_CONTROL_C
+            )
+        )
+        if attempt < 3 and (is_windows_init_fail or not stderr_tail.strip()):
+            time.sleep(2 * attempt)
+            continue
+        break
+
+    assert last_err is not None
+    raise last_err
 
 
 # ──────────────────────────────────────────────
