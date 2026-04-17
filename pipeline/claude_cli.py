@@ -233,15 +233,27 @@ def _call_claude_cli(prompt: str, timeout: int = 300, model: str = "") -> str:
 
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
-    result = subprocess.run(
-        cmd,
-        input=prompt,
-        capture_output=True,
-        timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+    except FileNotFoundError as e:
+        # shutil.which 와 subprocess.run 사이의 TOCTOU, Windows .cmd/.bat shim
+        # 전환 등으로 실제 실행 순간에 CLI 가 사라질 수 있다.
+        raise RuntimeError(
+            f"Claude CLI 실행 파일을 찾을 수 없습니다 ({e}). PATH 와 설치 상태를 확인하세요."
+        )
+    except OSError as e:
+        # PermissionError, 실행 권한 없음, 손상된 실행 파일 등
+        raise RuntimeError(
+            f"Claude CLI 실행 실패 ({type(e).__name__}: {e})."
+        )
 
     return _parse_claude_output(result)
 
