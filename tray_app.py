@@ -227,6 +227,29 @@ class PipelineTray:
 
         open_settings(on_save=_on_save)
 
+    def _on_open_dashboard(self, icon, item):
+        """대시보드(실시간 로그 + 상태) 창 열기 — 별도 프로세스로 분리 실행."""
+        try:
+            pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+            if not os.path.exists(pythonw):
+                pythonw = sys.executable
+            project_root = os.path.dirname(os.path.abspath(__file__))
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+            subprocess.Popen(
+                [pythonw, "-m", "pipeline.dashboard"],
+                cwd=project_root,
+                creationflags=creationflags,
+                close_fds=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"대시보드 실행 실패: {e}")
+            if self.icon:
+                self.icon.notify(f"대시보드 실행 실패: {e}", "오류")
+
     def _on_refresh_cookies(self, icon, item):
         """브라우저(Chrome/Edge/Firefox)에서 NID_AUT/NID_SES 를 읽어 config 갱신"""
         try:
@@ -365,7 +388,8 @@ class PipelineTray:
     def run(self):
         """트레이 앱 시작"""
         menu = pystray.Menu(
-            pystray.MenuItem("상태 확인", self._on_status),
+            pystray.MenuItem("대시보드 열기", self._on_open_dashboard, default=True),
+            pystray.MenuItem("상태 확인 (간단)", self._on_status),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("설정", self._on_settings_ui),
             pystray.MenuItem("로그 열기", self._on_open_log),
