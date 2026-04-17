@@ -82,6 +82,15 @@
     (가능한 경우) 적용. CLI/데몬 양쪽 안전.
   - 검증: `python -m pipeline.main --help` 출력에 깨진 글자 0개.
 
+- [x] **B16 .prompts/00-autonomous-dev-loop.md doc drift 제거**
+  - 파일: `.prompts/00-autonomous-dev-loop.md`
+  - 현상: §3 step 1, §5 가 존재하지 않는 `app.py` (Streamlit) / `gui.py`
+    (tkinter) 를 user-facing entrypoint 로 나열. 실제는 `_archive/` 에만
+    존재하는 legacy. Polish iteration 첫 부팅에서 self-misleading.
+  - 목표: 실재하는 entrypoint (CLI `python -m pipeline.main`, transcribe.py,
+    tray_app.py, 정적 `site/`) 로 교체. QA 흐름도 실제 가능한 방식으로 재기술.
+  - 검증: `grep app.py|gui.py` 결과 0건 (tray_app.py 만 정상 잔존).
+
 - [x] **B15 transcribe.py / tray_app.py 동일 cp949 결함 + DRY 헬퍼**
   - 파일: `transcribe.py`, `tray_app.py`, `pipeline/_io_encoding.py` (신규)
   - 현상: B14 와 동일한 한글 깨짐이 `python transcribe.py --help`,
@@ -128,4 +137,5 @@
 | B13 | 2026-04-17 | ✅ Tier3: 1800s/10800s × filter on/off × 4 chunk 후보 sweep, filter ON 기준 chunk_max_chars=15000 risk=low 추천 | experiments/b13_chunk_max_chars_sweep.py + results/2026-04-17_b13_*.{json,md} |
 | B14 | 2026-04-17 | ✅ Tier3: `python -m pipeline.main --help` 한글 정상 출력 (cp949 콘솔에서도 깨짐 0건) | pipeline/main.py 진입부 sys.stdout/stderr UTF-8 reconfigure |
 | B15 | 2026-04-17 | ✅ Tier3: 3개 entrypoint --help/compile 모두 한글 정상, B14 인라인 → DRY 헬퍼 교체 | pipeline/_io_encoding.py + main.py/transcribe.py/tray_app.py |
+| B16 | 2026-04-17 | ✅ Tier1: grep 으로 nonexistent app.py/gui.py 참조 0건 확인, tray_app.py (실재) 만 잔존 | .prompts/00-autonomous-dev-loop.md (§3 step1, §5 재작성) |
 | — | — | — | — |
