@@ -62,6 +62,12 @@ DEFAULT_CONFIG = {
     # 자동 퍼블리시: VOD 처리 성공 후 site/ 재빌드
     "publish_autorebuild": True,
     "publish_site_dir": "./site",
+    # B12/B13 실험 기본값:
+    #   experiments/ 스크립트가 sweep 돌릴 때 참조하는 테스트 VOD.
+    #   experiment_test_vod  : 다운로드 + 자막이 work/<video_no>/ 에 이미 있어야 함
+    #   experiment_limit_duration_sec : 빠른 반복 위해 앞 N초만 사용 (0 = 전체)
+    "experiment_test_vod": "",
+    "experiment_limit_duration_sec": 1800,
     "cookies": {"NID_AUT": "", "NID_SES": ""},
 }
 
