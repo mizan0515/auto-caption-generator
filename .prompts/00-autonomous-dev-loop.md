@@ -36,14 +36,17 @@
 **기본 전제: "현재 앱의 UX 는 이상하다."** 이 전제를 매 iteration 유지한다.
 "괜찮아 보인다" 는 금지. 항상 구체적 불편 1개 이상을 뽑아내야 한다.
 
-1. 앱을 실제로 띄운다. 본 저장소의 실행 타겟:
-   - `app.py` (Streamlit) — `mcp__Claude_Preview__preview_start` 로 띄운 뒤 브라우저 제어.
-   - `gui.py` (tkinter) — subprocess 로 실행 + 스크린샷 (pyautogui 또는 OS 캡처)
-   - `tray_app.py` (tray) — 콘솔 런치 + 로그 파싱
-   - CLI (`python -m pipeline.main`) — haiku 모델, 30분 클립 end-to-end
-2. **직접 제어**:
-   - Streamlit: `mcp__Claude_Preview__preview_click` / `preview_fill` / `preview_snapshot` / `preview_screenshot` / `preview_console_logs` / `preview_eval`
-   - 브라우저 확장: `mcp__Claude_in_Chrome__browser_batch` (fallback)
+1. 앱을 실제로 띄운다. 본 저장소의 **실재하는** 실행 타겟 (Streamlit/tkinter 없음):
+   - `python -m pipeline.main --help` / `--once` / `--process <vod>` — 데몬+CLI (주요 user-facing CLI)
+   - `python transcribe.py <video>` — 독립 자막 생성 CLI
+   - `tray_app.py` — Windows 시스템 트레이 런처 (pystray, GUI-blocking). 헤드리스에서는 py_compile 로 syntax 만 검증.
+   - `site/` — 퍼블리시된 정적 HTML (사용자가 브라우저로 여는 최종 산출물).
+     `python -m http.server` 로 `site/` 서빙 후 `mcp__Claude_in_Chrome__browser_batch`
+     또는 `mcp__Claude_Preview__preview_start` 로 실제 브라우저 제어.
+2. **직접 제어** (가용 도구 기준):
+   - 정적 site QA: `mcp__Claude_Preview__preview_start` → `preview_snapshot` → `preview_click` → `preview_console_logs` / `preview_network` → `preview_screenshot` (저장: experiments/ux_captures/)
+   - 브라우저 확장 fallback: `mcp__Claude_in_Chrome__browser_batch`
+   - tray_app/CLI: `subprocess.Popen` + stdout/stderr 파싱 (실행 환경이 GUI 지원 시), 아니면 py_compile + 로직 코드 리뷰.
    - 모든 상호작용은 **한 user journey = 한 iteration** 단위로 기록.
 3. **관찰 체크리스트** (최소 1개 결함 발굴):
    - 첫 화면에서 사용자가 뭘 해야 하는지 10초 안에 감 잡히나?
@@ -78,21 +81,30 @@
 
 ## 5. 앱 실행 QA 세부 절차
 
-### Streamlit (`app.py` / `pages/`) 기본 흐름
+### 정적 site (`site/`) 기본 흐름
 ```
-1. preview_start  → url 받기
-2. preview_snapshot → 구조 파악 (어떤 버튼/입력 있는지)
-3. preview_fill / preview_click → 실제 사용자 동선 재현
-4. preview_console_logs + preview_network → JS 에러 / 실패 요청 확인
-5. preview_screenshot → 시각 회귀 확인 (저장: experiments/ux_captures/<date>_<slug>.png)
-6. preview_stop
+1. python -m http.server 8765 --directory site &  (background)
+2. preview_start  http://localhost:8765 → url 확정
+3. preview_snapshot → 구조 파악 (네비, 카드, 검색바)
+4. preview_click / preview_fill → 사용자 동선 재현 (스트리머 선택 → VOD 진입 → 검색)
+5. preview_console_logs + preview_network → JS 에러 / 404 / CORS 확인
+6. preview_screenshot → 시각 회귀 (저장: experiments/ux_captures/<date>_<slug>.png)
+7. preview_stop, kill bg http.server
 ```
 
-### tkinter (`gui.py`) 기본 흐름
+### CLI (`python -m pipeline.main` / `transcribe.py`) 기본 흐름
+```
+1. --help 출력 정상 (한글 깨짐, 옵션 설명 명료성, 예시 유무) 점검
+2. --once 또는 --process <vod> --limit-duration 1800 으로 짧은 end-to-end 실행
+3. 진행 로그 명료성 (단계 표시, 시간 추정, 에러 메시지) 점검
+4. 환경변수 PYTHONUNBUFFERED=1 로 진행 가시성 확보
+```
+
+### tray_app (`tray_app.py`) 기본 흐름 (GUI 환경에서만)
 ```
 1. subprocess.Popen 으로 띄우고 pid 확보
-2. pyautogui (Windows) 로 스크린샷 + 좌표 클릭 — 가능하면 위젯 좌표를 로그로 출력해두고 재사용
-3. 에러는 stdout/stderr 로 흘러나오도록 환경변수 PYTHONUNBUFFERED=1
+2. pyautogui (Windows) 로 스크린샷 + 트레이 메뉴 좌표 클릭
+3. 헤드리스 환경: python -m py_compile + 메뉴 핸들러 로직 코드 리뷰만 수행
 ```
 
 ### 실패 처리
