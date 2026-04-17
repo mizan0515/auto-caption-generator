@@ -14,5 +14,7 @@ if %RC% neq 0 (
     exit /b %RC%
 )
 echo.
-echo Done - check the tray icon.
-timeout /t 3 >nul
+echo Done. Tray icon may be hidden under the '^^' overflow on the taskbar.
+echo A dashboard window has been opened so you can see it working.
+echo This window will close in 5 seconds - you can close it now.
+timeout /t 5 >nul
