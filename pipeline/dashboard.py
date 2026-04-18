@@ -179,6 +179,19 @@ class Dashboard:
             notify=self._notify,
         )
 
+        # 데몬: 대시보드 프로세스가 직접 소유. 이전의 tray_app.py + control.py
+        # 파일 IPC 를 대체. 창이 닫히면 self._on_close 에서 stop() 한다.
+        from pipeline.state import PipelineState
+        from pipeline.daemon import PipelineDaemon
+
+        self.state = PipelineState(str(self.state_path))
+        self.daemon = PipelineDaemon(
+            cfg=self.cfg,
+            state=self.state,
+            log_dir=self.log_dir,
+            notify=self._notify,
+        )
+
     # ---------- 라이프사이클 ----------
     def run(self) -> None:
         self.root = tk.Tk()
