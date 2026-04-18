@@ -495,18 +495,44 @@ def process_vod(
         claude_timeout = cfg.get("claude_timeout_sec", 300)
         claude_model = cfg.get("claude_model", "")
 
-        chunk_results = process_chunks(
-            chunks, highlights, chats, vod, claude_timeout,
-            claude_model=claude_model,
-            progress_func=_make_heartbeat("summarizing"),
-        )
-        logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
+        # RESUME: work_dir 에 이전 run 의 merge 결과가 있으면 Claude 호출 전부
+        # 스킵. generate_reports 가 실패해 전체 VOD 가 error 로 끝난 경우,
+        # 재시도 때 수 달러의 Claude 재호출을 절약한다.
+        raw_summary_cache = os.path.join(work_dir, f"{vod.video_no}_raw_summary.md")
+        summary: Optional[str] = None
+        if os.path.isfile(raw_summary_cache) and os.path.getsize(raw_summary_cache) > 0:
+            try:
+                with open(raw_summary_cache, "r", encoding="utf-8") as _f:
+                    summary = _f.read()
+                logger.info(
+                    f"✓ 요약 캐시 재사용 (Claude 스킵): {raw_summary_cache} "
+                    f"({len(summary):,}자)"
+                )
+            except OSError as e:
+                logger.warning(f"요약 캐시 읽기 실패 → 재생성: {e}")
+                summary = None
 
-        summary = merge_results(
-            chunk_results, vod, community_posts, highlights, claude_timeout,
-            srt_path=srt_path, claude_model=claude_model,
-            progress_func=_make_heartbeat("summarizing"),
-        )
+        if summary is None:
+            chunk_results = process_chunks(
+                chunks, highlights, chats, vod, claude_timeout,
+                claude_model=claude_model,
+                progress_func=_make_heartbeat("summarizing"),
+            )
+            logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
+
+            summary = merge_results(
+                chunk_results, vod, community_posts, highlights, claude_timeout,
+                srt_path=srt_path, claude_model=claude_model,
+                progress_func=_make_heartbeat("summarizing"),
+            )
+            # 즉시 디스크에 stash — generate_reports 가 실패해도 재시도 때
+            # Claude 를 다시 부를 필요가 없도록.
+            try:
+                with open(raw_summary_cache, "w", encoding="utf-8") as _f:
+                    _f.write(summary)
+                logger.info(f"  요약 원본 캐시 저장: {raw_summary_cache}")
+            except OSError as e:
+                logger.warning(f"  요약 캐시 저장 실패 (무시): {e}")
         logger.info(f"✓ 통합 요약 생성 완료")
 
         # ── 6단계: 리포트 저장 ──

@@ -469,20 +469,39 @@ def generate_reports(
 
     base = f"{vod_info.video_no}_{date_str}_{sanitize_filename(vod_info.title)}"
 
-    # Markdown
+    # 각 산출물은 독립적으로 처리한다. 하나가 실패해도 나머지는 살린다.
+    # - Markdown 은 summary 그 자체이므로 절대 실패해선 안 된다 (OSError 만 예외).
+    # - HTML 은 Claude 출력 파싱(정규식/섹션 분해) 이슈로 종종 깨진다. 실패 시
+    #   minimal HTML 로 폴백해서 적어도 브라우저에서 뭔가는 보이게 한다.
+    # - Metadata JSON 은 부가 정보라 실패하면 건너뛴다.
     md_path = os.path.join(output_dir, f"{base}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(summary)
     logger.info(f"Markdown 리포트 저장: {md_path}")
 
-    # HTML
     html_path = os.path.join(output_dir, f"{base}.html")
-    html_content = _generate_html(summary, vod_info, highlights, chats, community_posts)
+    try:
+        html_content = _generate_html(summary, vod_info, highlights, chats, community_posts)
+    except Exception as e:  # noqa: BLE001
+        # _generate_html 의 정규식/섹션 파싱이 에지케이스 Claude 출력에서 깨지는
+        # 경우, 이전엔 함수 전체가 raise 되어 md 가 디스크엔 있지만 result 에는
+        # 기록 못한 채 VOD 가 error 로 끝났다. → minimal HTML 로 폴백.
+        logger.warning(f"HTML 렌더링 실패 — minimal fallback 사용: {e}")
+        import html as _html
+        html_content = (
+            f"<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            f"<title>{_html.escape(vod_info.title)}</title></head>"
+            f"<body><h1>{_html.escape(vod_info.title)}</h1>"
+            f"<p><em>HTML 렌더링 실패 — 원본 Markdown 을 보세요: "
+            f"<code>{_html.escape(os.path.basename(md_path))}</code></em></p>"
+            f"<pre style='white-space:pre-wrap'>{_html.escape(summary)}</pre>"
+            f"</body></html>"
+        )
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
     logger.info(f"HTML 리포트 저장: {html_path}")
 
-    # Metadata JSON
+    # Metadata JSON — 실패해도 md/html 은 이미 살아있으므로 스킵 허용
     meta_path = os.path.join(output_dir, f"{base}_metadata.json")
     metadata = {
         "video_no": vod_info.video_no,
@@ -503,8 +522,12 @@ def generate_reports(
         ],
         "processed_at": datetime.now(KST).isoformat(),
     }
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2)
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+    except (OSError, TypeError, ValueError) as e:
+        # 부가정보 실패로 전체 VOD 를 error 처리하지 않는다.
+        logger.warning(f"메타데이터 저장 실패 (md/html 은 살아있음): {e}")
 
     return md_path, html_path, meta_path
 
