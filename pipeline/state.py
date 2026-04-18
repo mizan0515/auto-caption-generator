@@ -154,3 +154,45 @@ class PipelineState:
             entry["status"] = "pending_retry"
             self._data["processed_vods"][key] = entry
             self._save()
+
+    def remove_entry(self, key: str) -> bool:
+        """processed_vods 에서 단일 엔트리 삭제.
+
+        dashboard 의 직접 파일 편집 경로가 _lock 을 우회해 daemon 과 race 를
+        일으켰다. 모든 상태 mutation 은 반드시 이 메서드를 거친다.
+        """
+        with self._lock:
+            # 외부(서브프로세스 `--process` 등) 변경 반영을 위해 재로드
+            self._data = self._load()
+            if key in self._data.get("processed_vods", {}):
+                del self._data["processed_vods"][key]
+                self._save()
+                return True
+            return False
+
+    def clear_errors(self, include_pending_retry: bool = True) -> int:
+        """status == 'error' (옵션: 'pending_retry') 엔트리를 일괄 제거.
+
+        Returns:
+            제거된 엔트리 수.
+
+        Note:
+            daemon 의 재시도 루프(`get_failed_vods` → `increment_retry`) 와
+            동시에 호출될 수 있지만 _lock 직렬화 덕에 안전하다. 사용자가 명시
+            적으로 "오류 기록 일괄 제거" 를 눌렀을 때의 의도된 동작: 제거된
+            엔트리는 이후 재시도 대상에서도 함께 빠진다.
+        """
+        statuses = {"error"}
+        if include_pending_retry:
+            statuses.add("pending_retry")
+        with self._lock:
+            self._data = self._load()
+            targets = [
+                k for k, v in self._data.get("processed_vods", {}).items()
+                if v.get("status") in statuses
+            ]
+            for k in targets:
+                del self._data["processed_vods"][k]
+            if targets:
+                self._save()
+            return len(targets)
