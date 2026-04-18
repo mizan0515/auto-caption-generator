@@ -182,11 +182,18 @@ def check_new_vods(
             continue
 
         existing_status = state.get_status(video_no, channel_id=channel_id)
-        # 처리됨/처리중/스킵됨 모두 제외
+        # 처리됨/처리중/스킵됨/실패(재시도 대기 중) 모두 제외.
+        # "error" / "pending_retry" 를 포함하는 이유:
+        #   check_new_vods 와 get_failed_vods 가 둘 다 재시도를 시도하면 같은
+        #   VOD 가 폴링당 2회 실행되고, retry_count 는 get_failed_vods 경로
+        #   에서만 증가한다. 결과적으로 max_retries=3 제한이 사실상 6회에
+        #   가깝게 동작하고 Claude/Whisper 호출이 낭비된다. 재시도는
+        #   get_failed_vods 경로 하나로 단일화한다.
         if existing_status in (
             "processing", "completed", "collecting", "analyzing",
             "transcribing", "chunking", "summarizing", "saving",
             "skipped_bootstrap",
+            "error", "pending_retry",
         ):
             continue
 
