@@ -110,7 +110,12 @@ class PipelineDaemon:
         return "대기 중 (모니터링)"
 
     def update_config(self, new_cfg: dict) -> None:
-        """설정 GUI 에서 저장 후 호출. 다음 폴링부터 적용."""
+        """설정 GUI 에서 저장 후 호출. 다음 폴링부터 적용.
+
+        실제 hot-reload 는 `_run_loop` 가 매 iteration 마다 `self.cfg` 에서
+        channel_id / poll_interval / cookies 를 재구성하는 방식으로 동작한다.
+        여기선 단순 swap 만 한다 (dict 참조 재대입은 GIL 덕에 atomic).
+        """
         self.cfg = new_cfg
         logger.info("데몬 설정 갱신 — 다음 폴링부터 적용")
 
@@ -125,15 +130,12 @@ class PipelineDaemon:
 
         log_logger = setup_logging(self.log_dir)
         self._log_logger = log_logger
-        channel_id = self.cfg["target_channel_id"]
-        poll_interval = self.cfg.get("poll_interval_sec", 300)
-        cookies = get_cookies(self.cfg)
 
         log_logger.info("=" * 60)
         log_logger.info("  파이프라인 데몬 시작 (대시보드 내장 모드)")
-        log_logger.info(f"  채널: {channel_id}")
+        log_logger.info(f"  채널: {self.cfg.get('target_channel_id', '?')}")
         log_logger.info(f"  스트리머: {self.cfg.get('streamer_name', '?')}")
-        log_logger.info(f"  폴링 간격: {poll_interval}초")
+        log_logger.info(f"  폴링 간격: {self.cfg.get('poll_interval_sec', 300)}초")
         log_logger.info("=" * 60)
 
         if not validate_cookies(self.cfg):
@@ -148,6 +150,12 @@ class PipelineDaemon:
             if self.state.should_stop():
                 log_logger.info("종료 요청 감지")
                 break
+            # 매 iteration 마다 cfg 재평가 — 설정 UI 의 저장 후 update_config()
+            # 로 교체된 self.cfg 가 즉시 반영된다. 이전엔 루프 밖에서 한 번만
+            # 캡처해서 쿠키 갱신/채널 변경/폴링 간격 변경이 전부 무시됐다.
+            channel_id = self.cfg["target_channel_id"]
+            poll_interval = self.cfg.get("poll_interval_sec", 300)
+            cookies = get_cookies(self.cfg)
             try:
                 new_vods = check_new_vods(channel_id, cookies, self.state)
                 for vod in new_vods:

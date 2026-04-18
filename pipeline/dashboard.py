@@ -1357,6 +1357,14 @@ class Dashboard:
 
             def _on_save(new_cfg):
                 self.cfg = new_cfg
+                # 데몬에 즉시 통지 — 다음 폴링부터 새 채널/쿠키/폴링간격이 적용된다.
+                # 이전엔 이 호출이 없어 앱 재시작 전까지 설정 변경이 무시됐다.
+                try:
+                    if getattr(self, "daemon", None) is not None:
+                        self.daemon.update_config(new_cfg)
+                except Exception:  # noqa: BLE001
+                    # 통지 실패가 저장 자체를 되돌리진 않음 (다음 재시작에 반영)
+                    pass
 
             # 대시보드 root 를 parent 로 넘겨 Toplevel 하나만 뜨도록 한다.
             # (이전엔 두 번째 Tk + withdraw→deiconify 로 창이 두 개 보였다)
