@@ -355,6 +355,21 @@ class Dashboard:
         active_group = ttk.LabelFrame(frame, text="진행 중 / 최근 업데이트", padding=10)
         active_group.pack(fill="x", pady=(0, 10))
 
+        # 상단 툴바 — 오류 일괄 제거
+        toolbar = ttk.Frame(active_group)
+        toolbar.pack(fill="x", pady=(0, 6))
+        ttk.Label(
+            toolbar,
+            text="우클릭: 단일 엔트리 액션 · 더블클릭: 리포트/에러 상세",
+            foreground="#7a86a8",
+        ).pack(side="left")
+        ttk.Button(
+            toolbar,
+            text="오류 기록 일괄 제거",
+            command=self._clear_all_errors,
+            width=20,
+        ).pack(side="right")
+
         cols = ("key", "status", "updated", "info")
         self.status_tree = ttk.Treeview(
             active_group, columns=cols, show="headings", height=8
@@ -1069,23 +1084,53 @@ class Dashboard:
             pass
 
     def _remove_from_state(self, key: str) -> None:
-        state_path = self.state_path
-        if not state_path.exists():
-            return
+        """단일 엔트리 제거 — PipelineState 의 _lock 을 사용하여 daemon 과 race 방지.
+
+        이전에는 대시보드가 pipeline_state.json 을 직접 rename-write 했는데,
+        daemon 스레드의 `state.update()` 와 TOCTOU 경쟁이 발생할 수 있었다.
+        이제는 `PipelineState.remove_entry()` 에 위임한다.
+        """
         try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if key in data.get("processed_vods", {}):
-                del data["processed_vods"][key]
-                tmp = state_path.with_suffix(state_path.suffix + ".tmp")
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                os.replace(tmp, state_path)
+            removed = self.state.remove_entry(key)
+            if removed:
                 self._header_flash(f"상태 제거: {key}")
-                # 즉시 리프레시
                 threading.Thread(target=self._refresh_status_bg, daemon=True).start()
+            else:
+                self._header_flash(f"엔트리 없음: {key}")
         except Exception as e:  # noqa: BLE001
             self._header_flash(f"제거 실패: {e}")
+
+    def _clear_all_errors(self) -> None:
+        """status == 'error' 또는 'pending_retry' 엔트리를 한꺼번에 제거."""
+        from tkinter import messagebox
+
+        if self.root is None:
+            return
+        # 현재 카운트를 미리 계산하여 사용자에게 표시
+        try:
+            data = self._read_state()
+            err_count = sum(
+                1 for v in data.get("processed_vods", {}).values()
+                if v.get("status") in ("error", "pending_retry")
+            )
+        except Exception:  # noqa: BLE001
+            err_count = 0
+        if err_count == 0:
+            messagebox.showinfo("오류 기록 제거", "제거할 오류 기록이 없습니다.")
+            return
+        ok = messagebox.askyesno(
+            "오류 기록 일괄 제거",
+            f"{err_count}개의 오류/재시도 대기 엔트리를 제거합니다.\n"
+            "(제거된 VOD 는 이후 재시도 대상에서도 빠집니다.)\n\n계속하시겠습니까?",
+        )
+        if not ok:
+            return
+        try:
+            removed = self.state.clear_errors(include_pending_retry=True)
+            self._header_flash(f"오류 기록 {removed}개 제거됨")
+            threading.Thread(target=self._refresh_status_bg, daemon=True).start()
+        except Exception as e:  # noqa: BLE001
+            self._header_flash(f"일괄 제거 실패: {e}")
 
     def _show_error_details(self, key: str, brief: str) -> None:
         """팝업 창에 해당 VOD 관련 로그 tail 을 표시."""
