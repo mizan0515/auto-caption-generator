@@ -356,8 +356,15 @@ def process_vod(
                     logger.info(f"✓ 테스트 모드: 앞 {limit_duration_sec}초만 사용 → {video_path}")
 
             if chat_future is not None:
-                chats = chat_future.result()
-                logger.info(f"✓ 채팅 수집 완료: {len(chats):,}개")
+                try:
+                    chats = chat_future.result()
+                    logger.info(f"✓ 채팅 수집 완료: {len(chats):,}개")
+                except Exception as e:  # noqa: BLE001
+                    # 채팅 수집 실패 시 전체 VOD 를 포기하지 않는다. 채팅 없이도
+                    # 자막/커뮤니티 기반 요약은 생성 가능하다. 이전에는 예외가
+                    # 바깥 except 로 전파돼 status="error" 가 됐다.
+                    logger.warning(f"채팅 수집 실패 (빈 chats 로 계속): {e}")
+                    chats = []
             else:
                 chats = cached_chats or []
 
@@ -491,12 +498,14 @@ def process_vod(
         chunk_results = process_chunks(
             chunks, highlights, chats, vod, claude_timeout,
             claude_model=claude_model,
+            progress_func=_make_heartbeat("summarizing"),
         )
         logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
 
         summary = merge_results(
             chunk_results, vod, community_posts, highlights, claude_timeout,
             srt_path=srt_path, claude_model=claude_model,
+            progress_func=_make_heartbeat("summarizing"),
         )
         logger.info(f"✓ 통합 요약 생성 완료")
 

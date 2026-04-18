@@ -136,6 +136,7 @@ def process_chunks(
     vod_info: VODInfo,
     claude_timeout: int = 300,
     claude_model: str = "",
+    progress_func=None,
 ) -> list[str]:
     """각 청크를 Claude에 전달하여 분석.
 
@@ -171,6 +172,15 @@ def process_chunks(
         except Exception as e:
             logger.error(f"  청크 {chunk['index']} 분석 실패: {e}")
             chunk_results.append(f"## chunk_{chunk['index']:02d} — 분석 실패: {e}")
+
+        # Heartbeat: 긴 VOD 의 청크 요약이 stale_after_sec (기본 1시간) 를 초과
+        # 해 zombie detection 에 오판되지 않도록 매 청크 후 알림. 호출자가 내부
+        # throttling 을 책임진다 (main.py 의 30s throttle).
+        if progress_func:
+            try:
+                progress_func(chunk["index"], len(chunks))
+            except Exception:  # noqa: BLE001
+                pass
 
     return chunk_results
 
@@ -236,9 +246,20 @@ def merge_results(
     claude_timeout: int = 300,
     srt_path: str = "",
     claude_model: str = "",
+    progress_func=None,
 ) -> str:
-    """모든 청크 결과를 통합하여 최종 리포트 생성."""
+    """모든 청크 결과를 통합하여 최종 리포트 생성.
+
+    progress_func(done, total): 2라운드 병합 시 각 round-1 batch 완료마다 호출.
+    heartbeat 용도 — zombie detection 이 summarizing stage 를 false-positive 로
+    잡지 않도록. 단일 라운드 경로에서는 시작/종료만 알린다.
+    """
     logger.info("최종 통합 요약 생성 중...")
+    if progress_func:
+        try:
+            progress_func(0, 1)
+        except Exception:  # noqa: BLE001
+            pass
 
     # 통합 프롬프트 로드
     merge_template = _load_merge_prompt()
@@ -341,6 +362,7 @@ def merge_results(
             chunk_results, merge_template, merge_system,
             vod_info, community_posts, highlights, claude_timeout,
             claude_model=claude_model,
+            progress_func=progress_func,
         )
 
     try:
@@ -366,6 +388,7 @@ def _two_round_merge(
     highlights: list[dict],
     claude_timeout: int,
     claude_model: str = "",
+    progress_func=None,
 ) -> str:
     """청크가 많을 때 2라운드 병합.
 
@@ -392,6 +415,12 @@ def _two_round_merge(
         except Exception as e:
             logger.warning(f"  중간 병합 실패: {e}")
             mid_results.append(batch_text[:3000])
+        # Heartbeat 용도 — 장시간 2라운드 병합이 zombie detection 에 안 걸리도록
+        if progress_func:
+            try:
+                progress_func(i + batch_size, len(chunk_results))
+            except Exception:  # noqa: BLE001
+                pass
 
     # 2라운드: 최종 통합
     final_user = merge_template.replace(
