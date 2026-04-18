@@ -3,11 +3,18 @@
 import json
 import os
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 KST = timezone(timedelta(hours=9))
+
+# 파일 잠금 재시도 파라미터.
+# daemon 스레드 ↔ `--process` 서브프로세스 간 inter-process race 를 커버한다.
+# 일반 _save() 는 수 밀리초 이내에 끝나므로 대부분 1~2회 안에 성공한다.
+_LOCK_RETRY_COUNT = 40          # 40회 * 25ms = 최대 1초 대기
+_LOCK_RETRY_INTERVAL_SEC = 0.025
 
 
 class PipelineState:
@@ -34,40 +41,108 @@ class PipelineState:
             return f"{channel_id}:{video_no}"
         return video_no
 
+    _EMPTY = {"processed_vods": {}, "last_poll_time": None, "stop": False}
+
     def _load(self) -> dict:
-        if os.path.exists(self._path):
+        """디스크에서 상태를 로드. 다른 프로세스의 원자적 rename 사이에 잠깐
+        JSON 이 불완전하게 보일 수 있어 짧게 재시도한다.
+        """
+        if not os.path.exists(self._path):
+            return dict(self._EMPTY)
+        last_err: Optional[Exception] = None
+        for _ in range(5):
             try:
                 with open(self._path, "r", encoding="utf-8") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                return {"processed_vods": {}, "last_poll_time": None, "stop": False}
-        return {"processed_vods": {}, "last_poll_time": None, "stop": False}
+            except json.JSONDecodeError as e:
+                last_err = e
+                time.sleep(0.02)
+                continue
+            except OSError as e:
+                last_err = e
+                break
+        # 재시도 끝에도 실패 — 신규 빈 상태 반환 (쓰기는 하지 않음; 다음 _save 가
+        # 덮어쓰기 전에 호출자가 의도를 갱신할 기회가 있다).
+        del last_err  # 디버깅 시 breakpoint 여기
+        return dict(self._EMPTY)
 
     def _save(self) -> None:
-        """원자적 저장: 파일 잠금 → tmp 쓰기 → rename"""
+        """원자적 저장: 파일 잠금 (재시도 포함) → 고유 tmp 쓰기 → rename
+
+        tmp 파일명은 pid + threadid 조합으로 고유해야 한다. 이전엔 고정된
+        `{path}.tmp` 를 써서 두 프로세스가 동시에 tmp 를 쓰면 서로를 클로버하고
+        `os.replace` 가 PermissionError 로 터졌다.
+        """
         os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
         lock_path = self._path + ".lock"
-        tmp = self._path + ".tmp"
-        try:
-            lock_fd = os.open(lock_path, os.O_CREAT | os.O_WRONLY)
-            import msvcrt
-            msvcrt.locking(lock_fd, msvcrt.LK_NBLCK, 1)
-        except (OSError, ImportError):
-            # 잠금 실패 또는 비-Windows: 잠금 없이 진행
-            lock_fd = None
+        tmp = f"{self._path}.{os.getpid()}.{threading.get_ident()}.tmp"
+        lock_fd = self._acquire_file_lock(lock_path)
 
         try:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self._path)
-        finally:
-            if lock_fd is not None:
+            # Windows 에서 리더가 파일을 연 순간 os.replace 가 일시적으로 실패할
+            # 수 있다 (PermissionError / SHARING_VIOLATION). 짧게 재시도.
+            for attempt in range(5):
                 try:
-                    import msvcrt
-                    msvcrt.locking(lock_fd, msvcrt.LK_UNLCK, 1)
-                    os.close(lock_fd)
-                except OSError:
-                    pass
+                    os.replace(tmp, self._path)
+                    break
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.02)
+        finally:
+            # tmp 가 아직 남아있으면 정리 (os.replace 실패 케이스)
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+            self._release_file_lock(lock_fd)
+
+    @staticmethod
+    def _acquire_file_lock(lock_path: str):
+        """LK_NBLCK 를 재시도하여 inter-process 잠금을 실제로 획득한다.
+
+        이전 구현: 한 번만 시도하고 실패하면 `lock_fd=None` 으로 폴백 — 즉
+        잠금 없이 저장해 subprocess 와 race. 이제는 1초까지 재시도하고, 그래도
+        실패하면 어쩔 수 없이 잠금 없이 진행 (기능 유지가 data-consistency 보다
+        중요한 로깅 경로를 위해).
+        """
+        try:
+            import msvcrt
+        except ImportError:
+            return None  # 비-Windows
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_WRONLY)
+        except OSError:
+            return None
+        for _ in range(_LOCK_RETRY_COUNT):
+            try:
+                msvcrt.locking(lock_fd, msvcrt.LK_NBLCK, 1)
+                return lock_fd
+            except OSError:
+                time.sleep(_LOCK_RETRY_INTERVAL_SEC)
+        # 재시도 소진 — close & None 반환. 저장은 계속 진행.
+        try:
+            os.close(lock_fd)
+        except OSError:
+            pass
+        return None
+
+    @staticmethod
+    def _release_file_lock(lock_fd) -> None:
+        if lock_fd is None:
+            return
+        try:
+            import msvcrt
+            msvcrt.locking(lock_fd, msvcrt.LK_UNLCK, 1)
+        except (OSError, ImportError):
+            pass
+        try:
+            os.close(lock_fd)
+        except OSError:
+            pass
 
     def _resolve_key(self, video_no: str, channel_id: Optional[str] = None) -> str:
         """composite key 를 우선 탐색, 없으면 plain video_no 로 fallback."""
@@ -85,17 +160,26 @@ class PipelineState:
 
     def is_processed(self, video_no: str, channel_id: Optional[str] = None) -> bool:
         with self._lock:
+            # 서브프로세스(`--process`) 가 새로 써넣은 엔트리를 간과하지 않도록
+            # 읽기 경로에서도 디스크를 재로드한다. 쓰기 경로에서는 반드시 필요.
+            self._data = self._load()
             key = self._resolve_key(video_no, channel_id)
             return key in self._data["processed_vods"]
 
     def get_status(self, video_no: str, channel_id: Optional[str] = None) -> Optional[str]:
         with self._lock:
+            self._data = self._load()
             key = self._resolve_key(video_no, channel_id)
             entry = self._data["processed_vods"].get(key)
             return entry.get("status") if entry else None
 
     def update(self, video_no: str, status: str, channel_id: Optional[str] = None, **kwargs) -> None:
         with self._lock:
+            # 중요: 디스크 재로드. 이전에는 `self._data` 의 stale 캐시로
+            # 서브프로세스 쓰기를 무심코 덮어썼다 (예: 대시보드가 spawn 한
+            # `python -m pipeline.main --process` 가 먼저 마친 상태를 daemon 이
+            # clobber). 자세한 분석은 PR #59 참조.
+            self._data = self._load()
             now = datetime.now(KST).isoformat()
             key = self._resolve_key(video_no, channel_id)
             entry = self._data["processed_vods"].get(key, {})
@@ -114,6 +198,7 @@ class PipelineState:
 
     def update_poll_time(self) -> None:
         with self._lock:
+            self._data = self._load()
             self._data["last_poll_time"] = datetime.now(KST).isoformat()
             self._save()
 
@@ -136,6 +221,7 @@ class PipelineState:
     def get_failed_vods(self, max_retries: int = 3) -> list[tuple[str, Optional[str]]]:
         """실패한 VOD 목록을 (video_no, channel_id) 튜플 리스트로 반환."""
         with self._lock:
+            self._data = self._load()
             failed: list[tuple[str, Optional[str]]] = []
             for _key, entry in self._data["processed_vods"].items():
                 if entry.get("status") == "error":
@@ -148,6 +234,7 @@ class PipelineState:
 
     def increment_retry(self, video_no: str, channel_id: Optional[str] = None) -> None:
         with self._lock:
+            self._data = self._load()
             key = self._resolve_key(video_no, channel_id)
             entry = self._data["processed_vods"].get(key, {})
             entry["retry_count"] = entry.get("retry_count", 0) + 1
