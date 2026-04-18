@@ -90,7 +90,9 @@ def transcribe_video(
                 progress_func=prog_func,
             )
         except Exception as e:
+            import traceback
             state["error"] = e
+            state["traceback"] = traceback.format_exc()
 
     t = threading.Thread(target=worker, name="whisper-worker", daemon=True)
     start = time.time()
@@ -119,6 +121,9 @@ def transcribe_video(
 
     if state["error"] is not None:
         logger.error(f"Whisper 실행 에러: {state['error']}")
+        tb = state.get("traceback")
+        if tb:
+            logger.error(f"Whisper 실행 트레이스백:\n{tb}")
         raise state["error"]
 
     srt_path = state["srt"]

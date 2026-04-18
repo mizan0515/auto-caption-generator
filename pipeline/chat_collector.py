@@ -137,11 +137,44 @@ def fetch_all_chats(
 
 
 def save_chat_log(chats: list[dict], output_path: str) -> str:
-    """채팅 로그를 텍스트 파일로 저장"""
+    """채팅 로그를 텍스트 파일로 저장.
+
+    텍스트(.log) 는 사람이 읽기 좋은 포맷, 사이드카 JSON(.log.json) 은
+    재시도 시 무손실 재로드용. 두 개를 원자적으로 같이 쓴다.
+    """
     from .utils import sec_to_hms
     with open(output_path, "w", encoding="utf-8") as f:
         for chat in chats:
             ts = sec_to_hms(chat["ms"] / 1000.0)
             f.write(f"[{ts}] {chat['nick']}: {chat['msg']}\n")
-    logger.info(f"채팅 로그 저장: {output_path} ({len(chats):,}개)")
+
+    json_path = output_path + ".json"
+    tmp = json_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(chats, f, ensure_ascii=False)
+    import os as _os
+    _os.replace(tmp, json_path)
+
+    logger.info(f"채팅 로그 저장: {output_path} ({len(chats):,}개, JSON 사이드카 포함)")
     return output_path
+
+
+def load_chat_log_json(video_no: str, work_dir: str) -> list[dict] | None:
+    """save_chat_log 이 남긴 사이드카 JSON 을 로드. 없으면 None.
+
+    RESUME 용: 재시도 시 API 재호출 (수 분 ~ 수십 분) 을 피하기 위해 사용.
+    """
+    import os as _os
+    json_path = _os.path.join(work_dir, f"{video_no}_chat.log.json")
+    if not _os.path.isfile(json_path) or _os.path.getsize(json_path) == 0:
+        return None
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return data
+        logger.warning(f"채팅 JSON 형식 이상 → 재수집: {json_path}")
+        return None
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"채팅 JSON 로드 실패 → 재수집: {e}")
+        return None

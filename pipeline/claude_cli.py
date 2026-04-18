@@ -10,16 +10,41 @@
   이전 구조(매 청크마다 subprocess)에서는 프롬프트 캐싱이 불가능했다.
 """
 
+import datetime as _dt
 import json
 import logging
 import os
 import shutil
 import subprocess
+from pathlib import Path as _Path
 from typing import Optional
 
 from .utils import retry
 
 logger = logging.getLogger("pipeline")
+
+
+def _persist_usage_jsonl(record: dict) -> None:
+    """usage 1건을 output/cost_usage.jsonl 에 append.
+
+    pipeline.log 가 rotate/truncate 되어도 비용 트렌드가 살아남도록 별도 파일에 저장.
+    cost_trend.aggregate_by_day 가 이 파일을 먼저 읽는다.
+    """
+    try:
+        from .config import load_config
+        cfg = load_config()
+        out_dir = _Path(cfg.get("output_dir", "./output"))
+    except Exception:
+        out_dir = _Path("./output")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        record = dict(record)
+        record.setdefault("ts", _dt.datetime.now().astimezone().isoformat(timespec="seconds"))
+        with open(out_dir / "cost_usage.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        # 기록 실패해도 파이프라인은 계속 진행 — 로그에만 남음
+        pass
 
 # ── Anthropic SDK (1순위) ──────────────────────────────────────
 
@@ -55,15 +80,20 @@ def _get_client():
 
 
 def _log_api_usage(usage, model: str = "") -> None:
-    """Anthropic SDK 응답의 usage 객체를 로깅."""
+    """Anthropic SDK 응답의 usage 객체를 로깅 + JSONL sidecar 에 기록."""
+    record = {"source": "api", "model": model}
     parts = []
     for attr in ("input_tokens", "output_tokens",
                  "cache_creation_input_tokens", "cache_read_input_tokens"):
         val = getattr(usage, attr, None)
-        if isinstance(val, (int, float)) and val > 0:
-            parts.append(f"{attr}={int(val)}")
+        ival = int(val) if isinstance(val, (int, float)) else 0
+        record[attr] = ival
+        if ival > 0:
+            parts.append(f"{attr}={ival}")
     if parts:
+        # 로그 라인 포맷은 cost_estimator._USAGE_RE 가 매칭하는 형태를 유지.
         logger.info(f"Claude API usage ({model}) " + " ".join(parts))
+        _persist_usage_jsonl(record)
 
 
 @retry(max_retries=2, backoff_base=30.0, exceptions=(RuntimeError,))
@@ -149,14 +179,17 @@ def _log_cli_usage(payload: dict) -> None:
     if not isinstance(usage, dict):
         return
 
+    record = {"source": "cli", "model": ""}
     parts = []
     for key in (
         "input_tokens", "output_tokens",
         "cache_creation_input_tokens", "cache_read_input_tokens",
     ):
         value = usage.get(key)
-        if isinstance(value, (int, float)):
-            parts.append(f"{key}={int(value)}")
+        ival = int(value) if isinstance(value, (int, float)) else 0
+        record[key] = ival
+        if ival or key in ("input_tokens", "output_tokens"):
+            parts.append(f"{key}={ival}")
     if not parts:
         return
 
@@ -164,9 +197,11 @@ def _log_cli_usage(payload: dict) -> None:
     total_cost = payload.get("total_cost_usd")
     if isinstance(total_cost, (int, float)):
         extras.append(f"total_cost_usd={total_cost:.6f}")
+        record["total_cost_usd"] = float(total_cost)
 
     tail = (" " + " ".join(extras)) if extras else ""
     logger.info("Claude CLI usage " + " ".join(parts) + tail)
+    _persist_usage_jsonl(record)
 
 
 def _parse_claude_output(result: subprocess.CompletedProcess) -> str:

@@ -164,6 +164,20 @@ class Dashboard:
         self._trend_summary: Optional[ttk.Label] = None
         self._model_status: Optional[ttk.Label] = None
         self._stats_summary: Optional[ttk.Label] = None
+        self._settings_win = None  # SettingsWindow 인스턴스 (중복 열림 방지)
+
+        # 데몬: 대시보드 프로세스가 직접 소유. 이전의 tray_app.py + control.py
+        # 파일 IPC 를 대체. 창이 닫히면 self._on_close 에서 stop() 한다.
+        from pipeline.state import PipelineState
+        from pipeline.daemon import PipelineDaemon
+
+        self.state = PipelineState(str(self.state_path))
+        self.daemon = PipelineDaemon(
+            cfg=self.cfg,
+            state=self.state,
+            log_dir=self.log_dir,
+            notify=self._notify,
+        )
 
         # 데몬: 대시보드 프로세스가 직접 소유. 이전의 tray_app.py + control.py
         # 파일 IPC 를 대체. 창이 닫히면 self._on_close 에서 stop() 한다.
@@ -371,6 +385,7 @@ class Dashboard:
         self.report_tree.column("path", width=420)
         self.report_tree.pack(fill="both", expand=True)
         self.report_tree.bind("<Double-1>", self._on_report_dblclick)
+        self.report_tree.bind("<Button-3>", self._on_report_rightclick)
 
         # 진행 상태 트리 우클릭 메뉴
         self.status_tree.bind("<Button-3>", self._on_status_rightclick)
@@ -1123,6 +1138,104 @@ class Dashboard:
         ).pack(side="left")
         ttk.Button(btnbar, text="닫기", command=win.destroy).pack(side="right")
 
+    def _on_report_rightclick(self, event) -> None:
+        """완료된 리포트 우클릭 → 재처리(모델 선택) / 리포트 열기 / 경로 복사."""
+        if self.report_tree is None or self.root is None:
+            return
+        row = self.report_tree.identify_row(event.y)
+        if not row:
+            return
+        self.report_tree.selection_set(row)
+        values = self.report_tree.item(row, "values")
+        if len(values) < 3:
+            return
+        title, _updated, path = values[0], values[1], values[2]
+
+        # HTML stem → video_no 복원: processed_vods 에서 output_html 역매칭.
+        video_no = self._video_no_for_report_path(path)
+
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="리포트 열기", command=lambda: self._open_path(path))
+        menu.add_separator()
+        if video_no:
+            sub = tk.Menu(menu, tearoff=0)
+            for label, model_key in (
+                ("Haiku (경량·저가)", "haiku"),
+                ("Sonnet (기본)", "sonnet"),
+                ("Opus (최고 품질)", "opus"),
+                ("현재 설정 모델", ""),
+            ):
+                sub.add_command(
+                    label=label,
+                    command=lambda vn=video_no, mk=model_key: self._reprocess_with_model(vn, mk),
+                )
+            menu.add_cascade(label="다른 모델로 재요약", menu=sub)
+        else:
+            menu.add_command(
+                label="(재처리 불가 — VOD 매칭 실패)", state="disabled"
+            )
+        menu.add_separator()
+        menu.add_command(
+            label="경로 복사", command=lambda: _copy_to_clipboard(self.root, path)
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _video_no_for_report_path(self, html_path: str) -> Optional[str]:
+        """output_html 경로로부터 processed_vods 의 video_no 찾기."""
+        state = self._read_state()
+        processed = state.get("processed_vods", {}) or {}
+        # 경로 정규화
+        target = str(Path(html_path).resolve()).lower()
+        for key, v in processed.items():
+            cand = v.get("output_html")
+            if not cand:
+                continue
+            try:
+                if str(Path(cand).resolve()).lower() == target:
+                    return v.get("video_no") or key.split(":", 1)[-1]
+            except OSError:
+                continue
+        return None
+
+    def _reprocess_with_model(self, video_no: str, model: str) -> None:
+        """`python -m pipeline.main --process <vn> --claude-model <m>` 를 백그라운드 실행.
+
+        SRT / chat JSON sidecar 가 work_dir 에 남아있으므로 Whisper/채팅API 는 스킵되고
+        요약만 새 모델로 다시 돌아간다. (cleanup_work_dir_on_success 에서 보존 처리됨)
+        """
+        import subprocess
+        import sys as _sys
+
+        args = [_sys.executable, "-m", "pipeline.main", "--process", video_no]
+        if model:
+            args += ["--claude-model", model]
+        try:
+            creationflags = 0
+            if _sys.platform == "win32":
+                creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+            subprocess.Popen(
+                args,
+                cwd=str(self.project_root),
+                creationflags=creationflags,
+                close_fds=True,
+            )
+            self._header_flash(
+                f"재요약 요청: {video_no} (model={model or '기본'})"
+            )
+        except Exception as e:  # noqa: BLE001
+            self._header_flash(f"재요약 실패: {e}")
+
+    def _open_path(self, path: str) -> None:
+        try:
+            webbrowser.open(Path(path).resolve().as_uri())
+        except Exception:  # noqa: BLE001
+            pass
+
     def _on_report_dblclick(self, _event) -> None:
         if self.report_tree is None:
             return
@@ -1145,9 +1258,36 @@ class Dashboard:
             def _on_save(new_cfg):
                 self.cfg = new_cfg
 
-            open_settings(on_save=_on_save)
+            # 대시보드 root 를 parent 로 넘겨 Toplevel 하나만 뜨도록 한다.
+            # (이전엔 두 번째 Tk + withdraw→deiconify 로 창이 두 개 보였다)
+            # 중복 열림 방지: 이미 살아있는 settings 창이 있으면 포커스만 이동.
+            if getattr(self, "_settings_win", None) is not None:
+                try:
+                    if self._settings_win.root.winfo_exists():
+                        self._settings_win.root.lift()
+                        self._settings_win.root.focus_force()
+                        return
+                except tk.TclError:
+                    pass
+            self._settings_win = open_settings(on_save=_on_save, parent=self.root)
+            try:
+                self._settings_win.root.protocol(
+                    "WM_DELETE_WINDOW",
+                    lambda: self._close_settings(),
+                )
+            except (tk.TclError, AttributeError):
+                pass
         except Exception as e:  # noqa: BLE001
             self._header_flash(f"설정 창 실패: {e}")
+
+    def _close_settings(self) -> None:
+        win = getattr(self, "_settings_win", None)
+        if win is not None:
+            try:
+                win.root.destroy()
+            except tk.TclError:
+                pass
+        self._settings_win = None
 
     def _open_config_file(self) -> None:
         from pipeline.config import _resolve_config_path

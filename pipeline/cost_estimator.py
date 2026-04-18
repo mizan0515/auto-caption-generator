@@ -37,8 +37,15 @@ PRICING: dict[str, dict[str, float]] = {
 _CACHE_WRITE_MULT = 1.25
 _CACHE_READ_MULT = 0.10
 
+# 로그 포맷 변화 수용:
+#   - legacy (Claude CLI subprocess 시대): "Claude usage input_tokens=... total_cost_usd=..."
+#   - 현재 SDK:                              "Claude API usage (model) input_tokens=..."
+#   - 현재 CLI fallback:                     "Claude CLI usage input_tokens=..."
+# 공통: "Claude[ API|CLI]? usage ( optional (model) ) input_tokens=..."
+# `(?:API\s+|CLI\s+)?` + optional `\([^)]*\)\s*` 로 세 형태 모두 매칭.
 _USAGE_RE = re.compile(
-    r"Claude usage\s+"
+    r"Claude\s+(?:API\s+|CLI\s+)?usage\s+"
+    r"(?:\([^)]*\)\s+)?"
     r"input_tokens=(?P<input>\d+)\s+"
     r"output_tokens=(?P<output>\d+)\s+"
     r"cache_creation_input_tokens=(?P<cache_write>\d+)\s+"

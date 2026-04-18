@@ -17,6 +17,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Optional
 
 # 프로젝트 루트를 sys.path에 추가
 _project_root = str(Path(__file__).resolve().parent.parent)
@@ -36,11 +37,11 @@ from .config import (
 from .state import PipelineState
 from .monitor import check_new_vods
 from .downloader import download_vod_144p
-from .chat_collector import fetch_all_chats, save_chat_log
+from .chat_collector import fetch_all_chats, save_chat_log, load_chat_log_json
 from .chat_analyzer import find_edit_points
 from .transcriber import transcribe_video
 from .chunker import chunk_srt
-from .scraper import scrape_fmkorea
+from .scraper import scrape_fmkorea, save_community_posts, load_community_posts
 from .summarizer import process_chunks, merge_results, generate_reports
 from .models import VODInfo, PipelineResult
 from .utils import setup_logging, sec_to_hms, format_duration, clip_video
@@ -135,16 +136,84 @@ def _cleanup_whisper_temp(video_path: str, work_dir: str, logger):
             pass
 
 
+def _cleanup_work_dir_on_success(work_dir: str, logger):
+    """성공 완료 시 대용량/재생성 가능한 중간물만 제거. 재처리에 필요한
+    작은 산출물 (SRT, 채팅 JSON sidecar) 은 **보존** 한다.
+
+    - 삭제: .mp4 / .wav / .downloading  (수 GB, 재다운로드 가능)
+    - 삭제: .log (채팅 텍스트 — JSON sidecar 가 동일 데이터를 보존)
+    - 보존: .srt, .log.json  → 다른 Claude 모델로 재요약 시 Whisper/채팅 API
+            를 다시 호출하지 않아도 되도록.
+
+    디렉토리가 **완전히** 비었을 때만 디렉토리도 제거한다.
+    (이제 보존 파일이 있으므로 대부분 디렉토리는 남는다.)
+    """
+    if not os.path.isdir(work_dir):
+        return
+    deleted = 0
+    preserved = 0
+    for f in os.listdir(work_dir):
+        fpath = os.path.join(work_dir, f)
+        if not os.path.isfile(fpath):
+            continue
+        # 보존: SRT + 채팅 JSON sidecar + 커뮤니티 JSON sidecar
+        # → 다른 Claude 모델로 재요약 시 Whisper/채팅API/fmkorea 모두 스킵 가능.
+        if (
+            f.endswith(".srt")
+            or f.endswith(".log.json")
+            or f.endswith("_community.json")
+        ):
+            preserved += 1
+            continue
+        # 삭제: 대용량/재생성 가능
+        if f.endswith((".mp4", ".wav", ".downloading", ".log")):
+            try:
+                os.remove(fpath)
+                deleted += 1
+            except OSError as e:
+                logger.warning(f"  임시 파일 삭제 실패: {fpath} ({e})")
+    if deleted or preserved:
+        logger.info(
+            f"  정리: {deleted}개 삭제, {preserved}개 보존 (재처리용 SRT/채팅JSON) — {work_dir}"
+        )
+    # 빈 디렉토리면 제거 (보존 파일이 있으면 남는다)
+    try:
+        if not os.listdir(work_dir):
+            os.rmdir(work_dir)
+            logger.info(f"  빈 work_dir 제거: {work_dir}")
+    except OSError:
+        pass
+
+
 def _cleanup_work_dir(work_dir: str, logger):
-    """에러 발생 시 work_dir 내 임시 파일 정리"""
+    """에러 발생 시 work_dir 내 '부분 산출물' 만 정리.
+
+    RESUME 지원: 온전한 .mp4 / .wav / .srt / _part*.mp4 등은 보존한다.
+    다음 재시도에서 downloader 는 "이미 다운로드됨" 으로, transcribe.py 내부의
+    split_video / extract_audio 는 "이미 존재" 체크로 건너뛴다.
+
+    과거엔 여기서 .mp4/.wav 를 전부 지워버려서 11 시간짜리 VOD 를 매번 처음부터
+    다시 받고 Whisper 도 처음부터 돌렸다. 이제는 `.downloading` (미완성 다운로드)
+    와 길이 0 파일만 제거한다.
+    """
     if not os.path.isdir(work_dir):
         return
     for f in os.listdir(work_dir):
         fpath = os.path.join(work_dir, f)
-        if os.path.isfile(fpath) and f.endswith((".mp4", ".wav", ".downloading")):
+        if not os.path.isfile(fpath):
+            continue
+        try:
+            size = os.path.getsize(fpath)
+        except OSError:
+            size = -1
+        should_remove = (
+            f.endswith(".downloading")
+            or (size == 0 and f.endswith((".mp4", ".wav", ".srt")))
+        )
+        if should_remove:
             try:
                 os.remove(fpath)
-                logger.info(f"  에러 정리: {fpath}")
+                logger.info(f"  에러 정리 (부분 산출물): {fpath}")
             except OSError:
                 pass
 
@@ -176,21 +245,67 @@ def process_vod(
         logger.info(f"  길이: {format_duration(vod.duration)}, 카테고리: {vod.category}")
         logger.info(f"{'='*60}")
 
+        # RESUME: 이전 시도에서 저장된 채팅 JSON 이 있으면 API 재호출 스킵.
+        # limit_duration_sec > 0 (테스트 모드) 일 때는 캐시가 제한 기준을 모르므로 무시.
+        cached_chats: list[dict] | None = None
+        if limit_duration_sec == 0:
+            cached_chats = load_chat_log_json(vod.video_no, work_dir)
+            if cached_chats is not None:
+                logger.info(f"✓ 채팅 캐시 재사용: {len(cached_chats):,}개 (API 스킵)")
+
+        # RESUME: work_dir 에 기존 SRT 가 있으면 **MP4 다운로드 + Whisper 전부 스킵**.
+        # Claude 요약 단계는 SRT / 채팅 / 커뮤니티만 있으면 되므로 MP4 는 불필요.
+        # (다른 모델로 재요약할 때 수 GB 재다운로드를 피하는 게 핵심 이유.)
+        # 기존 SRT 위치는 성공 시 cleanup 에서 보존한 `{vod.video_no}*.srt` (보통
+        # 다운로드 파일명에서 확장자만 바뀐 형태). work_dir 내에서 비어있지 않은
+        # .srt 를 하나 찾으면 그걸 사용.
+        cached_srt: str | None = None
+        if limit_duration_sec == 0 and os.path.isdir(work_dir):
+            import glob as _glob
+            srt_candidates = [
+                p for p in _glob.glob(os.path.join(work_dir, "*.srt"))
+                if os.path.isfile(p) and os.path.getsize(p) > 0
+            ]
+            if srt_candidates:
+                # 가장 최근 것 선택
+                srt_candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+                cached_srt = srt_candidates[0]
+                logger.info(
+                    f"✓ SRT 캐시 재사용: {cached_srt} (MP4 다운로드 + Whisper 스킵)"
+                )
+
         with ThreadPoolExecutor(max_workers=3) as pool:
             # 다운로드, 채팅 수집, 커뮤니티 스크래핑 병렬 실행
-            download_future = pool.submit(
-                download_vod_144p, vod.video_no, cookies, work_dir
-            )
-            chat_future = pool.submit(
-                fetch_all_chats, vod.video_no,
-                max_duration_sec=limit_duration_sec,
-            )
+            # SRT 캐시가 있으면 MP4 다운로드를 건너뛴다 (수 GB 절약).
+            download_future = None
+            if cached_srt is None:
+                download_future = pool.submit(
+                    download_vod_144p, vod.video_no, cookies, work_dir
+                )
+            chat_future = None
+            if cached_chats is None:
+                chat_future = pool.submit(
+                    fetch_all_chats, vod.video_no,
+                    max_duration_sec=limit_duration_sec,
+                )
             # fmkorea 스크레이핑 (설정으로 비활성화 가능, B11: 오래된 VOD 자동 스킵)
+            # RESUME: 이전 시도에서 저장된 커뮤니티 JSON 이 있으면 재스크랩 스킵.
+            # 다른 Claude 모델로 재요약 시에도 동일한 커뮤니티 입력을 보장 → 비교 공정성.
+            cached_community: list | None = None
+            if limit_duration_sec == 0:
+                cached_community = load_community_posts(vod.video_no, work_dir)
+                if cached_community is not None:
+                    logger.info(
+                        f"✓ 커뮤니티 캐시 재사용: {len(cached_community)}개 (fmkorea 스크랩 스킵)"
+                    )
+
             community_future = None
             skip_age, skip_reason = _should_skip_fmkorea(
                 vod.publish_date, cfg.get("fmkorea_max_age_hours", 48)
             )
-            if not cfg.get("fmkorea_enabled", True):
+            if cached_community is not None:
+                pass  # 이미 캐시에서 로드됨
+            elif not cfg.get("fmkorea_enabled", True):
                 logger.info("커뮤니티 수집 비활성화됨 (fmkorea_enabled=false)")
             elif skip_age:
                 logger.info(f"커뮤니티 수집 스킵 (B11): {skip_reason}")
@@ -204,21 +319,26 @@ def process_vod(
                 )
 
             # 결과 수집
-            video_path = download_future.result()
-            result.video_path = video_path
-            logger.info(f"✓ 다운로드 완료: {video_path}")
-
-            # 테스트 모드: 앞부분만 잘라서 이후 단계 진행
-            if limit_duration_sec > 0:
-                base, ext = os.path.splitext(video_path)
-                clipped_path = f"{base}_clip{limit_duration_sec}s{ext}"
-                clip_video(video_path, clipped_path, limit_duration_sec)
-                video_path = clipped_path
+            video_path: Optional[str] = None
+            if download_future is not None:
+                video_path = download_future.result()
                 result.video_path = video_path
-                logger.info(f"✓ 테스트 모드: 앞 {limit_duration_sec}초만 사용 → {video_path}")
+                logger.info(f"✓ 다운로드 완료: {video_path}")
 
-            chats = chat_future.result()
-            logger.info(f"✓ 채팅 수집 완료: {len(chats):,}개")
+                # 테스트 모드: 앞부분만 잘라서 이후 단계 진행
+                if limit_duration_sec > 0:
+                    base, ext = os.path.splitext(video_path)
+                    clipped_path = f"{base}_clip{limit_duration_sec}s{ext}"
+                    clip_video(video_path, clipped_path, limit_duration_sec)
+                    video_path = clipped_path
+                    result.video_path = video_path
+                    logger.info(f"✓ 테스트 모드: 앞 {limit_duration_sec}초만 사용 → {video_path}")
+
+            if chat_future is not None:
+                chats = chat_future.result()
+                logger.info(f"✓ 채팅 수집 완료: {len(chats):,}개")
+            else:
+                chats = cached_chats or []
 
             community_posts = []
             if community_future:
@@ -226,8 +346,17 @@ def process_vod(
                     community_posts = community_future.result()
                     result.community_posts = community_posts
                     logger.info(f"✓ 커뮤니티 수집 완료: {len(community_posts)}개 게시글")
+                    # JSON 사이드카로 저장 → 재요약 시 재스크랩 스킵
+                    try:
+                        community_json = os.path.join(work_dir, f"{vod.video_no}_community.json")
+                        save_community_posts(community_posts, community_json)
+                    except Exception as e:
+                        logger.warning(f"커뮤니티 JSON 저장 실패 (무시): {e}")
                 except Exception as e:
                     logger.warning(f"커뮤니티 수집 실패 (건너뜀): {e}")
+            elif cached_community is not None:
+                community_posts = cached_community
+                result.community_posts = community_posts
             # else: 위에서 disabled / age-skip 사유를 이미 로깅함
 
         # 채팅 로그 저장
@@ -256,24 +385,42 @@ def process_vod(
         result.stage = "transcribing"
         state.update(vod.video_no, status="transcribing", channel_id=vod.channel_id)
 
-        # B05: 타임아웃/스톨 watchdog. cfg 미지정시 transcriber 의 기본값 사용.
-        try:
-            srt_path = transcribe_video(
-                video_path,
-                stall_sec=cfg.get("whisper_stall_sec", 600),
-                timeout_sec=cfg.get("whisper_timeout_sec", 0),
-            )
-        except TimeoutError as e:
-            logger.error(f"Whisper 타임아웃 → VOD 실패 처리: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Whisper 실행 실패 → VOD 실패 처리: {e}")
-            raise
+        # RESUME: 이미 생성된 SRT 가 있으면 Whisper 를 재실행하지 않는다.
+        # cached_srt 는 상단에서 work_dir 스캔으로 이미 찾아둔 것 — MP4 없이도 OK.
+        if cached_srt is not None:
+            srt_path = cached_srt
+            logger.info(f"✓ 기존 SRT 재사용 (Whisper 스킵): {srt_path}")
+        else:
+            if video_path is None:
+                # cached_srt 도 없고 MP4 다운로드도 스킵된 상태 — 논리 오류.
+                raise RuntimeError(
+                    "SRT 도 없고 MP4 도 없음 — 다운로드가 스킵된 경로를 재점검 필요"
+                )
+            # transcribe.py 의 determine_srt_output 과 동일 규칙으로 한 번 더 체크 (중복 생성 방지)
+            expected_srt = os.path.splitext(video_path)[0] + ".srt"
+            if os.path.isfile(expected_srt) and os.path.getsize(expected_srt) > 0:
+                srt_path = expected_srt
+                logger.info(f"✓ 기존 SRT 재사용 (Whisper 스킵): {srt_path}")
+            else:
+                # B05: 타임아웃/스톨 watchdog. cfg 미지정시 transcriber 의 기본값 사용.
+                try:
+                    srt_path = transcribe_video(
+                        video_path,
+                        stall_sec=cfg.get("whisper_stall_sec", 600),
+                        timeout_sec=cfg.get("whisper_timeout_sec", 0),
+                    )
+                except TimeoutError as e:
+                    logger.error(f"Whisper 타임아웃 → VOD 실패 처리: {e}")
+                    raise
+                except Exception as e:
+                    logger.error(f"Whisper 실행 실패 → VOD 실패 처리: {e}")
+                    raise
+                logger.info(f"✓ 자막 생성 완료: {srt_path}")
         result.srt_path = srt_path
-        logger.info(f"✓ 자막 생성 완료: {srt_path}")
 
-        # Whisper 임시 파일 정리 (WAV, 분할 파일)
-        _cleanup_whisper_temp(video_path, work_dir, logger)
+        # Whisper 임시 파일 정리 (WAV, 분할 파일) — video_path 있을 때만
+        if video_path is not None:
+            _cleanup_whisper_temp(video_path, work_dir, logger)
 
         # ── 4단계: SRT 청크 분할 ──
         result.stage = "chunking"
@@ -362,13 +509,11 @@ def process_vod(
         # 자동 퍼블리시
         _try_auto_publish(cfg, result, state, logger)
 
-        # 임시 파일 정리
-        if cfg.get("auto_cleanup", True) and video_path:
-            try:
-                os.remove(video_path)
-                logger.info(f"  임시 영상 삭제: {video_path}")
-            except OSError:
-                pass
+        # 임시 파일 정리: 성공 시 work_dir 의 중간 산출물을 전부 제거한다.
+        # (다운로드 mp4 / SRT / 채팅 로그 .log & .log.json 사이드카 / 남은 WAV·part 등)
+        # 최종 산출물은 output_dir 에 MD/HTML/meta 로 이미 나와있다.
+        if cfg.get("auto_cleanup", True):
+            _cleanup_work_dir_on_success(work_dir, logger)
 
         return result
 
@@ -568,6 +713,12 @@ def main():
         default=0,
         help="(테스트용) 영상 앞부분 N초만 잘라서 처리. --process 와 함께 사용 (예: --limit-duration 1800 = 30분)",
     )
+    parser.add_argument(
+        "--claude-model",
+        type=str,
+        default=None,
+        help="이 실행에 한해 cfg.claude_model 을 override (haiku/sonnet/opus 또는 풀 모델명)",
+    )
     args = parser.parse_args()
 
     if args.setup_cookies:
@@ -585,6 +736,10 @@ def main():
         print("  설정을 수정한 뒤 다시 실행하세요.")
         print("  (기본값으로 초기화하려면 pipeline_config.json 을 삭제 후 재실행)")
         sys.exit(2)
+
+    # CLI override: claude_model — 재요약/재처리 시 모델 선택에 사용됨.
+    if args.claude_model is not None:
+        cfg["claude_model"] = args.claude_model
 
     if args.process:
         run_single(args.process, cfg, limit_duration_sec=args.limit_duration)

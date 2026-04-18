@@ -5,7 +5,6 @@ import math
 import time
 import re
 import zlib
-import logging
 import warnings
 import numpy as np
 import wave
@@ -15,10 +14,16 @@ from collections import Counter
 from pipeline._io_encoding import force_utf8_stdio
 force_utf8_stdio()
 
-# 모든 경고/로그 숨기기
+# 모든 경고 숨기기 (transformers 등의 사용자-비관심 경고)
 warnings.filterwarnings("ignore")
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-logging.disable(logging.WARNING)
+
+# NOTE: 예전엔 `logging.disable(logging.WARNING)` 로 transformers INFO 를 뭉갰지만,
+# 이 호출은 프로세스 전역이라 파이프라인의 pipeline 로거 INFO/WARNING 도 모두 삼켜버린다
+# (증상: transcribe.py 를 import 한 순간부터 "자막 생성 시작" / log_func "[Whisper] ..."
+# 로그가 완전히 사라지고, ERROR 로그만 남아서 실패 원인 추적이 불가능해짐).
+# transformers 은 os.environ["TRANSFORMERS_VERBOSITY"] 로 억제한다.
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
 from split_video import find_bin, get_duration, FFMPEG, FFMPEG_DIR
 from merge import merge_files
