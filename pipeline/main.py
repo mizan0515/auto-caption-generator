@@ -274,13 +274,34 @@ def process_vod(
                     f"✓ SRT 캐시 재사용: {cached_srt} (MP4 다운로드 + Whisper 스킵)"
                 )
 
+        # Heartbeat: download/transcribe 같은 장시간 stage 동안 state.updated_at
+        # 을 주기적으로 갱신한다. 없으면 10hr VOD 다운로드 중 updated_at 이 한
+        # 번만 찍혀 `get_stale_vods` 가 좀비로 오판할 수 있다. 30초 throttle.
+        _hb_last = [0.0]
+        def _make_heartbeat(stage_name: str):
+            def _hb(done, total):
+                now = time.monotonic()
+                if now - _hb_last[0] < 30.0:
+                    return
+                _hb_last[0] = now
+                try:
+                    state.update(
+                        vod.video_no, status=stage_name,
+                        channel_id=vod.channel_id,
+                        progress=f"{done}/{total}" if total else str(done),
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return _hb
+
         with ThreadPoolExecutor(max_workers=3) as pool:
             # 다운로드, 채팅 수집, 커뮤니티 스크래핑 병렬 실행
             # SRT 캐시가 있으면 MP4 다운로드를 건너뛴다 (수 GB 절약).
             download_future = None
             if cached_srt is None:
                 download_future = pool.submit(
-                    download_vod_144p, vod.video_no, cookies, work_dir
+                    download_vod_144p, vod.video_no, cookies, work_dir,
+                    _make_heartbeat("collecting"),
                 )
             chat_future = None
             if cached_chats is None:
@@ -406,6 +427,7 @@ def process_vod(
                 try:
                     srt_path = transcribe_video(
                         video_path,
+                        progress_func=_make_heartbeat("transcribing"),
                         stall_sec=cfg.get("whisper_stall_sec", 600),
                         timeout_sec=cfg.get("whisper_timeout_sec", 0),
                     )
@@ -591,6 +613,20 @@ def run_daemon(cfg: dict):
                     if state.should_stop():
                         break
                     process_vod(vod, streamer_cfg, state, logger)
+
+            # 좀비 복구 — daemon.py 와 동일 로직. non-terminal status 로 박제된
+            # VOD 를 stale_after_sec 경과 시 "error" 로 전환해 재시도 큐에 합류.
+            stale_after = int(cfg.get("zombie_stale_after_sec", 3600))
+            zombies = state.get_stale_vods(stale_after_sec=stale_after)
+            for zvno, zcid in zombies:
+                logger.warning(
+                    f"좀비 VOD 감지 — error 로 전환: [{zvno}] channel={zcid} "
+                    f"(updated_at {stale_after}s 경과)"
+                )
+                state.mark_zombie_as_error(
+                    zvno, zcid,
+                    reason=f"zombie recovery (no heartbeat for >{stale_after}s)",
+                )
 
             # 실패한 VOD 재시도
             failed = state.get_failed_vods(max_retries=3)

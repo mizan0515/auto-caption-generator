@@ -165,6 +165,22 @@ class PipelineDaemon:
                     process_vod(vod, self.cfg, self.state, log_logger)
                     self._notify("완료", f"VOD 처리 완료: {vod.title[:40]}")
 
+                # 좀비 복구: non-terminal status 로 박제된 VOD 가 있고 heartbeat
+                # 가 stale_after_sec 이상 끊겨 있으면 "error" 로 전환해 재시도 큐에
+                # 합류시킨다. stale_after_sec 기본 1시간 — heartbeat 30s 와 Whisper
+                # stall watchdog (600s) 보다 충분히 큰 margin.
+                stale_after = int(self.cfg.get("zombie_stale_after_sec", 3600))
+                zombies = self.state.get_stale_vods(stale_after_sec=stale_after)
+                for zvno, zcid in zombies:
+                    log_logger.warning(
+                        f"좀비 VOD 감지 — error 로 전환 후 재시도 큐 합류: "
+                        f"[{zvno}] channel={zcid} (updated_at {stale_after}s 경과)"
+                    )
+                    self.state.mark_zombie_as_error(
+                        zvno, zcid,
+                        reason=f"zombie recovery (no heartbeat for >{stale_after}s)",
+                    )
+
                 # 실패 VOD 재시도
                 # NOTE: get_failed_vods 는 (video_no, channel_id) 튜플 리스트를 반환한다.
                 # 이전에는 `for video_no in failed:` 로 튜플 전체를 video_no 로 오인해
