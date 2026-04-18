@@ -308,6 +308,11 @@ def process_vod(
                 chat_future = pool.submit(
                     fetch_all_chats, vod.video_no,
                     max_duration_sec=limit_duration_sec,
+                    # SRT 캐시가 있어 다운로드가 스킵된 경로에서는 collecting 의
+                    # heartbeat 소스가 채팅 수집뿐이다. 페이지마다 갱신한다.
+                    heartbeat=_make_heartbeat("collecting"),
+                    # 비정상적으로 긴 수집을 끊어 좀비 오탐을 피한다. 기본 1시간.
+                    max_wall_time_sec=cfg.get("chat_fetch_max_wall_sec", 3600),
                 )
             # fmkorea 스크레이핑 (설정으로 비활성화 가능, B11: 오래된 VOD 자동 스킵)
             # RESUME: 이전 시도에서 저장된 커뮤니티 JSON 이 있으면 재스크랩 스킵.
