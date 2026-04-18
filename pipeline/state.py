@@ -252,6 +252,73 @@ class PipelineState:
                         failed.append((vno, cid))
             return failed
 
+    # 진행 중 상태를 terminal 로 되돌리지 않는 논리 판정용 상수.
+    # 여기 포함된 status 는 "아직 처리 중" 으로 간주되며, heartbeat 기반의
+    # staleness 체크로만 좀비 판정한다.
+    _NONTERMINAL_PROCESSING = (
+        "collecting", "analyzing", "transcribing", "chunking",
+        "summarizing", "saving",
+    )
+
+    def get_stale_vods(self, stale_after_sec: int = 3600) -> list[tuple[str, Optional[str]]]:
+        """좀비(진행 중 status 로 박제됐는데 updated_at 이 오래된) VOD 반환.
+
+        daemon 이 processing 도중 크래시하면 status 가 "collecting"/"transcribing"/
+        ... 등 non-terminal 로 남아 retry 경로에도, new-vod 경로에도 안 잡힌다.
+        heartbeat 가 정상 동작 중인 VOD 는 updated_at 이 주기적으로 갱신되므로
+        stale_after_sec 내에 업데이트가 있으면 여기서 제외된다.
+
+        Args:
+            stale_after_sec: updated_at 과 현재 사이 간격이 이 값 이상이면 좀비
+                로 판정. 기본 1시간 — download heartbeat (30s) 와 Whisper stall
+                watchdog (600s) 보다 충분히 크다.
+
+        Returns:
+            (video_no, channel_id) 튜플 리스트.
+        """
+        with self._lock:
+            self._data = self._load()
+            now = datetime.now(KST)
+            stale: list[tuple[str, Optional[str]]] = []
+            for _key, entry in self._data["processed_vods"].items():
+                if entry.get("status") not in self._NONTERMINAL_PROCESSING:
+                    continue
+                ts = entry.get("updated_at")
+                if not ts:
+                    # updated_at 이 없는 건 무조건 좀비로 본다 (아주 오래된 기록)
+                    stale.append((entry.get("video_no", _key), entry.get("channel_id")))
+                    continue
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=KST)
+                    age = (now - dt).total_seconds()
+                except (ValueError, TypeError):
+                    age = stale_after_sec + 1  # 파싱 실패는 좀비 처리
+                if age >= stale_after_sec:
+                    stale.append((entry.get("video_no", _key), entry.get("channel_id")))
+            return stale
+
+    def mark_zombie_as_error(self, video_no: str, channel_id: Optional[str] = None,
+                              reason: str = "zombie recovery") -> None:
+        """좀비 VOD 를 status="error" 로 전환. retry_count 는 보존한다.
+
+        get_stale_vods() 와 쌍으로 사용. 이후 get_failed_vods 가 재시도 큐에
+        넣어줄 수 있게 한다.
+        """
+        with self._lock:
+            self._data = self._load()
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key)
+            if not entry:
+                return
+            if entry.get("status") in self._NONTERMINAL_PROCESSING:
+                entry["status"] = "error"
+                entry["error"] = reason
+                entry["updated_at"] = datetime.now(KST).isoformat()
+                self._data["processed_vods"][key] = entry
+                self._save()
+
     def increment_retry(self, video_no: str, channel_id: Optional[str] = None) -> None:
         with self._lock:
             self._data = self._load()
