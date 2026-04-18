@@ -45,7 +45,13 @@ class PipelineState:
 
     def _load(self) -> dict:
         """디스크에서 상태를 로드. 다른 프로세스의 원자적 rename 사이에 잠깐
-        JSON 이 불완전하게 보일 수 있어 짧게 재시도한다.
+        JSON 이 불완전하게 보이거나 (JSONDecodeError), Windows 에서 reader/writer
+        겹침으로 PermissionError 가 날 수 있어 짧게 재시도한다.
+
+        CRITICAL — OSError 를 삼켜 빈 dict 를 반환하면 안 된다. 호출자는 거의
+        항상 `self._data = self._load()` 직후 `_save()` 를 호출하므로, 빈 dict
+        반환은 곧 **디스크 상태를 zero-out 하는 data loss** 를 의미한다.
+        따라서 전 retry 가 실패하면 예외를 올려 호출 mutation 을 중단시킨다.
         """
         if not os.path.exists(self._path):
             return dict(self._EMPTY)
@@ -53,18 +59,21 @@ class PipelineState:
         for _ in range(5):
             try:
                 with open(self._path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except json.JSONDecodeError as e:
+                    data = json.load(f)
+                # 스키마 보강: 레거시/부분 쓰기 파일에 missing key 가 있어도
+                # 호출자가 `data["processed_vods"]` 로 KeyError 를 맞지 않도록.
+                for k, v in self._EMPTY.items():
+                    data.setdefault(k, v if not isinstance(v, dict) else dict(v))
+                return data
+            except (json.JSONDecodeError, OSError) as e:
                 last_err = e
                 time.sleep(0.02)
                 continue
-            except OSError as e:
-                last_err = e
-                break
-        # 재시도 끝에도 실패 — 신규 빈 상태 반환 (쓰기는 하지 않음; 다음 _save 가
-        # 덮어쓰기 전에 호출자가 의도를 갱신할 기회가 있다).
-        del last_err  # 디버깅 시 breakpoint 여기
-        return dict(self._EMPTY)
+        # 재시도 소진 — 호출 mutation 이 진행되면 state 를 덮어쓸 수 있으니
+        # 예외를 올려 중단시킨다. `_save()` 경로로 빈 dict 가 흘러가지 않게.
+        raise RuntimeError(
+            f"PipelineState: failed to load {self._path} after retries: {last_err}"
+        ) from last_err
 
     def _save(self) -> None:
         """원자적 저장: 파일 잠금 (재시도 포함) → 고유 tmp 쓰기 → rename
@@ -210,11 +219,16 @@ class PipelineState:
 
     def request_stop(self) -> None:
         with self._lock:
+            # 재로드 누락 시 subprocess 가 방금 기록한 processed_vods 엔트리를
+            # stale 캐시로 덮어써 지워버린다. PR #59 가 update() 는 고쳤지만
+            # 이 경로가 누락돼 있었다.
+            self._data = self._load()
             self._data["stop"] = True
             self._save()
 
     def clear_stop(self) -> None:
         with self._lock:
+            self._data = self._load()
             self._data["stop"] = False
             self._save()
 
