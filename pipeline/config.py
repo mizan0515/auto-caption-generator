@@ -45,6 +45,10 @@ DEFAULT_CONFIG = {
     #   whisper_timeout_sec: 전체 실행 시간 상한. 0 = 무제한 (긴 VOD 보호 비활성).
     "whisper_stall_sec": 600,
     "whisper_timeout_sec": 0,
+    # 채팅 수집 wall-clock 상한. Chzzk API 가 10hr+ VOD 에서 페이지를 수천 번
+    # 돌 때 collecting 단계가 zombie_stale_after_sec(1h) 를 넘으면 좀비로
+    # 오판되는 문제를 막는다. 상한 도달 시 지금까지 모은 분량만 반환. 0 = 무제한.
+    "chat_fetch_max_wall_sec": 3600,
     "auto_cleanup": True,
     "fmkorea_max_pages": 3,
     "fmkorea_max_posts": 20,
@@ -102,6 +106,7 @@ _INT_FIELDS: list[tuple[str, bool]] = [
     ("claude_timeout_sec", True),
     ("whisper_stall_sec", False),
     ("whisper_timeout_sec", False),
+    ("chat_fetch_max_wall_sec", False),
     ("fmkorea_max_pages", False),
     ("fmkorea_max_posts", False),
     ("fmkorea_max_age_hours", False),

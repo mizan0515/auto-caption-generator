@@ -25,6 +25,8 @@ def fetch_all_chats(
     vod_id: str,
     fetch_delay: float = FETCH_DELAY,
     max_duration_sec: int = 0,
+    max_wall_time_sec: int = 0,
+    heartbeat: "callable | None" = None,
 ) -> list[dict]:
     """
     Chzzk API에서 VOD 채팅 전체를 수집.
@@ -33,10 +35,18 @@ def fetch_all_chats(
 
     Args:
         max_duration_sec: >0 이면 이 시간(초) 까지의 채팅만 수집. 이후 페이지는 스킵.
+        max_wall_time_sec: >0 이면 이 실제 경과 시간(초) 초과 시 루프 강제 종료.
+            Chzzk API 가 아주 느려지거나 페이지 수가 비정상적으로 많을 때
+            (10시간+ VOD) 데몬이 "collecting" 에 무한히 머물러 좀비로 오판되는
+            것을 막는다. 지금까지 수집한 분량만 반환한다.
+        heartbeat: 매 페이지마다 호출되는 콜백(done, total). 좀비 오탐 방지용.
+            daemon._run_loop 의 `get_stale_vods` 가 updated_at 기반으로 판정하므로
+            부모 단계 (collecting) 의 heartbeat 도 같이 친다. 없으면 무시.
     """
     chats = []
     next_time = "0"
     page = 0
+    started = time.monotonic()
 
     if max_duration_sec > 0:
         logger.info(f"채팅 수집 시작: VOD {vod_id} (제한 시간: {max_duration_sec}초)")
@@ -95,6 +105,23 @@ def fetch_all_chats(
 
         page += 1
         next_time = content.get("nextPlayerMessageTime")
+
+        # Heartbeat: 부모 단계 (collecting) 의 updated_at 을 갱신해 좀비 오탐 방지.
+        # 예외는 무시 — state 갱신 실패가 채팅 수집을 죽이면 안 된다.
+        if heartbeat is not None:
+            try:
+                heartbeat(page, 0)
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Wall-clock timeout: 비정상적으로 긴 수집을 강제 종료.
+        if max_wall_time_sec > 0 and (time.monotonic() - started) > max_wall_time_sec:
+            elapsed = time.monotonic() - started
+            logger.warning(
+                f"채팅 수집 wall-clock 타임아웃 ({elapsed:.0f}s > {max_wall_time_sec}s): "
+                f"지금까지 {len(chats):,}개 반환 후 종료"
+            )
+            break
 
         if page % 10 == 0:
             offset = chats[0]["ms"] if chats else 0
