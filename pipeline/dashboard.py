@@ -560,26 +560,92 @@ class Dashboard:
                 self._model_status.config(text=f"저장 실패: {e}")
 
     def _refresh_cost_tab(self) -> None:
-        from pipeline.cost_estimator import (
-            UsageStats,
-            aggregate,
-            estimate_cost,
-            estimate_per_call,
-            format_tokens,
-            format_usd,
-            parse_log_file,
-            PRICING,
+        """비용 탭 재계산.
+
+        `parse_log_file` / `index_vods_from_log` 는 pipeline.log 전체를 훑어
+        파일 크기에 비례해 UI 스레드를 멈춘다. 100MB+ 로그에서 수 초 단위 freeze
+        를 유발하므로 모든 파싱을 백그라운드 스레드로 밀어내고 결과만
+        `root.after(0, ...)` 로 메인 스레드에 돌려 UI 를 갱신한다.
+        """
+        if self._stats_summary is None:
+            return
+        # 사용자에게 작업이 진행 중임을 즉시 알림
+        try:
+            self._stats_summary.config(text="비용 로그 분석 중…")
+        except tk.TclError:
+            return
+        threading.Thread(target=self._compute_cost_bg, daemon=True).start()
+
+    def _compute_cost_bg(self) -> None:
+        try:
+            from pipeline.cost_estimator import (
+                UsageStats,
+                aggregate,
+                estimate_cost,
+                estimate_per_call,
+                parse_log_file,
+            )
+            from pipeline.vod_log_index import index_vods_from_log
+
+            calls = parse_log_file(self.log_path)
+            stats = aggregate(calls)
+            entries = index_vods_from_log(self.log_path)
+            # UsageStats per VOD 미리 계산 (estimate_cost 는 순수 함수)
+            vod_rows = []
+            for e in reversed(entries):
+                if not e.calls:
+                    continue
+                e_stats = UsageStats(
+                    calls=len(e.calls),
+                    input_tokens=e.total_input,
+                    output_tokens=e.total_output,
+                    cache_write_tokens=e.total_cache_write,
+                    cache_read_tokens=e.total_cache_read,
+                    actual_cost_usd=e.actual_cost_usd,
+                )
+                vod_rows.append((
+                    e.video_no,
+                    e.title,
+                    len(e.calls),
+                    e.total_input,
+                    e.total_output,
+                    e.actual_cost_usd,
+                    estimate_cost(e_stats, "haiku"),
+                    estimate_cost(e_stats, "sonnet"),
+                    estimate_cost(e_stats, "opus"),
+                ))
+            per_model = {
+                m: (estimate_per_call(stats, m), estimate_cost(stats, m))
+                for m in ("haiku", "sonnet", "opus")
+            }
+        except Exception as e:  # noqa: BLE001
+            if self.root is not None:
+                self.root.after(0, lambda: self._stats_summary
+                                and self._stats_summary.config(text=f"비용 분석 실패: {e}"))
+            return
+        if self.root is None:
+            return
+        self.root.after(
+            0,
+            lambda: self._apply_cost_results(stats, per_model, vod_rows[:50]),
         )
 
-        calls = parse_log_file(self.log_path)
-        stats = aggregate(calls)
+    def _apply_cost_results(self, stats, per_model, vod_rows) -> None:
+        from pipeline.cost_estimator import (
+            format_tokens, format_usd, PRICING,
+        )
 
+        if self._stats_summary is None:
+            return
         if stats.calls == 0:
             self._stats_summary.config(
                 text="기록된 Claude API 호출이 없습니다. VOD 를 최소 1개 처리한 뒤 [다시 계산]."
             )
             if self._cost_tree is not None:
                 self._cost_tree.delete(*self._cost_tree.get_children())
+            if self._breakdown_tree is not None:
+                self._breakdown_tree.delete(*self._breakdown_tree.get_children())
+            self._render_trend_chart()
             return
 
         summary = (
@@ -592,65 +658,42 @@ class Dashboard:
         )
         self._stats_summary.config(text=summary)
 
-        if self._cost_tree is None:
-            return
-        self._cost_tree.delete(*self._cost_tree.get_children())
-        actual = stats.actual_cost_usd
-        for model in ("haiku", "sonnet", "opus"):
-            per = estimate_per_call(stats, model)
-            total = estimate_cost(stats, model)
-            if actual > 0:
-                ratio = total / actual
-                vs = f"{ratio:.2f}×"
-            else:
-                vs = "-"
-            self._cost_tree.insert(
-                "",
-                "end",
-                values=(
-                    f"{model.capitalize()}  (in ${PRICING[model]['input']:.2f} / out ${PRICING[model]['output']:.2f} per 1M)",
-                    format_usd(per),
-                    format_usd(total),
-                    vs,
-                ),
-            )
-
-        # VOD별 breakdown
-        if self._breakdown_tree is not None:
-            from pipeline.vod_log_index import index_vods_from_log
-
-            entries = index_vods_from_log(self.log_path)
-            self._breakdown_tree.delete(*self._breakdown_tree.get_children())
-            # 최근순
-            entries_sorted = list(reversed(entries))
-            for e in entries_sorted[:50]:
-                if not e.calls:
-                    continue
-                e_stats = UsageStats(
-                    calls=len(e.calls),
-                    input_tokens=e.total_input,
-                    output_tokens=e.total_output,
-                    cache_write_tokens=e.total_cache_write,
-                    cache_read_tokens=e.total_cache_read,
-                    actual_cost_usd=e.actual_cost_usd,
+        if self._cost_tree is not None:
+            self._cost_tree.delete(*self._cost_tree.get_children())
+            actual = stats.actual_cost_usd
+            for model in ("haiku", "sonnet", "opus"):
+                per, total = per_model[model]
+                vs = f"{total / actual:.2f}×" if actual > 0 else "-"
+                self._cost_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        f"{model.capitalize()}  (in ${PRICING[model]['input']:.2f} / out ${PRICING[model]['output']:.2f} per 1M)",
+                        format_usd(per),
+                        format_usd(total),
+                        vs,
+                    ),
                 )
-                haiku = estimate_cost(e_stats, "haiku")
-                sonnet = estimate_cost(e_stats, "sonnet")
-                opus = estimate_cost(e_stats, "opus")
+
+        if self._breakdown_tree is not None:
+            self._breakdown_tree.delete(*self._breakdown_tree.get_children())
+            for row in vod_rows:
+                (vno, title, ncalls, tin, tout, actual, haiku, sonnet, opus) = row
                 self._breakdown_tree.insert(
                     "",
                     "end",
                     values=(
-                        e.video_no,
-                        e.title[:60],
-                        len(e.calls),
-                        f"{format_tokens(e.total_input)} / {format_tokens(e.total_output)}",
-                        format_usd(e.actual_cost_usd),
+                        vno,
+                        title[:60],
+                        ncalls,
+                        f"{format_tokens(tin)} / {format_tokens(tout)}",
+                        format_usd(actual),
                         f"{format_usd(haiku)} / {format_usd(sonnet)} / {format_usd(opus)}",
                     ),
                 )
 
-        # 트렌드 차트 렌더
+        # 트렌드 차트 렌더 (자체적으로 aggregate_by_day 를 돌지만 14일만 스캔하므로
+        # 현재로서는 작은 비용; 필요시 동일 패턴으로 bg 이관).
         self._render_trend_chart()
 
     def _render_trend_chart(self) -> None:
@@ -918,13 +961,25 @@ class Dashboard:
         self.root.after(0, lambda: self._apply_status(data, reports))
 
     def _read_state(self) -> dict:
+        """상태 파일 읽기.
+
+        daemon 이 `os.replace()` 직전의 tmp 쓰기 단계에 있으면 드물게 JSON 이
+        부분적으로 보일 수 있다. 과거에는 이런 순간에 빈 dict 를 돌려 대시보드
+        UI 가 "처리 이력 없음" 으로 깜빡였다. 짧게 재시도한다.
+        """
         if not self.state_path.exists():
             return {}
-        try:
-            with open(self.state_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return {}
+        for _ in range(5):
+            try:
+                with open(self.state_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                import time
+                time.sleep(0.02)
+                continue
+            except OSError:
+                return {}
+        return {}
 
     def _scan_reports(self) -> list[dict]:
         out = Path(self.cfg.get("output_dir", "./output"))
