@@ -158,21 +158,25 @@ class PipelineDaemon:
                     self._notify("완료", f"VOD 처리 완료: {vod.title[:40]}")
 
                 # 실패 VOD 재시도
+                # NOTE: get_failed_vods 는 (video_no, channel_id) 튜플 리스트를 반환한다.
+                # 이전에는 `for video_no in failed:` 로 튜플 전체를 video_no 로 오인해
+                # increment_retry 가 튜플 키의 유령 엔트리를 만들었고 (retry_count=0 유지),
+                # get_video_info(tuple, ...) 가 [Errno 22] 로 터졌다. 반드시 언패킹.
                 failed = self.state.get_failed_vods(max_retries=3)
-                for video_no in failed:
+                for vno, cid in failed:
                     if not self._running or self._paused:
                         break
-                    log_logger.info(f"실패 VOD 재시도: {video_no}")
-                    self.state.increment_retry(video_no)
+                    log_logger.info(f"실패 VOD 재시도: [{vno}] channel={cid}")
+                    self.state.increment_retry(vno, cid)
                     try:
                         from content.network import NetworkManager
                         _, _, _, _, _, metadata = NetworkManager.get_video_info(
-                            video_no, cookies
+                            vno, cookies
                         )
                         vod = VODInfo(
-                            video_no=video_no,
+                            video_no=vno,
                             title=metadata.get("title", ""),
-                            channel_id=channel_id,
+                            channel_id=cid or channel_id,
                             channel_name=metadata.get("channelName", ""),
                             duration=metadata.get("duration", 0),
                             publish_date=metadata.get("createdDate", ""),
@@ -180,7 +184,7 @@ class PipelineDaemon:
                         )
                         process_vod(vod, self.cfg, self.state, log_logger)
                     except Exception as e:  # noqa: BLE001
-                        log_logger.error(f"재시도 실패: {e}")
+                        log_logger.error(f"재시도 실패 [{vno}]: {e}")
 
             except Exception as e:  # noqa: BLE001
                 log_logger.error(f"메인 루프 오류: {e}")

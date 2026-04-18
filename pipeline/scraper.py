@@ -392,6 +392,69 @@ def scrape_fmkorea(
     ]
 
 
+def save_community_posts(posts: list[CommunityPost], output_path: str) -> str:
+    """커뮤니티 게시글을 JSON 으로 저장 (원자적 rename).
+
+    재처리 시 fmkorea 재스크랩을 피하기 위한 사이드카.
+    다른 Claude 모델로 재요약할 때 동일한 커뮤니티 입력을 보장 → 비교 공정성 확보.
+    """
+    import json
+    import os as _os
+
+    data = [
+        {
+            "title": p.title,
+            "url": p.url,
+            "body_preview": p.body_preview,
+            "author": p.author,
+            "timestamp": p.timestamp,
+            "views": p.views,
+            "comments": p.comments,
+        }
+        for p in posts
+    ]
+    tmp = output_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    _os.replace(tmp, output_path)
+    logger.info(f"커뮤니티 JSON 저장: {output_path} ({len(posts)}개)")
+    return output_path
+
+
+def load_community_posts(video_no: str, work_dir: str) -> Optional[list[CommunityPost]]:
+    """save_community_posts 로 저장된 JSON 을 로드. 없으면 None.
+
+    RESUME/재요약 시 fmkorea 재스크랩을 건너뛰기 위해 사용.
+    """
+    import json
+    import os as _os
+
+    json_path = _os.path.join(work_dir, f"{video_no}_community.json")
+    if not _os.path.isfile(json_path) or _os.path.getsize(json_path) == 0:
+        return None
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return None
+        return [
+            CommunityPost(
+                title=d.get("title", ""),
+                url=d.get("url", ""),
+                body_preview=d.get("body_preview", ""),
+                author=d.get("author", ""),
+                timestamp=d.get("timestamp", ""),
+                views=int(d.get("views") or 0),
+                comments=int(d.get("comments") or 0),
+            )
+            for d in data
+            if isinstance(d, dict)
+        ]
+    except (OSError, json.JSONDecodeError, TypeError) as e:
+        logger.warning(f"커뮤니티 JSON 로드 실패 → 재수집: {e}")
+        return None
+
+
 def format_community_for_prompt(
     posts: list[CommunityPost],
     broadcast_start: Optional[str] = None,

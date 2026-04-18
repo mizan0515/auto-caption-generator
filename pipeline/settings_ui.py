@@ -470,21 +470,33 @@ class SettingsWindow:
         self.root.mainloop()
 
 
-def open_settings(on_save=None):
-    """설정 창을 새 스레드에서 열기 (트레이 앱에서 호출용)"""
-    import threading
+def open_settings(on_save=None, parent=None):
+    """설정 창을 연다.
 
-    def _run():
-        root = tk.Tk()
-        root.withdraw()
-        win = SettingsWindow(parent=root, on_save=on_save)
-        root.deiconify()
-        # Toplevel을 메인으로 전환
-        win.root.protocol("WM_DELETE_WINDOW", lambda: (win.root.destroy(), root.destroy()))
-        root.mainloop()
+    BUG FIX:
+        이전 구현은 항상 `tk.Tk()` 를 별도 스레드에서 새로 만들고 `withdraw()` 후
+        곧바로 `deiconify()` 를 호출했다. 그 결과 숨긴 root 창이 다시 표시되면서
+        Toplevel 과 함께 "UI 두 개" 가 떴다. 또 dashboard 의 mainloop 와 병렬로
+        두 번째 Tk 인스턴스를 돌려서 간헐적 tcl 오류도 발생.
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+    새 동작:
+        - parent 가 주어지면(대시보드 등): 해당 root 위에 Toplevel 만 띄우고
+          호출자의 mainloop 를 그대로 사용. 스레드/두 번째 Tk 없음.
+        - parent 가 없으면(독립 실행): 현재 스레드에서 Tk 하나만 만들어 mainloop.
+    """
+    if parent is not None:
+        win = SettingsWindow(parent=parent, on_save=on_save)
+        try:
+            win.root.transient(parent)
+            win.root.lift()
+            win.root.focus_force()
+        except tk.TclError:
+            pass
+        return win
+
+    win = SettingsWindow(parent=None, on_save=on_save)
+    win.show()
+    return win
 
 
 if __name__ == "__main__":
