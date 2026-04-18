@@ -233,12 +233,18 @@ class PipelineState:
             self._save()
 
     def get_failed_vods(self, max_retries: int = 3) -> list[tuple[str, Optional[str]]]:
-        """실패한 VOD 목록을 (video_no, channel_id) 튜플 리스트로 반환."""
+        """재시도 대상 VOD 목록을 (video_no, channel_id) 튜플 리스트로 반환.
+
+        포함 status:
+          - "error": process_vod 가 예외로 끝난 일반적인 실패
+          - "pending_retry": increment_retry() 직후 데몬 크래시 등으로 남은
+            좀비. 이걸 포함하지 않으면 수동 개입 전까지 영영 재시도 안 된다.
+        """
         with self._lock:
             self._data = self._load()
             failed: list[tuple[str, Optional[str]]] = []
             for _key, entry in self._data["processed_vods"].items():
-                if entry.get("status") == "error":
+                if entry.get("status") in ("error", "pending_retry"):
                     retry_count = entry.get("retry_count", 0)
                     if retry_count < max_retries:
                         vno = entry.get("video_no", _key)
