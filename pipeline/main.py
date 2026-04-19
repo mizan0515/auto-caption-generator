@@ -32,6 +32,7 @@ from .config import (
     load_config, save_config, get_cookies, ensure_dirs,
     validate_cookies, interactive_cookie_setup,
     normalize_streamers, derive_streamer_id,
+    get_public_url_base,
     ConfigError,
 )
 from .state import PipelineState
@@ -567,6 +568,7 @@ def process_vod(
             md_path, html_path, meta_path = generate_reports(
                 "자막이 비어있어 요약을 생성할 수 없습니다.",
                 vod, highlights, chats, output_dir,
+                public_url_base=get_public_url_base(cfg),
             )
             result.summary_md_path = md_path
             result.summary_html_path = html_path
@@ -631,6 +633,7 @@ def process_vod(
         md_path, html_path, meta_path = generate_reports(
             summary, vod, highlights, chats, output_dir,
             community_posts=community_posts,
+            public_url_base=get_public_url_base(cfg),
         )
         result.summary_md_path = md_path
         result.summary_html_path = html_path

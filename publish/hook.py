@@ -185,7 +185,17 @@ def deploy_to_cloudflare_safe(
         log.warning(f"자동 배포 스킵: site_dir 없음 — {site_path}")
         return False
 
-    cmd = [wrangler, "pages", "deploy", str(site_path), f"--project-name={project_name}", "--commit-dirty=true"]
+    # --commit-message 를 명시하지 않으면 wrangler 가 `git log` 에서 읽어오는데,
+    # Windows 기본 cp949 환경에서 한글 커밋 메시지가 UTF-8 검증에 걸려
+    # "Invalid commit message" (code 8000111) 로 배포가 전부 터진다.
+    # ASCII 고정 문자열로 우회.
+    cmd = [
+        wrangler, "pages", "deploy", str(site_path),
+        f"--project-name={project_name}",
+        "--commit-dirty=true",
+        "--commit-message=auto-caption-generator pipeline rebuild",
+        "--branch=main",
+    ]
     log.info(f"Cloudflare Pages 배포 시작: {project_name}")
     try:
         proc = subprocess.run(
