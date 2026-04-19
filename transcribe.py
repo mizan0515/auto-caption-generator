@@ -525,15 +525,22 @@ def transcribe_audio(
         return_tensors="pt",
     ).to(device)
 
-    for ci, (chunk_start, chunk_end) in enumerate(chunks):
+    # batch_size: b32 실험 결과 bs=4 에서 1.29x 속도 + 품질 유지(jaccard 0.98)
+    # peak VRAM ~2.5GB (RTX 2070 Super 8GB 기준 안전). env 로 override 가능.
+    batch_size = int(os.environ.get("WHISPER_BATCH_SIZE", "4")) if device == "cuda" else 1
+    if batch_size < 1:
+        batch_size = 1
+
+    for bi in range(0, len(chunks), batch_size):
         if stop_event is not None and stop_event.is_set():
             log_func("  [취소] 처리 중단됨")
             break
 
-        chunk_audio = audio[chunk_start:chunk_end]
-        chunk_start_sec = chunk_start / SAMPLE_RATE
+        batch = chunks[bi:bi + batch_size]
+        chunk_audios = [audio[s:e] for s, e in batch]
+        chunk_start_secs = [s / SAMPLE_RATE for s, _ in batch]
 
-        inputs = processor(chunk_audio, sampling_rate=SAMPLE_RATE, return_tensors="pt")
+        inputs = processor(chunk_audios, sampling_rate=SAMPLE_RATE, return_tensors="pt")
         input_features = inputs.input_features.to(device, dtype=torch_dtype)
 
         with torch.no_grad():
@@ -556,33 +563,43 @@ def transcribe_audio(
                 length_penalty=1.0,
             )
 
-        decoded = processor.batch_decode(predicted_ids, skip_special_tokens=False)[0]
-        segments, last_ts = parse_whisper_tokens(decoded)
+        decoded_all = processor.batch_decode(predicted_ids, skip_special_tokens=False)
 
-        for seg in segments:
-            # 환각 필터링
-            if is_hallucination(seg["text"]):
-                log_func(f"    [환각 필터] {seg['text'][:50]}...")
-                continue
+        for bj, (decoded, chunk_start_sec) in enumerate(zip(decoded_all, chunk_start_secs)):
+            ci = bi + bj
+            segments, _ = parse_whisper_tokens(decoded)
 
-            count += 1
-            abs_start = seg["start"] + chunk_start_sec + time_offset
-            abs_end = seg["end"] + chunk_start_sec + time_offset
-            entries.append({"start": abs_start, "end": abs_end, "text": seg["text"]})
-            log_func(f"    #{count} [{format_timestamp(abs_start)} --> {format_timestamp(abs_end)}] {seg['text']}")
+            for seg in segments:
+                # 환각 필터링
+                if is_hallucination(seg["text"]):
+                    log_func(f"    [환각 필터] {seg['text'][:50]}...")
+                    continue
 
-        # 진행률
-        elapsed = time.time() - t_start
-        current_chunk = chunk_offset + ci + 1
-        effective_total = total_chunks_global if total_chunks_global > 0 else total_chunks
-        progress_pct = (current_chunk / effective_total * 100) if effective_total > 0 else 0
-        log_func(f"    -- chunk {ci+1}/{total_chunks} ({progress_pct:.0f}%) | {elapsed:.0f}초 경과")
+                count += 1
+                abs_start = seg["start"] + chunk_start_sec + time_offset
+                abs_end = seg["end"] + chunk_start_sec + time_offset
+                entries.append({"start": abs_start, "end": abs_end, "text": seg["text"]})
+                log_func(f"    #{count} [{format_timestamp(abs_start)} --> {format_timestamp(abs_end)}] {seg['text']}")
 
-        if progress_func is not None:
-            progress_func(current_chunk, effective_total)
+            # 진행률 (배치 마지막 청크 기준)
+            elapsed = time.time() - t_start
+            current_chunk = chunk_offset + ci + 1
+            effective_total = total_chunks_global if total_chunks_global > 0 else total_chunks
+            progress_pct = (current_chunk / effective_total * 100) if effective_total > 0 else 0
+            log_func(f"    -- chunk {ci+1}/{total_chunks} ({progress_pct:.0f}%) | {elapsed:.0f}초 경과")
+
+            if progress_func is not None:
+                progress_func(current_chunk, effective_total)
 
     elapsed = time.time() - t_start
     log_func(f"  완료: {len(entries)}개 자막 ({elapsed:.1f}초 소요)")
+
+    if device == "cuda":
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     return entries, total_chunks
 
 
