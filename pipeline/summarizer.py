@@ -507,6 +507,12 @@ def generate_reports(
 
     base = f"{vod_info.video_no}_{date_str}_{sanitize_filename(vod_info.title)}"
 
+    # 마크다운 최상단에 공유용 링크 prepend (요약 웹페이지 + 치지직 다시보기).
+    # .md 와 .html 양쪽이 동일 내용을 공유하도록 summary 자체를 수정.
+    header_links = _build_header_links_md(vod_info, public_url_base)
+    if header_links and header_links not in summary:
+        summary = header_links + "\n\n" + summary
+
     # 각 산출물은 독립적으로 처리한다. 하나가 실패해도 나머지는 살린다.
     # - Markdown 은 summary 그 자체이므로 절대 실패해선 안 된다 (OSError 만 예외).
     # - HTML 은 Claude 출력 파싱(정규식/섹션 분해) 이슈로 종종 깨진다. 실패 시
@@ -712,12 +718,79 @@ def _html_escape(s: str) -> str:
 
 
 def _render_inline_md(s: str) -> str:
-    """간단한 인라인 마크다운(**strong**, `code`) → HTML"""
+    """간단한 인라인 마크다운(**strong**, `code`, [text](url)) → HTML"""
     import re
     s = _html_escape(s)
+    # [text](http...) → <a>. escape 후이므로 URL 의 & 는 이미 &amp; 로 치환돼 있다.
+    s = re.sub(
+        r'\[([^\]]+)\]\((https?://[^)\s]+)\)',
+        r'<a href="\2" target="_blank" rel="noopener">\1</a>',
+        s,
+    )
     s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
     return s
+
+
+def _build_header_links_md(vod_info: VODInfo, public_url_base: str) -> str:
+    """요약 .md 상단에 prepend 할 공유용 링크 블록을 반환.
+
+    SNS 미리보기용 OG 메타태그는 report.html 에 붙이므로 URL 은 report.html
+    직접 경로(Cloudflare 가 .html 를 자동 strip) 를 사용한다.
+    """
+    lines: list[str] = []
+    if public_url_base:
+        report_url = f"{public_url_base.rstrip('/')}/vods/{vod_info.video_no}/report"
+        lines.append(f"- **🔗 요약 웹페이지:** [{report_url}]({report_url})")
+    if vod_info.video_no:
+        chzzk_url = f"https://chzzk.naver.com/video/{vod_info.video_no}"
+        lines.append(f"- **▶️ 치지직 다시보기:** [{chzzk_url}]({chzzk_url})")
+    return "\n".join(lines)
+
+
+def _build_og_meta(vod_info: VODInfo, summary_md: str, public_url_base: str,
+                   sec: dict) -> str:
+    """OG/Twitter 메타 태그 블록 생성 (report.html 용).
+
+    description 은 hashtags + pull_quote 조합 우선, 없으면 summary 첫 200자.
+    """
+    title = f"{vod_info.title} — 방송 분석 리포트"
+    if vod_info.channel_name:
+        title = f"[{vod_info.channel_name}] {title}"
+
+    desc_parts = []
+    if sec.get("hashtags"):
+        desc_parts.append(" ".join(f"#{t}" for t in sec["hashtags"][:6]))
+    if sec.get("pull_quote"):
+        desc_parts.append(sec["pull_quote"])
+    description = " — ".join(desc_parts) if desc_parts else summary_md[:200].replace("\n", " ")
+    if len(description) > 300:
+        description = description[:297] + "..."
+
+    og_url = ""
+    if public_url_base:
+        og_url = f"{public_url_base.rstrip('/')}/vods/{vod_info.video_no}/report"
+
+    image_tags = ""
+    if vod_info.thumbnail_url:
+        image_tags = (
+            f'<meta property="og:image" content="{_html_escape(vod_info.thumbnail_url)}">\n'
+            f'<meta name="twitter:image" content="{_html_escape(vod_info.thumbnail_url)}">\n'
+        )
+    card_type = "summary_large_image" if vod_info.thumbnail_url else "summary"
+
+    tags = [
+        f'<meta property="og:type" content="article">',
+        f'<meta property="og:site_name" content="auto-caption-generator">',
+        f'<meta property="og:title" content="{_html_escape(title)}">',
+        f'<meta property="og:description" content="{_html_escape(description)}">',
+    ]
+    if og_url:
+        tags.append(f'<meta property="og:url" content="{_html_escape(og_url)}">')
+    tags.append(f'<meta name="twitter:card" content="{card_type}">')
+    tags.append(f'<meta name="twitter:title" content="{_html_escape(title)}">')
+    tags.append(f'<meta name="twitter:description" content="{_html_escape(description)}">')
+    return image_tags + "\n".join(tags)
 
 
 def _generate_html(
@@ -830,36 +903,23 @@ def _generate_html(
     body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)
     body = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", body, flags=re.M)
     body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
+    # [text](http...) → <a>. prepended 요약 웹페이지 / 치지직 링크를 클릭 가능하게.
+    body = re.sub(
+        r'\[([^\]]+)\]\((https?://[^)\s]+)\)',
+        r'<a href="\2" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all">\1</a>',
+        body,
+    )
     body = body.replace("\n\n", "</p><p>")
-
-    # 퍼블리시된 사이트에서의 이 리포트 URL — 상단에 노출해 공유/참조 용이.
-    publish_link_html = ""
-    if public_url_base:
-        from .config import derive_streamer_id
-        sid = vod_info.streamer_id or derive_streamer_id(vod_info.channel_id, vod_info.channel_name)
-        report_url = (
-            f"{public_url_base.rstrip('/')}/vod.html"
-            f"?v={vod_info.video_no}&s={sid}"
-        )
-        publish_link_html = (
-            f'<div class="publish-link" style="margin-bottom:12px;padding:10px 14px;'
-            f'background:var(--surface-2);border-left:3px solid var(--accent);'
-            f'border-radius:6px;font-size:13px">'
-            f'🔗 퍼블리시된 웹페이지: '
-            f'<a href="{_html_escape(report_url)}" target="_blank" rel="noopener" '
-            f'style="color:var(--accent);word-break:break-all">{_html_escape(report_url)}</a>'
-            f'</div>'
-        )
 
     all_empty = not any([sec["timeline"], sec["highlights"], sec["editor_notes"]])
     if all_empty:
         fallback_html = (
             f'<div class="card"><div class="card-head"><h2>📄 원본 요약 (구조화 파싱 실패)</h2></div>'
-            f'<div class="card-body">{publish_link_html}<div class="notes"><p>{body}</p></div></div></div>'
+            f'<div class="card-body"><div class="notes"><p>{body}</p></div></div></div>'
         )
     else:
         fallback_html = (
-            f'<div class="card"><div class="card-body">{publish_link_html}'
+            f'<div class="card"><div class="card-body">'
             f'<details><summary style="cursor:pointer;color:var(--muted);font-family:monospace;font-size:13px">'
             f'📄 원본 요약 마크다운 보기</summary>'
             f'<div class="notes" style="margin-top:16px"><p>{body}</p></div></details></div></div>'
@@ -873,12 +933,15 @@ def _generate_html(
     except Exception:
         pass
 
+    og_meta = _build_og_meta(vod_info, summary_md, public_url_base, sec)
+
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_html_escape(vod_info.title)} — 방송 분석 리포트</title>
+{og_meta}
 {_chartjs_script_tag()}
 <style>
   /* Self-hosted assets: no external CDN. Fonts use OS-installed fallbacks. */
