@@ -202,18 +202,11 @@ class PipelineDaemon:
             poll_interval = self.cfg.get("poll_interval_sec", 300)
             cookies = get_cookies(self.cfg)
             try:
-                new_vods = check_new_vods(channel_id, cookies, self.state)
-                for vod in new_vods:
-                    if not self._running or self._paused:
-                        break
-                    self._notify("새 VOD", f"새 VOD 처리 시작: {vod.title[:40]}")
-                    process_vod(vod, self.cfg, self.state, log_logger)
-                    self._notify("완료", f"VOD 처리 완료: {vod.title[:40]}")
-
-                # 좀비 복구: non-terminal status 로 박제된 VOD 가 있고 heartbeat
-                # 가 stale_after_sec 이상 끊겨 있으면 "error" 로 전환해 재시도 큐에
-                # 합류시킨다. stale_after_sec 기본 1시간 — heartbeat 30s 와 Whisper
-                # stall watchdog (600s) 보다 충분히 큰 margin.
+                # 좀비 복구 + 실패 재시도를 **새 VOD 폴링보다 먼저** 수행한다.
+                # 이전에는 순서가 뒤집혀 있어 매 iteration 새 VOD 가 있으면
+                # 좀비/에러 VOD 가 그 뒤로 밀려 실질적으로 영원히 재처리되지
+                # 않는 경우가 있었다. CLI 데몬 (main.run_daemon) 과 동일하게
+                # 맞춘다.
                 stale_after = int(self.cfg.get("zombie_stale_after_sec", 3600))
                 zombies = self.state.get_stale_vods(stale_after_sec=stale_after)
                 for zvno, zcid in zombies:
@@ -255,8 +248,19 @@ class PipelineDaemon:
                     except Exception as e:  # noqa: BLE001
                         log_logger.error(f"재시도 실패 [{vno}]: {e}")
 
+                if not self._running or self._paused:
+                    continue
+
+                new_vods = check_new_vods(channel_id, cookies, self.state)
+                for vod in new_vods:
+                    if not self._running or self._paused:
+                        break
+                    self._notify("새 VOD", f"새 VOD 처리 시작: {vod.title[:40]}")
+                    process_vod(vod, self.cfg, self.state, log_logger)
+                    self._notify("완료", f"VOD 처리 완료: {vod.title[:40]}")
+
             except Exception as e:  # noqa: BLE001
-                log_logger.error(f"메인 루프 오류: {e}")
+                log_logger.error(f"메인 루프 오류: {e}", exc_info=True)
 
             # 폴링 대기 (1초 단위로 끊어서 종료 감지)
             for _ in range(int(poll_interval)):
