@@ -667,8 +667,7 @@ def process_vod(
         result.stage = "error"
         result.error = str(e)
         state.update(vod.video_no, status="error", channel_id=vod.channel_id, error=str(e))
-        logger.error(f"VOD [{vod.video_no}] 처리 실패: {e}")
-        logger.debug(traceback.format_exc())
+        logger.error(f"VOD [{vod.video_no}] 처리 실패: {e}", exc_info=True)
 
         # 에러 시 임시 파일 정리
         if cfg.get("auto_cleanup", True):
@@ -838,8 +837,7 @@ def run_daemon(cfg: dict):
                     logger.error(f"재시도 VOD 정보 조회 실패: {e}")
 
         except Exception as e:
-            logger.error(f"메인 루프 오류: {e}")
-            logger.debug(traceback.format_exc())
+            logger.error(f"메인 루프 오류: {e}", exc_info=True)
 
         logger.info(f"다음 폴링까지 {poll_interval}초 대기...")
         time.sleep(poll_interval)
