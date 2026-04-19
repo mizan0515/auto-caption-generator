@@ -16,6 +16,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path as _Path
 from typing import Optional
 
@@ -268,6 +269,14 @@ def _call_claude_cli(prompt: str, timeout: int = 300, model: str = "") -> str:
 
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
+    # Windows: 부모가 DETACHED_PROCESS 로 실행 중일 때 (대시보드 데몬의
+    # subprocess.Popen 경로) 자식이 console 을 못 물어 Claude CLI (.cmd shim
+    # → Node.js) 가 0xC000013A (STATUS_CONTROL_C_EXIT) 로 즉시 종료된다.
+    # CREATE_NO_WINDOW 는 숨겨진 console 을 새로 붙여 이 문제를 방지한다.
+    cflags = 0
+    if sys.platform == "win32":
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
     try:
         result = subprocess.run(
             cmd,
@@ -277,6 +286,7 @@ def _call_claude_cli(prompt: str, timeout: int = 300, model: str = "") -> str:
             encoding="utf-8",
             errors="replace",
             env=env,
+            creationflags=cflags,
         )
     except FileNotFoundError as e:
         # shutil.which 와 subprocess.run 사이의 TOCTOU, Windows .cmd/.bat shim
