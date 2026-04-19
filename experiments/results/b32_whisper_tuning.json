@@ -1,0 +1,80 @@
+{
+  "input": "C:\\github\\auto-caption-generator\\work\\12347484\\12347484_구스구스덕 출발~~~ ٩(●'▿'●)۶_144p_part001.mp4",
+  "start": 600,
+  "duration": 180,
+  "audio_sec": 180.0,
+  "speech_sec": 106.996,
+  "num_chunks": 18,
+  "results": [
+    {
+      "name": "baseline_beam5_bs1",
+      "beam": 5,
+      "batch": 1,
+      "ok": true,
+      "elapsed_sec": 16.03,
+      "peak_vram_mb": 1785.5,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 1.0
+    },
+    {
+      "name": "beam5_bs2",
+      "beam": 5,
+      "batch": 2,
+      "ok": true,
+      "elapsed_sec": 14.01,
+      "peak_vram_mb": 2019.3,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 0.981
+    },
+    {
+      "name": "beam5_bs4",
+      "beam": 5,
+      "batch": 4,
+      "ok": true,
+      "elapsed_sec": 12.43,
+      "peak_vram_mb": 2495.1,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 0.981
+    },
+    {
+      "name": "beam5_bs8",
+      "beam": 5,
+      "batch": 8,
+      "ok": true,
+      "elapsed_sec": 11.57,
+      "peak_vram_mb": 3417.4,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 1.0
+    },
+    {
+      "name": "beam3_bs4",
+      "beam": 3,
+      "batch": 4,
+      "ok": true,
+      "elapsed_sec": 10.65,
+      "peak_vram_mb": 2173.5,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 0.944
+    },
+    {
+      "name": "beam1_bs4",
+      "beam": 1,
+      "batch": 4,
+      "ok": true,
+      "elapsed_sec": 7.6,
+      "peak_vram_mb": 1880.4,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 0.852
+    },
+    {
+      "name": "beam1_bs8",
+      "beam": 1,
+      "batch": 8,
+      "ok": true,
+      "elapsed_sec": 7.08,
+      "peak_vram_mb": 2210.4,
+      "entries": 18,
+      "word_jaccard_vs_baseline": 0.852
+    }
+  ]
+}

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 KST = timezone(timedelta(hours=9))
+_TERMINAL_STATUSES = ("completed", "skipped_bootstrap")
 
 # 파일 잠금 재시도 파라미터.
 # daemon 스레드 ↔ `--process` 서브프로세스 간 inter-process race 를 커버한다.
@@ -192,6 +193,16 @@ class PipelineState:
             now = datetime.now(KST).isoformat()
             key = self._resolve_key(video_no, channel_id)
             entry = self._data["processed_vods"].get(key, {})
+            prev_status = entry.get("status")
+            if prev_status in _TERMINAL_STATUSES and status not in _TERMINAL_STATUSES:
+                preserved = dict(entry)
+                preserved["updated_at"] = now
+                for field in ("progress", "publish_status", "publish_vod_count"):
+                    if field in kwargs:
+                        preserved[field] = kwargs[field]
+                self._data["processed_vods"][key] = preserved
+                self._save()
+                return
             entry["video_no"] = video_no
             if channel_id:
                 entry["channel_id"] = channel_id
