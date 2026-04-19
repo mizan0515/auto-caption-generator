@@ -71,6 +71,11 @@ DEFAULT_CONFIG = {
     # 실패해도 pipeline 은 계속 진행 (rebuild_site_safe 와 동일 정책).
     "publish_autodeploy": False,
     "publish_cloudflare_project": "auto-caption-generator-site",
+    # 퍼블리시된 사이트의 공개 URL base. 빈 문자열이면 publish_cloudflare_project
+    # 로부터 "https://{project}.pages.dev" 로 derive. 커스텀 도메인 쓰면 여기에
+    # "https://my.domain" 같은 형태로 명시. 리포트 HTML 상단 "원본 요약 마크다운
+    # 보기" 섹션에 노출되는 "퍼블리시된 웹페이지" 링크를 만들 때 사용.
+    "publish_public_url_base": "",
     # B12/B13 실험 기본값:
     #   experiments/ 스크립트가 sweep 돌릴 때 참조하는 테스트 VOD.
     #   experiment_test_vod  : 다운로드 + 자막이 work/<video_no>/ 에 이미 있어야 함
@@ -247,6 +252,23 @@ def normalize_streamers(cfg: dict) -> list[dict]:
         "name": name,
         "search_keywords": keywords,
     }]
+
+
+def get_public_url_base(cfg: dict) -> str:
+    """퍼블리시된 사이트의 공개 URL base 를 반환.
+
+    우선순위:
+    1. cfg["publish_public_url_base"] — 커스텀 도메인 등 명시값
+    2. cfg["publish_cloudflare_project"] → "https://{project}.pages.dev"
+    3. 빈 문자열 — 링크 노출 스킵
+    """
+    explicit = (cfg.get("publish_public_url_base") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    project = (cfg.get("publish_cloudflare_project") or "").strip()
+    if project:
+        return f"https://{project}.pages.dev"
+    return ""
 
 
 def derive_streamer_id(channel_id: Optional[str], name: Optional[str] = None) -> str:

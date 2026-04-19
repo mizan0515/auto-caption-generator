@@ -12,6 +12,7 @@ import logging
 import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 
 from .chat_analyzer import format_chat_highlights_for_prompt, get_chats_in_range
 from .claude_cli import call_claude_cached
@@ -25,6 +26,42 @@ KST = timezone(timedelta(hours=9))
 
 # 프롬프트 템플릿 경로
 _MERGE_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "청크 통합 프롬프트.md"
+
+# Chart.js 에셋 경로 (self-hosted). _generate_html 에서 inline 으로 삽입해
+# output/*.html 을 파일시스템에서 열든, site/vods/*/report.html 로 iframe 임베드
+# 하든, 퍼블리시된 pages.dev 에서 로딩되든 동일하게 차트가 동작하도록 한다.
+_CHARTJS_ASSET_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "publish" / "web" / "assets" / "vendor" / "chart.umd.min.js"
+)
+_CHARTJS_INLINE_CACHE: Optional[str] = None
+
+
+def _load_chartjs_inline() -> str:
+    """Chart.js UMD 파일 내용을 읽어 inline <script> 에 넣을 문자열로 반환.
+    파일이 없으면 빈 문자열 — 이 경우 _chartjs_script_tag() 가 relative path
+    fallback 을 쓴다."""
+    global _CHARTJS_INLINE_CACHE
+    if _CHARTJS_INLINE_CACHE is not None:
+        return _CHARTJS_INLINE_CACHE
+    try:
+        _CHARTJS_INLINE_CACHE = _CHARTJS_ASSET_PATH.read_text(encoding="utf-8")
+    except OSError:
+        _CHARTJS_INLINE_CACHE = ""
+    return _CHARTJS_INLINE_CACHE
+
+
+def _chartjs_script_tag() -> str:
+    """Chart.js 를 HTML 에 주입하는 <script> 태그를 생성.
+
+    publish/web/assets/vendor/chart.umd.min.js 를 인라인으로 임베드해
+    output/*.html 직접 열기, site/vods/<id>/report.html iframe 로딩, pages.dev
+    퍼블리시 3개 환경 모두에서 외부 네트워크 없이 차트가 동작하도록 한다.
+    에셋 로드 실패 시에만 기존 relative path 로 폴백."""
+    content = _load_chartjs_inline()
+    if content:
+        return f"<script>{content}</script>"
+    return '<script src="../../assets/vendor/chart.umd.min.js"></script>'
 
 
 def _load_merge_prompt() -> str:
@@ -452,6 +489,7 @@ def generate_reports(
     chats: list[dict],
     output_dir: str,
     community_posts: list = None,
+    public_url_base: str = "",
 ) -> tuple[str, str, str]:
     """Markdown + HTML + metadata JSON 저장"""
     os.makedirs(output_dir, exist_ok=True)
@@ -481,7 +519,7 @@ def generate_reports(
 
     html_path = os.path.join(output_dir, f"{base}.html")
     try:
-        html_content = _generate_html(summary, vod_info, highlights, chats, community_posts)
+        html_content = _generate_html(summary, vod_info, highlights, chats, community_posts, public_url_base)
     except Exception as e:  # noqa: BLE001
         # _generate_html 의 정규식/섹션 파싱이 에지케이스 Claude 출력에서 깨지는
         # 경우, 이전엔 함수 전체가 raise 되어 md 가 디스크엔 있지만 result 에는
@@ -688,6 +726,7 @@ def _generate_html(
     highlights: list[dict],
     chats: list[dict],
     community_posts: list = None,
+    public_url_base: str = "",
 ) -> str:
     """구조화된 카드 레이아웃 HTML 렌더링 (Tokyo Night 팔레트, 중앙 정렬)"""
     from .chat_analyzer import build_time_series, WINDOW_SEC
@@ -793,15 +832,35 @@ def _generate_html(
     body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
     body = body.replace("\n\n", "</p><p>")
 
+    # 퍼블리시된 사이트에서의 이 리포트 URL — 상단에 노출해 공유/참조 용이.
+    publish_link_html = ""
+    if public_url_base:
+        from .config import derive_streamer_id
+        sid = vod_info.streamer_id or derive_streamer_id(vod_info.channel_id, vod_info.channel_name)
+        report_url = (
+            f"{public_url_base.rstrip('/')}/vod.html"
+            f"?v={vod_info.video_no}&s={sid}"
+        )
+        publish_link_html = (
+            f'<div class="publish-link" style="margin-bottom:12px;padding:10px 14px;'
+            f'background:var(--surface-2);border-left:3px solid var(--accent);'
+            f'border-radius:6px;font-size:13px">'
+            f'🔗 퍼블리시된 웹페이지: '
+            f'<a href="{_html_escape(report_url)}" target="_blank" rel="noopener" '
+            f'style="color:var(--accent);word-break:break-all">{_html_escape(report_url)}</a>'
+            f'</div>'
+        )
+
     all_empty = not any([sec["timeline"], sec["highlights"], sec["editor_notes"]])
     if all_empty:
         fallback_html = (
             f'<div class="card"><div class="card-head"><h2>📄 원본 요약 (구조화 파싱 실패)</h2></div>'
-            f'<div class="card-body"><div class="notes"><p>{body}</p></div></div></div>'
+            f'<div class="card-body">{publish_link_html}<div class="notes"><p>{body}</p></div></div></div>'
         )
     else:
         fallback_html = (
-            f'<div class="card"><div class="card-body"><details><summary style="cursor:pointer;color:var(--muted);font-family:monospace;font-size:13px">'
+            f'<div class="card"><div class="card-body">{publish_link_html}'
+            f'<details><summary style="cursor:pointer;color:var(--muted);font-family:monospace;font-size:13px">'
             f'📄 원본 요약 마크다운 보기</summary>'
             f'<div class="notes" style="margin-top:16px"><p>{body}</p></div></details></div></div>'
         )
@@ -820,7 +879,7 @@ def _generate_html(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_html_escape(vod_info.title)} — 방송 분석 리포트</title>
-<script src="../../assets/vendor/chart.umd.min.js"></script>
+{_chartjs_script_tag()}
 <style>
   /* Self-hosted assets: no external CDN. Fonts use OS-installed fallbacks. */
   :root {{
