@@ -39,7 +39,7 @@ def _creationflags() -> int:
 
 
 def get_duration(input_path):
-    """ffprobe로 영상 총 길이(초)를 가져온다."""
+    """Return media duration in seconds via ffprobe."""
     result = subprocess.run(
         [
             FFPROBE, "-v", "error",
@@ -47,21 +47,34 @@ def get_duration(input_path):
             "-of", "default=noprint_wrappers=1:nokey=1",
             input_path,
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
         creationflags=_creationflags(),
     )
     if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        detail = stderr or stdout or "(ffprobe output unavailable)"
         raise RuntimeError(
-            f"ffprobe 실패 (returncode={result.returncode}):\n{result.stderr.strip()}"
+            f"ffprobe failed (returncode={result.returncode}):\n{detail}\ninput={input_path}"
         )
-    stdout = result.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"ffprobe가 길이 정보를 반환하지 않았습니다: {input_path}")
-    duration = float(stdout)
-    if duration <= 0:
-        raise RuntimeError(f"유효하지 않은 영상 길이: {duration}초 ({input_path})")
-    return duration
 
+    stdout = (result.stdout or "").strip()
+    if not stdout:
+        raise RuntimeError(f"ffprobe returned empty duration: {input_path}")
+
+    try:
+        duration = float(stdout)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"ffprobe returned non-numeric duration: {stdout!r} ({input_path})"
+        ) from exc
+
+    if duration <= 0:
+        raise RuntimeError(f"invalid media duration: {duration} ({input_path})")
+    return duration
 
 def split_video(input_path, segment_seconds=3600):
     if not os.path.isfile(input_path):

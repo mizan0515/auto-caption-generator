@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Callable, Optional
@@ -44,11 +45,17 @@ class PipelineDaemon:
         self._running = False
         self._paused = False
         self._log_logger: Optional[logging.Logger] = None
+        self._lock_fd = None
+        self._lock_path = os.path.join(self.cfg["output_dir"], "pipeline_daemon.lock")
 
     # ---------- public API ----------
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
+            return
+        if not self._acquire_single_instance_lock():
+            logger.warning("이미 다른 파이프라인 데몬이 실행 중이어서 시작을 건너뜁니다.")
+            self._notify("중복 실행 방지", "이미 다른 파이프라인 데몬이 실행 중입니다.")
             return
         self._running = True
         self._paused = False
@@ -84,6 +91,7 @@ class PipelineDaemon:
         th = self._thread
         if th and th.is_alive():
             th.join(timeout=timeout)
+        self._release_single_instance_lock()
 
     def is_paused(self) -> bool:
         return self._paused
@@ -117,7 +125,43 @@ class PipelineDaemon:
         여기선 단순 swap 만 한다 (dict 참조 재대입은 GIL 덕에 atomic).
         """
         self.cfg = new_cfg
+        self._lock_path = os.path.join(self.cfg["output_dir"], "pipeline_daemon.lock")
         logger.info("데몬 설정 갱신 — 다음 폴링부터 적용")
+
+    def _acquire_single_instance_lock(self) -> bool:
+        if self._lock_fd is not None:
+            return True
+        try:
+            import msvcrt
+        except ImportError:
+            return True
+
+        os.makedirs(os.path.dirname(self._lock_path) or ".", exist_ok=True)
+        try:
+            lock_fd = os.open(self._lock_path, os.O_CREAT | os.O_WRONLY)
+        except OSError:
+            return False
+        try:
+            msvcrt.locking(lock_fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            os.close(lock_fd)
+            return False
+        self._lock_fd = lock_fd
+        return True
+
+    def _release_single_instance_lock(self) -> None:
+        if self._lock_fd is None:
+            return
+        try:
+            import msvcrt
+            msvcrt.locking(self._lock_fd, msvcrt.LK_UNLCK, 1)
+        except (ImportError, OSError):
+            pass
+        try:
+            os.close(self._lock_fd)
+        except OSError:
+            pass
+        self._lock_fd = None
 
     # ---------- internal ----------
 
@@ -144,6 +188,7 @@ class PipelineDaemon:
                 "오류",
                 "쿠키가 설정되지 않았습니다.\npipeline_config.json의 cookies를 설정하세요.",
             )
+            self._release_single_instance_lock()
             return
 
         while self._running and not self._paused:

@@ -47,6 +47,39 @@ from .models import VODInfo, PipelineResult
 from .utils import setup_logging, sec_to_hms, format_duration, clip_video
 
 
+def _acquire_daemon_lock(lock_path: str):
+    try:
+        import msvcrt
+    except ImportError:
+        return None
+
+    os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
+    try:
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_WRONLY)
+    except OSError:
+        return None
+    try:
+        msvcrt.locking(lock_fd, msvcrt.LK_NBLCK, 1)
+    except OSError:
+        os.close(lock_fd)
+        return None
+    return lock_fd
+
+
+def _release_daemon_lock(lock_fd) -> None:
+    if lock_fd is None:
+        return
+    try:
+        import msvcrt
+        msvcrt.locking(lock_fd, msvcrt.LK_UNLCK, 1)
+    except (ImportError, OSError):
+        pass
+    try:
+        os.close(lock_fd)
+    except OSError:
+        pass
+
+
 def _vod_age_hours(publish_date: str) -> float | None:
     """VOD publish_date(ISO) → 현재까지 경과 시간(시간 단위). 파싱 실패 시 None.
 
@@ -224,12 +257,31 @@ def process_vod(
     state: PipelineState,
     logger,
     limit_duration_sec: int = 0,
+    start_offset_sec: int = 0,
 ) -> PipelineResult:
     """단일 VOD 전체 파이프라인 처리.
 
     Args:
-        limit_duration_sec: >0 이면 다운로드 후 앞부분만 잘라서 파이프라인 진행 (테스트용)
+        limit_duration_sec: >0 이면 지정 길이만 처리
+        start_offset_sec: >0 이면 해당 오프셋부터 처리
     """
+    slice_mode = start_offset_sec > 0 or limit_duration_sec > 0
+    if slice_mode:
+        slice_end_sec = min(
+            vod.duration,
+            start_offset_sec + limit_duration_sec if limit_duration_sec > 0 else vod.duration,
+        )
+        vod = VODInfo(
+            video_no=vod.video_no,
+            title=f"{vod.title} [{sec_to_hms(start_offset_sec)}-{sec_to_hms(slice_end_sec)}]",
+            channel_id=vod.channel_id,
+            channel_name=vod.channel_name,
+            duration=max(0, slice_end_sec - start_offset_sec),
+            publish_date=vod.publish_date,
+            thumbnail_url=vod.thumbnail_url,
+            category=vod.category,
+            streamer_id=vod.streamer_id,
+        )
     result = PipelineResult(video_no=vod.video_no, vod_info=vod)
     cookies = get_cookies(cfg)
     work_dir = os.path.join(cfg["work_dir"], vod.video_no)
@@ -248,7 +300,7 @@ def process_vod(
         # RESUME: 이전 시도에서 저장된 채팅 JSON 이 있으면 API 재호출 스킵.
         # limit_duration_sec > 0 (테스트 모드) 일 때는 캐시가 제한 기준을 모르므로 무시.
         cached_chats: list[dict] | None = None
-        if limit_duration_sec == 0:
+        if not slice_mode:
             cached_chats = load_chat_log_json(vod.video_no, work_dir)
             if cached_chats is not None:
                 logger.info(f"✓ 채팅 캐시 재사용: {len(cached_chats):,}개 (API 스킵)")
@@ -260,7 +312,7 @@ def process_vod(
         # 다운로드 파일명에서 확장자만 바뀐 형태). work_dir 내에서 비어있지 않은
         # .srt 를 하나 찾으면 그걸 사용.
         cached_srt: str | None = None
-        if limit_duration_sec == 0 and os.path.isdir(work_dir):
+        if not slice_mode and os.path.isdir(work_dir):
             import glob as _glob
             srt_candidates = [
                 p for p in _glob.glob(os.path.join(work_dir, "*.srt"))
@@ -299,15 +351,23 @@ def process_vod(
             # SRT 캐시가 있으면 MP4 다운로드를 건너뛴다 (수 GB 절약).
             download_future = None
             if cached_srt is None:
+                slice_suffix = (
+                    f"_{start_offset_sec}s_{limit_duration_sec or 'full'}s"
+                    if slice_mode else ""
+                )
                 download_future = pool.submit(
                     download_vod_144p, vod.video_no, cookies, work_dir,
                     _make_heartbeat("collecting"),
+                    start_sec=start_offset_sec,
+                    duration_sec=limit_duration_sec,
+                    filename_suffix=slice_suffix,
                 )
             chat_future = None
             if cached_chats is None:
+                chat_limit_sec = limit_duration_sec if start_offset_sec == 0 else 0
                 chat_future = pool.submit(
                     fetch_all_chats, vod.video_no,
-                    max_duration_sec=limit_duration_sec,
+                    max_duration_sec=chat_limit_sec,
                     # SRT 캐시가 있어 다운로드가 스킵된 경로에서는 collecting 의
                     # heartbeat 소스가 채팅 수집뿐이다. 페이지마다 갱신한다.
                     heartbeat=_make_heartbeat("collecting"),
@@ -318,7 +378,7 @@ def process_vod(
             # RESUME: 이전 시도에서 저장된 커뮤니티 JSON 이 있으면 재스크랩 스킵.
             # 다른 Claude 모델로 재요약 시에도 동일한 커뮤니티 입력을 보장 → 비교 공정성.
             cached_community: list | None = None
-            if limit_duration_sec == 0:
+            if not slice_mode:
                 cached_community = load_community_posts(vod.video_no, work_dir)
                 if cached_community is not None:
                     logger.info(
@@ -348,11 +408,17 @@ def process_vod(
             video_path: Optional[str] = None
             if download_future is not None:
                 video_path = download_future.result()
+                if not video_path or not os.path.isfile(video_path) or os.path.getsize(video_path) == 0:
+                    tmp_path = f"{video_path}.downloading" if video_path else ""
+                    raise RuntimeError(
+                        "144p ?ㅼ슫濡쒕뱶媛 ?꾨즺濡?蹂닿퀬?섏뿀吏留?理쒖쥌 MP4媛 ?놁뒿?덈떎. "
+                        f"video_path={video_path!r}, tmp_exists={os.path.exists(tmp_path)}"
+                    )
                 result.video_path = video_path
                 logger.info(f"✓ 다운로드 완료: {video_path}")
 
                 # 테스트 모드: 앞부분만 잘라서 이후 단계 진행
-                if limit_duration_sec > 0:
+                if limit_duration_sec > 0 and not slice_mode:
                     base, ext = os.path.splitext(video_path)
                     clipped_path = f"{base}_clip{limit_duration_sec}s{ext}"
                     clip_video(video_path, clipped_path, limit_duration_sec)
@@ -372,6 +438,24 @@ def process_vod(
                     chats = []
             else:
                 chats = cached_chats or []
+
+            if slice_mode and chats:
+                slice_start_ms = start_offset_sec * 1000
+                slice_end_ms = (
+                    slice_start_ms + limit_duration_sec * 1000
+                    if limit_duration_sec > 0 else None
+                )
+                sliced_chats = []
+                for chat in chats:
+                    chat_ms = chat.get("ms", 0)
+                    if chat_ms < slice_start_ms:
+                        continue
+                    if slice_end_ms is not None and chat_ms > slice_end_ms:
+                        continue
+                    sliced = dict(chat)
+                    sliced["ms"] = chat_ms - slice_start_ms
+                    sliced_chats.append(sliced)
+                chats = sliced_chats
 
             community_posts = []
             if community_future:
@@ -602,6 +686,10 @@ def run_daemon(cfg: dict):
     state_path = os.path.join(cfg["output_dir"], "pipeline_state.json")
     state = PipelineState(state_path)
     state.clear_stop()
+    daemon_lock_fd = _acquire_daemon_lock(os.path.join(cfg["output_dir"], "pipeline_daemon.lock"))
+    if daemon_lock_fd is None:
+        logger.warning("이미 다른 파이프라인 데몬이 실행 중입니다. 이번 run_daemon 호출은 종료합니다.")
+        return
 
     streamers = normalize_streamers(cfg)
     poll_interval = cfg.get("poll_interval_sec", 300)
@@ -618,6 +706,7 @@ def run_daemon(cfg: dict):
 
     if not validate_cookies(cfg):
         logger.error("쿠키가 설정되지 않았습니다. --setup-cookies로 설정하세요.")
+        _release_daemon_lock(daemon_lock_fd)
         return
 
     while True:
@@ -635,8 +724,53 @@ def run_daemon(cfg: dict):
                     scfg["streamer_name"] = streamer["name"]
                 return scfg
 
+            def _recover_stale_and_retry_failed() -> None:
+                stale_after = int(cfg.get("zombie_stale_after_sec", 3600))
+                zombies = state.get_stale_vods(stale_after_sec=stale_after)
+                for zvno, zcid in zombies:
+                    logger.warning(
+                        f"醫鍮?VOD 媛먯? ??error 濡??꾪솚: [{zvno}] channel={zcid} "
+                        f"(updated_at {stale_after}s 寃쎄낵)"
+                    )
+                    state.mark_zombie_as_error(
+                        zvno, zcid,
+                        reason=f"zombie recovery (no heartbeat for >{stale_after}s)",
+                    )
+
+                failed = state.get_failed_vods(max_retries=3)
+                for video_no, failed_channel_id in failed:
+                    if state.should_stop():
+                        break
+                    logger.info(f"?ㅽ뙣 VOD ?ъ떆?? {video_no}")
+                    retry_channel_id = failed_channel_id or cfg.get("target_channel_id", "")
+                    state.increment_retry(video_no, channel_id=retry_channel_id)
+                    try:
+                        from content.network import NetworkManager
+                        _, _, _, _, _, metadata = NetworkManager.get_video_info(video_no, cookies)
+                        vod = VODInfo(
+                            video_no=video_no,
+                            title=metadata.get("title", ""),
+                            channel_id=retry_channel_id,
+                            channel_name=metadata.get("channelName", ""),
+                            duration=metadata.get("duration", 0),
+                            publish_date=metadata.get("createdDate", ""),
+                            category=metadata.get("category", ""),
+                            streamer_id=derive_streamer_id(retry_channel_id, metadata.get("channelName", "")),
+                        )
+                        retry_streamer = streamers_by_channel.get(retry_channel_id)
+                        retry_cfg = _build_streamer_cfg(retry_streamer) if retry_streamer else cfg
+                        if retry_streamer is None and retry_channel_id:
+                            logger.warning(
+                                f"?ъ떆??梨꾨꼸 {retry_channel_id[:8]}... ???꾩옱 streamers 紐⑸줉???놁쓬 ??湲濡쒕쾶 cfg ?ъ슜"
+                            )
+                        process_vod(vod, retry_cfg, state, logger)
+                    except Exception as e:
+                        logger.error(f"?ъ떆??VOD ?뺣낫 議고쉶 ?ㅽ뙣: {e}")
+
             # channel_id → streamer 인덱스 (재시도 시 cfg 복원용, B07)
             streamers_by_channel = {s["channel_id"]: s for s in streamers if s.get("channel_id")}
+
+            _recover_stale_and_retry_failed()
 
             for streamer in streamers:
                 if state.should_stop():
@@ -710,6 +844,8 @@ def run_daemon(cfg: dict):
         logger.info(f"다음 폴링까지 {poll_interval}초 대기...")
         time.sleep(poll_interval)
 
+    _release_daemon_lock(daemon_lock_fd)
+
 
 def run_once(cfg: dict):
     """1회 실행: 새 VOD 확인 후 처리하고 종료 (멀티 스트리머 지원)"""
@@ -744,7 +880,12 @@ def run_once(cfg: dict):
         logger.info("처리할 새 VOD가 없습니다.")
 
 
-def run_single(video_no: str, cfg: dict, limit_duration_sec: int = 0):
+def run_single(
+    video_no: str,
+    cfg: dict,
+    limit_duration_sec: int = 0,
+    start_offset_sec: int = 0,
+):
     """특정 VOD 수동 처리"""
     log_dir = os.path.join(cfg["output_dir"], "logs")
     logger = setup_logging(log_dir)
@@ -774,7 +915,14 @@ def run_single(video_no: str, cfg: dict, limit_duration_sec: int = 0):
         streamer_id=derive_streamer_id(channel_id, channel_name),
     )
 
-    process_vod(vod, cfg, state, logger, limit_duration_sec=limit_duration_sec)
+    process_vod(
+        vod,
+        cfg,
+        state,
+        logger,
+        limit_duration_sec=limit_duration_sec,
+        start_offset_sec=start_offset_sec,
+    )
 
 
 def main():
@@ -794,6 +942,12 @@ def main():
         type=str,
         default=None,
         help="이 실행에 한해 cfg.claude_model 을 override (haiku/sonnet/opus 또는 풀 모델명)",
+    )
+    parser.add_argument(
+        "--start-offset",
+        type=int,
+        default=0,
+        help="slice processing start offset in seconds. use with --process",
     )
     args = parser.parse_args()
 
@@ -818,7 +972,12 @@ def main():
         cfg["claude_model"] = args.claude_model
 
     if args.process:
-        run_single(args.process, cfg, limit_duration_sec=args.limit_duration)
+        run_single(
+            args.process,
+            cfg,
+            limit_duration_sec=args.limit_duration,
+            start_offset_sec=args.start_offset,
+        )
     elif args.once:
         run_once(cfg)
     else:

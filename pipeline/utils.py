@@ -99,7 +99,7 @@ def sanitize_filename(name: str, max_len: int = 80) -> str:
     return cleaned
 
 
-def clip_video(src_path: str, dst_path: str, duration_sec: int) -> str:
+def clip_video(src_path: str, dst_path: str, duration_sec: int, start_sec: int = 0) -> str:
     """ffmpeg으로 영상 앞부분만 잘라 새 파일 생성 (테스트용).
 
     Args:
@@ -117,6 +117,7 @@ def clip_video(src_path: str, dst_path: str, duration_sec: int) -> str:
     # -c copy 는 키프레임 단위라 오디오 동기가 틀어질 수 있음. 재인코딩으로 안전하게.
     cmd = [
         "ffmpeg", "-y",
+        "-ss", str(start_sec),
         "-i", src_path,
         "-t", str(duration_sec),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
