@@ -14,6 +14,11 @@ def setup_logging(log_dir: str, name: str = "pipeline") -> logging.Logger:
     # 라이브러리 (transformers 등) 가 root 로거에 cp949 stderr 핸들러를 붙여
     # 한글/이모지 로그에서 UnicodeEncodeError 를 일으키는 경로 차단
     logger.propagate = False
+    # StreamHandler emit() 가 한번이라도 실패하면 handleError 가 sys.stderr
+    # 로 traceback 을 다시 찍으려 시도하는데, DETACHED_PROCESS 자식에서는
+    # sys.stderr 가 None 이거나 cp949 로 잡혀 UnicodeEncodeError 가 꼬리를
+    # 물고 터진다. 로깅 예외가 실제 처리 로직까지 갈아엎는 경로 차단.
+    logging.raiseExceptions = False
 
     if not logger.handlers:
         # 파일 핸들러 (로테이팅, 10MB x 5)
@@ -31,18 +36,22 @@ def setup_logging(log_dir: str, name: str = "pipeline") -> logging.Logger:
         logger.addHandler(fh)
 
         # 콘솔 핸들러 (Windows에서 한국어 깨짐 방지)
+        # DETACHED_PROCESS 자식은 sys.stderr 가 None — StreamHandler(None) 은
+        # 매 emit 마다 AttributeError 를 던진다. 이 경우 콘솔 핸들러 자체를
+        # 포기하고 파일 핸들러만 유지한다.
         import sys
         import io
         stream = sys.stderr
-        if sys.platform == "win32" and hasattr(stream, "buffer"):
-            stream = io.TextIOWrapper(stream.buffer, encoding="utf-8", errors="replace")
-        ch = logging.StreamHandler(stream)
-        ch.setLevel(logging.INFO)
-        ch.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s",
-            datefmt="%H:%M:%S",
-        ))
-        logger.addHandler(ch)
+        if stream is not None:
+            if sys.platform == "win32" and hasattr(stream, "buffer"):
+                stream = io.TextIOWrapper(stream.buffer, encoding="utf-8", errors="replace")
+            ch = logging.StreamHandler(stream)
+            ch.setLevel(logging.INFO)
+            ch.setFormatter(logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s",
+                datefmt="%H:%M:%S",
+            ))
+            logger.addHandler(ch)
 
     return logger
 
