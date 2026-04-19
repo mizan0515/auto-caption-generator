@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+set PYTHONIOENCODING=utf-8
 echo Chzzk VOD 파이프라인 트레이 앱을 시작합니다...
 start /B pythonw "%~dp0tray_app.py"
 echo.

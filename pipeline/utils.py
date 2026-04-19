@@ -11,6 +11,9 @@ def setup_logging(log_dir: str, name: str = "pipeline") -> logging.Logger:
     os.makedirs(log_dir, exist_ok=True)
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
+    # 라이브러리 (transformers 등) 가 root 로거에 cp949 stderr 핸들러를 붙여
+    # 한글/이모지 로그에서 UnicodeEncodeError 를 일으키는 경로 차단
+    logger.propagate = False
 
     if not logger.handlers:
         # 파일 핸들러 (로테이팅, 10MB x 5)

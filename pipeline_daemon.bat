@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+set PYTHONIOENCODING=utf-8
 echo Chzzk VOD 자동 모니터링 파이프라인 (CLI 데몬)
 echo ============================================
 echo.

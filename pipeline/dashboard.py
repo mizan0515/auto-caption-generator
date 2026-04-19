@@ -1121,6 +1121,7 @@ class Dashboard:
                 cwd=str(self.project_root),
                 creationflags=creationflags,
                 close_fds=True,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
             self._header_flash(f"재처리 요청: {video_no}")
         except Exception as e:  # noqa: BLE001
@@ -1323,6 +1324,7 @@ class Dashboard:
                 cwd=str(self.project_root),
                 creationflags=creationflags,
                 close_fds=True,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
             self._header_flash(
                 f"재요약 요청: {video_no} (model={model or '기본'})"
