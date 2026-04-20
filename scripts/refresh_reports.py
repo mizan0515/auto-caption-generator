@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from pipeline.config import load_config, get_public_url_base  # noqa: E402
+from pipeline.models import VODInfo  # noqa: E402
+from pipeline.summarizer import _postprocess_summary_md  # noqa: E402
 
 CHART_ASSET = ROOT / "publish" / "web" / "assets" / "vendor" / "chart.umd.min.js"
 OLD_SCRIPT_TAG = '<script src="../../assets/vendor/chart.umd.min.js"></script>'
@@ -67,24 +69,49 @@ def _chzzk_url(meta: dict) -> str | None:
     return f"https://chzzk.naver.com/video/{vno}" if vno else None
 
 
-def _md_prepend(md_path: Path, report_url: str | None, chzzk_url: str | None,
-                dry_run: bool) -> bool:
+def _strip_old_top_links(md: str) -> str:
+    """이전 마이그레이션이 최상단에 prepend 한 2줄 링크 블록 제거.
+
+    패턴: "- **🔗 요약 웹페이지:** ..." 및/또는 "- **▶️ 치지직 다시보기:** ..."
+    가 파일 시작에 있고 빈 줄로 끝나면 걷어낸다.
+    """
+    lines = md.splitlines(keepends=True)
+    removed = 0
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("- **🔗 요약 웹페이지:") or stripped.startswith("- **▶️ 치지직 다시보기:"):
+            i += 1
+            removed += 1
+            continue
+        break
+    if removed == 0:
+        return md
+    # 빈 줄 하나까지 소모
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+        break
+    return "".join(lines[i:])
+
+
+def _md_migrate(md_path: Path, vod_info: VODInfo, public_base: str,
+                dry_run: bool) -> tuple[bool, str]:
+    """기존 .md 를 마이그레이션하고 새로운 텍스트를 반환.
+
+    Returns: (changed, new_text)
+    """
     if not md_path.exists():
-        return False
+        return False, ""
     text = md_path.read_text(encoding="utf-8")
-    if HEADER_LINK_PROBE in text:
-        return False
-    lines = []
-    if report_url:
-        lines.append(f"- **🔗 요약 웹페이지:** [{report_url}]({report_url})")
-    if chzzk_url:
-        lines.append(f"- **▶️ 치지직 다시보기:** [{chzzk_url}]({chzzk_url})")
-    if not lines:
-        return False
-    new = "\n".join(lines) + "\n\n" + text
+    original = text
+    # 구 top-prepend 제거 → postprocess 로 리포트 헤더 아래에 재삽입 + 하이라이트 정돈
+    text = _strip_old_top_links(text)
+    text = _postprocess_summary_md(text, vod_info, public_base)
+    if text == original:
+        return False, original
     if not dry_run:
-        md_path.write_text(new, encoding="utf-8")
-    return True
+        md_path.write_text(text, encoding="utf-8")
+    return True, text
 
 
 def _build_og_meta(meta: dict, md_text: str, report_url: str | None) -> str:
@@ -133,72 +160,93 @@ def _build_og_meta(meta: dict, md_text: str, report_url: str | None) -> str:
     return "\n".join(tags)
 
 
-def _body_link_paragraph(report_url: str | None, chzzk_url: str | None) -> str:
-    """fallback_html 본문 최상단에 주입할 `<p>` 링크 단락."""
-    parts = []
-    if report_url:
-        parts.append(
-            f'<strong>🔗 요약 웹페이지:</strong> '
-            f'<a href="{_html_escape(report_url)}" target="_blank" rel="noopener" '
-            f'style="color:var(--accent);word-break:break-all">{_html_escape(report_url)}</a>'
-        )
-    if chzzk_url:
-        parts.append(
-            f'<strong>▶️ 치지직 다시보기:</strong> '
-            f'<a href="{_html_escape(chzzk_url)}" target="_blank" rel="noopener" '
-            f'style="color:var(--accent);word-break:break-all">{_html_escape(chzzk_url)}</a>'
-        )
-    if not parts:
-        return ""
-    # 여러 줄을 하나의 p 안에 <br> 로 이어붙임 (구조 단순화)
-    return "<p>" + "<br>".join(parts) + "</p>"
+def _render_fallback_body(md: str) -> str:
+    """_generate_html 의 raw markdown fallback 본문 렌더링 재사용용 헬퍼."""
+    body = _html_escape(md)
+    body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)
+    body = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", body, flags=re.M)
+    body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
+    body = re.sub(
+        r'\[([^\]]+)\]\((https?://[^)\s]+)\)',
+        r'<a href="\2" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all">\1</a>',
+        body,
+    )
+    body = body.replace("\n\n", "</p><p>")
+    return f"<p>{body}</p>"
 
 
-# 기존 구조: <div class="notes" style="margin-top:16px"><p>...</p></div>  (details 안)
-# 또는:     <div class="notes"><p>...</p></div>  (fallback 카드)
-NOTES_OPEN_PAT = re.compile(
-    r'(<div class="notes"(?: style="[^"]*")?>)<p>',
+# fallback <details> 안의 raw markdown body 구분자 — editor_notes 의 <div class="notes">
+# 와 충돌하지 않도록 style="margin-top:16px" 마커 또는 "구조화 파싱 실패" 카드 컨텍스트로
+# 매칭. (구조화 파싱 실패 케이스는 style 없음 → 본문에 카드 title 이 있어 구분 가능)
+FALLBACK_NOTES_PAT = re.compile(
+    r'(<div class="notes" style="margin-top:16px">)(.*?)(</div>)',
+    re.DOTALL,
+)
+FALLBACK_EMPTY_NOTES_PAT = re.compile(
+    r'(📄 원본 요약 \(구조화 파싱 실패\)</h2></div>\s*<div class="card-body"><div class="notes">)(.*?)(</div></div></div>)',
+    re.DOTALL,
 )
 
 
 def patch_html(html_text: str, meta: dict, public_base: str,
                inline_script: str, md_text: str) -> tuple[str, list[str]]:
+    """HTML in-place 패치.
+
+    마이그레이션 내용:
+    - chart.js inline 치환
+    - OG/Twitter 메타태그 (없으면) 삽입
+    - 구 publish-link 배너 div 제거 (구 마이그레이션 잔해)
+    - fallback <details> 안의 raw markdown body 를 업데이트된 .md 로 재렌더
+      (→ 링크가 제목 아래로 이동 + 하이라이트 multiline 포맷 반영)
+    """
     changes: list[str] = []
-
     report_url = _report_url(meta, public_base)
-    chzzk_url = _chzzk_url(meta)
 
-    # 1. chart.js inline (기존 패치)
+    # 1. chart.js inline
     if OLD_SCRIPT_TAG in html_text:
         html_text = html_text.replace(OLD_SCRIPT_TAG, inline_script, 1)
         changes.append("chart-inline")
 
-    # 2. 구 publish-link 배너 제거
+    # 2. 구 publish-link 배너 div 제거
     new_text, n = OLD_PUBLISH_LINK_PAT.subn("", html_text)
     if n:
         html_text = new_text
         changes.append("remove-old-banner")
 
-    # 3. OG 메타태그 삽입
+    # 2b. 이전 마이그레이션이 editor_notes <div class="notes"> 안에 실수로 주입한
+    # 링크 <p> 블록 제거 (원래는 fallback 에만 들어갔어야 하는데 regex 가 첫 번째
+    # notes 를 매칭해서 에디터 후기 카드 상단에 붙었었다).
+    stray_link_p = re.compile(
+        r'<p><strong>🔗 요약 웹페이지:</strong>.*?<strong>▶️ 치지직 다시보기:</strong>.*?</p>',
+        re.DOTALL,
+    )
+    new_text, n = stray_link_p.subn("", html_text)
+    if n:
+        html_text = new_text
+        changes.append("remove-stray-links")
+
+    # 3. OG 메타태그 삽입 (이미 있으면 스킵)
     if OG_PROBE not in html_text:
         og_meta = _build_og_meta(meta, md_text, report_url)
-        # <title>...</title> 바로 다음에 삽입 — <head> 끝 찾기보다 안전
         html_text = re.sub(
             r"(</title>)",
-            r"\1\n" + og_meta.replace("\\", "\\\\"),
+            lambda _m: "</title>\n" + og_meta,
             html_text,
             count=1,
         )
         changes.append("og-meta")
 
-    # 4. 본문 최상단에 링크 단락 주입
-    if HEADER_LINK_PROBE not in html_text:
-        link_p = _body_link_paragraph(report_url, chzzk_url)
-        if link_p:
-            new_text, n = NOTES_OPEN_PAT.subn(r"\1" + link_p + "<p>", html_text, count=1)
-            if n:
-                html_text = new_text
-                changes.append("body-links")
+    # 4. fallback body 재렌더 (updated .md 로부터) — 기존 body 와 동일하면 skip
+    new_body = _render_fallback_body(md_text)
+    for pat in (FALLBACK_NOTES_PAT, FALLBACK_EMPTY_NOTES_PAT):
+        m = pat.search(html_text)
+        if not m:
+            continue
+        if m.group(2) == new_body:
+            break  # 이미 최신
+        html_text = html_text[:m.start()] + m.group(1) + new_body + m.group(3) + html_text[m.end():]
+        changes.append("body-rerender")
+        break
 
     return html_text, changes
 
@@ -232,9 +280,20 @@ def main() -> int:
             print(f"  skip (metadata 없음): {hp.name}")
             continue
 
+        vod = VODInfo(
+            video_no=str(meta.get("video_no") or ""),
+            title=meta.get("title") or "",
+            channel_id=meta.get("channel_id") or "",
+            channel_name=meta.get("channel") or "",
+            duration=int(meta.get("duration") or 0),
+            publish_date=meta.get("publish_date") or "",
+            category=meta.get("category") or "",
+            thumbnail_url=meta.get("thumbnail_url") or "",
+            streamer_id=meta.get("streamer_id") or "",
+        )
+
         md_path = hp.with_suffix(".md")
-        md_changed = _md_prepend(md_path, _report_url(meta, public_base), _chzzk_url(meta), args.dry_run)
-        md_text_now = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+        md_changed, md_text_now = _md_migrate(md_path, vod, public_base, args.dry_run)
 
         try:
             html_text = hp.read_text(encoding="utf-8")
@@ -244,7 +303,7 @@ def main() -> int:
 
         new_html, changes = patch_html(html_text, meta, public_base, inline_script, md_text_now)
         if md_changed:
-            changes = ["md-prepend"] + changes
+            changes = ["md-migrate"] + changes
 
         if not changes:
             print(f"  skip (이미 패치됨): {hp.name}")

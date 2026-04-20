@@ -10,6 +10,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -507,11 +508,9 @@ def generate_reports(
 
     base = f"{vod_info.video_no}_{date_str}_{sanitize_filename(vod_info.title)}"
 
-    # 마크다운 최상단에 공유용 링크 prepend (요약 웹페이지 + 치지직 다시보기).
-    # .md 와 .html 양쪽이 동일 내용을 공유하도록 summary 자체를 수정.
-    header_links = _build_header_links_md(vod_info, public_url_base)
-    if header_links and header_links not in summary:
-        summary = header_links + "\n\n" + summary
+    # Claude 출력 .md 를 가공: (1) 방송 분석 리포트 헤더 아래에 공유 링크 주입,
+    # (2) 하이라이트 추천 구간 포맷을 multiline 으로 정돈.
+    summary = _postprocess_summary_md(summary, vod_info, public_url_base)
 
     # 각 산출물은 독립적으로 처리한다. 하나가 실패해도 나머지는 살린다.
     # - Markdown 은 summary 그 자체이므로 절대 실패해선 안 된다 (OSError 만 예외).
@@ -676,23 +675,45 @@ def _parse_summary_sections(md: str) -> dict:
             })
 
     # 하이라이트 섹션 (B09: 헤더 emoji optional)
+    # 지원 포맷:
+    #   (A) one-liner : `1. **[tc~tc]** 제목 (추천 이유: ...)`
+    #   (B) multiline : `1. **[tc~tc]** 제목\n    - 추천 이유: ...`
     hl_match = re.search(
         r"###\s*(?:🎬\s*)?[^\n]*하이라이트[^\n]*\n(.+?)(?=\n###\s|\Z)",
         md, flags=re.S
     )
     if hl_match:
         hl_body = hl_match.group(1)
-        for em in re.finditer(
-            r"^\s*(\d+)\.\s*\*\*\[?(\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?)\]?\*?\*?\s*(.+?)\*?\*?\s*$",
-            hl_body, flags=re.M
-        ):
-            tc_range = em.group(2)
-            title_raw = em.group(3).strip()
-            rm = re.match(r"(.+?)\s*\(?추천 이유[:：]\s*(.+?)\)?\s*$", title_raw)
-            if rm:
-                title, reason = rm.group(1).strip(" *"), rm.group(2).strip(" *")
+        # 엔트리 분리: 숫자+마침표+`**[` 패턴이 나오는 줄 경계로 split
+        entries = re.split(r"\n(?=\s*\d+\.\s*\*\*\[?\d{2}:\d{2}:\d{2})", hl_body)
+        header_re = re.compile(
+            r"\s*(\d+)\.\s*\*\*\[?(\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?)\]?\*\*\s*(.+?)\s*$",
+            re.M,
+        )
+        reason_re = re.compile(r"추천 이유\s*[:：]\s*(.+?)(?:\s*\)\s*)?$", re.M)
+        for entry in entries:
+            lines = entry.strip().splitlines()
+            if not lines:
+                continue
+            hm = header_re.match(lines[0])
+            if not hm:
+                continue
+            tc_range = hm.group(2)
+            header_tail = hm.group(3).strip()
+            # one-liner: 제목 끝에 (추천 이유: ...) 포함
+            title, reason = header_tail, ""
+            rm_inline = re.match(r"(.+?)\s*\(\s*추천 이유\s*[:：]\s*(.+?)\)\s*$", header_tail)
+            if rm_inline:
+                title = rm_inline.group(1).strip().rstrip("*").strip()
+                reason = rm_inline.group(2).strip().rstrip(")").strip()
             else:
-                title, reason = title_raw.strip(" *"), ""
+                # multiline: 이후 라인에서 "추천 이유:" 찾기
+                for ln in lines[1:]:
+                    rm2 = reason_re.search(ln)
+                    if rm2:
+                        reason = rm2.group(1).strip().rstrip(")").strip()
+                        break
+            title = title.strip(" *")
             out["highlights"].append({
                 "tc_range": tc_range,
                 "title": title,
@@ -733,7 +754,7 @@ def _render_inline_md(s: str) -> str:
 
 
 def _build_header_links_md(vod_info: VODInfo, public_url_base: str) -> str:
-    """요약 .md 상단에 prepend 할 공유용 링크 블록을 반환.
+    """요약 .md 의 "## 방송 분석 리포트:" 바로 아래에 주입할 공유용 링크 블록.
 
     SNS 미리보기용 OG 메타태그는 report.html 에 붙이므로 URL 은 report.html
     직접 경로(Cloudflare 가 .html 를 자동 strip) 를 사용한다.
@@ -746,6 +767,54 @@ def _build_header_links_md(vod_info: VODInfo, public_url_base: str) -> str:
         chzzk_url = f"https://chzzk.naver.com/video/{vod_info.video_no}"
         lines.append(f"- **▶️ 치지직 다시보기:** [{chzzk_url}]({chzzk_url})")
     return "\n".join(lines)
+
+
+_HIGHLIGHT_ONELINE_RE = re.compile(
+    r'^(\s*\d+\.\s*\*\*\[?\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?\]?\*\*\s*)'
+    r'(.+?)\s*\(\s*추천 이유\s*[:：]\s*(.+?)\)\s*$',
+    re.M,
+)
+
+
+def _reformat_highlights_multiline(md: str) -> str:
+    """하이라이트 섹션의 one-liner 포맷을 multiline 으로 변환.
+
+    Before: `1. **[tc~tc]** title (추천 이유: X)`
+    After:  `1. **[tc~tc]** title\n    - 추천 이유: X`
+
+    이미 multiline 포맷이면 no-op (regex 가 매칭 안됨).
+    """
+    import re as _re
+    def _sub(m):
+        prefix, title, reason = m.group(1), m.group(2).strip().rstrip("*").strip(), m.group(3).strip().rstrip(")").strip()
+        return f"{prefix}{title}\n    - 추천 이유: {reason}"
+    return _HIGHLIGHT_ONELINE_RE.sub(_sub, md)
+
+
+def _postprocess_summary_md(summary: str, vod_info: VODInfo,
+                            public_url_base: str) -> str:
+    """Claude 출력 .md 에 두 가지 가공을 적용.
+
+    1. `## 📋 방송 분석 리포트:` 라인 바로 아래에 공유 링크 2줄 주입.
+       이미 들어있으면 no-op.
+    2. 하이라이트 추천 구간의 one-liner 포맷을 multiline 으로 정돈.
+    """
+    import re as _re
+
+    header_block = _build_header_links_md(vod_info, public_url_base)
+
+    if header_block and "🔗 요약 웹페이지" not in summary:
+        title_re = _re.compile(r"^(##\s+.*?방송 분석 리포트[^\n]*)\n", _re.M)
+        m = title_re.search(summary)
+        if m:
+            insertion = m.group(1) + "\n\n" + header_block + "\n"
+            summary = summary[:m.start()] + insertion + summary[m.end():]
+        else:
+            # 타이틀 헤더를 못 찾으면 최상단에 prepend (fallback)
+            summary = header_block + "\n\n" + summary
+
+    summary = _reformat_highlights_multiline(summary)
+    return summary
 
 
 def _build_og_meta(vod_info: VODInfo, summary_md: str, public_url_base: str,
