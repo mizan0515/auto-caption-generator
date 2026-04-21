@@ -82,6 +82,16 @@ DEFAULT_CONFIG = {
     #   experiment_limit_duration_sec : 빠른 반복 위해 앞 N초만 사용 (0 = 전체)
     "experiment_test_vod": "",
     "experiment_limit_duration_sec": 1800,
+    # Lexicon (pipeline/lexicon.py): 스트리머별 고유명사 사전.
+    #   lexicon_limit: Whisper initial_prompt + Claude 컨텍스트에 주입할 단어 상한.
+    #     너무 크면 Whisper prompt 토큰 예산(~224)을 넘김.
+    #   lexicon_fetch_namuwiki: True 면 채널명으로 나무위키 best-effort 조회 (실패는 무시).
+    #     CI/airgap 또는 외부 호출을 끊고 싶을 때 False.
+    #   lexicon_cache_ttl_hours: .cache/lexicon/<channel_id>.json TTL.
+    #     0 이면 매번 재빌드. 기본 168 = 7일.
+    "lexicon_limit": 30,
+    "lexicon_fetch_namuwiki": True,
+    "lexicon_cache_ttl_hours": 168,
     "cookies": {"NID_AUT": "", "NID_SES": ""},
 }
 
@@ -117,6 +127,8 @@ _INT_FIELDS: list[tuple[str, bool]] = [
     ("fmkorea_max_age_hours", False),
     ("bootstrap_latest_n", True),
     ("experiment_limit_duration_sec", False),
+    ("lexicon_limit", True),
+    ("lexicon_cache_ttl_hours", False),
 ]
 
 

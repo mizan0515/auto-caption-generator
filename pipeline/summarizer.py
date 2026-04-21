@@ -116,6 +116,12 @@ CHUNK_SYSTEM_PROMPT = """너는 한국 라이브 방송 분석 전문가야. 사
     - 내용: 1~2문장으로 무슨 일이 있었는지. 대표 발화 인용 OK. (`**`로 본문 안 강조 금지)
     - 근거: 실제 채팅 반응 2~3개를 짧은 따옴표로. "...", "..." 형식.
 
+## 고유명사/신조어 교정
+- 자막(Whisper) 은 고유명사·신조어·별명·게임내 용어를 자주 오인식한다.
+- 상단 `## 알려진 고유명사/신조어` 섹션과 채팅/커뮤니티 원문 표기를 **정답**으로 간주하고, 자막 인용시 그 표기로 교정하라.
+- 발음이 유사한데 자막만 다른 표기를 쓰는 경우 (예: "땀땀버린" vs 채팅 "탬탬버린") 무조건 채팅 표기 채택.
+- 단, 근거 섹션의 채팅 인용은 **원문 그대로** 유지하라 (사용자들의 표현 보존).
+
 ## 금지
 - 내부 메트릭(점수, 확률, 퍼센트, 채팅수 등)을 근거에 노출하지 말 것
 - 한 줄에 `**` 굵은 강조를 2회 이상 사용 금지 (제목 한 번만)
@@ -127,6 +133,7 @@ def _build_chunk_user_prompt(
     highlights: list[dict],
     chats: list[dict],
     vod_info: VODInfo,
+    lexicon_terms: list[str] | None = None,
 ) -> str:
     """개별 청크의 데이터-only 프롬프트 (시스템 프롬프트와 분리)"""
     start_sec = chunk["start_ms"] / 1000
@@ -143,8 +150,13 @@ def _build_chunk_user_prompt(
     if relevant_highlights and chats:
         chat_section = format_chat_highlights_for_prompt(relevant_highlights, chats, context_sec=20)
 
-    prompt = f"""방송 "{vod_info.title}" 의 구간 ({chunk['start_hhmmss']} ~ {chunk['end_hhmmss']}) 분석:
+    lexicon_section = ""
+    if lexicon_terms:
+        from pipeline.lexicon import format_for_claude
+        lexicon_section = format_for_claude(lexicon_terms)
 
+    prompt = f"""방송 "{vod_info.title}" 의 구간 ({chunk['start_hhmmss']} ~ {chunk['end_hhmmss']}) 분석:
+{lexicon_section}
 ## 채팅 하이라이트 (이 구간)
 {chat_section if chat_section else "(채팅 데이터 없음)"}
 
@@ -175,6 +187,7 @@ def process_chunks(
     claude_timeout: int = 300,
     claude_model: str = "",
     progress_func=None,
+    lexicon_terms: list[str] | None = None,
 ) -> list[str]:
     """각 청크를 Claude에 전달하여 분석.
 
@@ -191,7 +204,7 @@ def process_chunks(
     for chunk in chunks:
         # 청크 시간 범위의 채팅만 추출 (O(log n))
         chunk_chats = _preslice_chats(sorted_chats, chunk["start_ms"], chunk["end_ms"])
-        user_prompt = _build_chunk_user_prompt(chunk, highlights, chunk_chats, vod_info)
+        user_prompt = _build_chunk_user_prompt(chunk, highlights, chunk_chats, vod_info, lexicon_terms=lexicon_terms)
         logger.info(
             f"  청크 {chunk['index']}/{len(chunks)} 분석 중 "
             f"({chunk['start_hhmmss']}~{chunk['end_hhmmss']}, {chunk['char_count']:,}자, "

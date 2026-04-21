@@ -160,6 +160,11 @@
 
 ---
 
+### Phase C: 품질 — 고유명사 보정 (2026-04-21 추가)
+11. **완료 — 스트리머별 lexicon + 사후 교정** — `pipeline/lexicon.py` + `scripts/recorrect_reports.py`. Whisper initial_prompt + Claude 청크/통합 단계 + 사후 매핑 4중 방어. 16 VOD 중 7건 실제 교정·배포 완료. 회귀 테스트: `experiments/test_recorrect_apply.py`. 결과: [2026-04-21_phase-c_lexicon-recorrect.md](2026-04-21_phase-c_lexicon-recorrect.md)
+
+---
+
 ## 5. 한 줄 요약
 
-**토큰 가시성(A1)과 token chunking(A2)은 확보됐지만, 운영 가능한 기본값을 확정하려면 A3/A4 실측이 더 필요하다.**
+**토큰 가시성(A1)과 token chunking(A2)은 확보됐지만, 운영 가능한 기본값을 확정하려면 A3/A4 실측이 더 필요하다. 별도로 고유명사 오인식은 Phase C 에서 4중 방어선으로 닫혔다.**

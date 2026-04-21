@@ -520,6 +520,27 @@ def process_vod(
                 srt_path = expected_srt
                 logger.info(f"✓ 기존 SRT 재사용 (Whisper 스킵): {srt_path}")
             else:
+                # Whisper initial_prompt 에 스트리머별 고유명사 bias 주입.
+                # 실패해도 transcribe 는 계속 진행 (base prompt fallback).
+                initial_prompt_text = None
+                try:
+                    from pipeline.lexicon import build_lexicon, format_for_whisper
+                    lex = build_lexicon(
+                        channel_id=vod.channel_id or "",
+                        channel_name=vod.channel_name or "",
+                        video_no=str(vod.video_no),
+                        vod_title=vod.title or "",
+                        work_dir=cfg.get("work_dir", "./work"),
+                        limit=int(cfg.get("lexicon_limit", 30)),
+                        fetch_namuwiki=bool(cfg.get("lexicon_fetch_namuwiki", True)),
+                        cache_ttl_sec=int(cfg.get("lexicon_cache_ttl_hours", 168)) * 3600,
+                    )
+                    if lex:
+                        initial_prompt_text = format_for_whisper(lex)
+                        logger.info(f"  [Whisper] initial_prompt lexicon={len(lex)} 개")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"lexicon 빌드 실패 (무시, base prompt 사용): {e}")
+
                 # B05: 타임아웃/스톨 watchdog. cfg 미지정시 transcriber 의 기본값 사용.
                 try:
                     srt_path = transcribe_video(
@@ -527,6 +548,7 @@ def process_vod(
                         progress_func=_make_heartbeat("transcribing"),
                         stall_sec=cfg.get("whisper_stall_sec", 600),
                         timeout_sec=cfg.get("whisper_timeout_sec", 0),
+                        initial_prompt_text=initial_prompt_text,
                     )
                 except TimeoutError as e:
                     logger.error(f"Whisper 타임아웃 → VOD 실패 처리: {e}")
@@ -604,10 +626,29 @@ def process_vod(
                 summary = None
 
         if summary is None:
+            # 요약 단계에서도 lexicon 을 주입해 고유명사 교차검증을 유도.
+            # transcribe 단계에서 이미 만들어 놨으면 캐시 재사용됨.
+            lex_terms: list[str] = []
+            try:
+                from pipeline.lexicon import build_lexicon
+                lex_terms = build_lexicon(
+                    channel_id=vod.channel_id or "",
+                    channel_name=vod.channel_name or "",
+                    video_no=str(vod.video_no),
+                    vod_title=vod.title or "",
+                    work_dir=cfg.get("work_dir", "./work"),
+                    limit=int(cfg.get("lexicon_limit", 30)),
+                    fetch_namuwiki=False,  # 캐시에 이미 있거나 transcribe 단계에서 시도됨
+                    cache_ttl_sec=int(cfg.get("lexicon_cache_ttl_hours", 168)) * 3600,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"lexicon 요약용 로드 실패 (무시): {e}")
+
             chunk_results = process_chunks(
                 chunks, highlights, chats, vod, claude_timeout,
                 claude_model=claude_model,
                 progress_func=_make_heartbeat("summarizing"),
+                lexicon_terms=lex_terms,
             )
             logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
 
