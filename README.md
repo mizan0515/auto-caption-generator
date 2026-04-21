@@ -256,6 +256,27 @@ python -m http.server --directory site 8000
 # 브라우저에서 http://localhost:8000/ 접속
 ```
 
+### 관리자 전용 리포트 편집 페이지
+
+공개 `site/vods/<video_no>/report.html` 은 그대로 읽기 전용으로 배포하고,
+관리자 수정은 로컬 전용 편집 페이지에서만 한다.
+
+```bash
+# 기본: http://127.0.0.1:8766/
+python scripts/report_admin_server.py
+
+# 또는 Windows 배치 파일
+report_admin.bat
+```
+
+- 기본 바인딩은 `127.0.0.1` 이라 외부에서 직접 접근할 수 없다.
+- `/` 는 전체 리포트 목록과 검색 화면이고, 항목을 클릭하면 `/report?base=...` 편집 화면으로 이동한다.
+- 목록은 `output/` 리포트와 `site/vods/` 에만 남아 있는 기존 리포트를 함께 보여준다 (`site-only` 표시).
+- 편집 화면에서 원본 요약 마크다운을 수정하면 미리보기와 저장을 할 수 있다.
+- `저장 후 site 재퍼블리시` 를 켜 두면 `output/*.md`, `output/*.html`, `site/` 가 한 번에 갱신된다.
+- 네이버 카페 붙여넣기 HTML 과 치지직 다시보기 댓글 붙여넣기용 텍스트도 같은 원본 마크다운에서 다시 생성되므로 별도 수동 수정이 필요 없다.
+- 포트 변경이 필요하면 `python scripts/report_admin_server.py --port 8877` 처럼 실행한다.
+
 ### 배포
 
 빌드된 `site/` 디렉토리를 무료 정적 호스팅에 올린다. 빌더가 deploy meta
