@@ -15,6 +15,7 @@ __pycache__/
 output/
 work/
 pipeline_config.json
+.cache/
 
 # 정적 사이트 빌더 산출물 (publish/builder/build_site.py)
 site/

@@ -751,6 +751,34 @@ def _html_escape(s: str) -> str:
              .replace('"', "&quot;"))
 
 
+def _strip_inline_md(s: str) -> str:
+    """Plain text 용: **bold** / `code` / [text](url) 마커를 걷어내고 본문만 남긴다."""
+    import re
+    s = re.sub(r'\[([^\]]+)\]\((https?://[^)\s]+)\)', r'\1', s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    return s
+
+
+def _render_chzzk_comment_text(sec: dict) -> str:
+    """치지직 다시보기 댓글용 plain text — 타임라인 한 줄당 한 항목.
+
+    포맷: `[HH:MM:SS] 제목 (분위기: 💬)`
+    """
+    lines: list[str] = []
+    for item in sec.get("timeline") or []:
+        tc = (item.get("tc") or "").strip()
+        title = _strip_inline_md(item.get("title") or "").strip()
+        if not tc or not title:
+            continue
+        mood_raw = (item.get("mood_raw") or "").strip()
+        if mood_raw:
+            lines.append(f"[{tc}] {title} (분위기: {mood_raw})")
+        else:
+            lines.append(f"[{tc}] {title}")
+    return "\n".join(lines)
+
+
 def _render_inline_md(s: str) -> str:
     """간단한 인라인 마크다운(**strong**, `code`, [text](url)) → HTML"""
     import re
@@ -782,6 +810,85 @@ def _build_header_links_md(vod_info: VODInfo, public_url_base: str) -> str:
     return "\n".join(lines)
 
 
+def _render_naver_cafe_html(vod_info: VODInfo, public_url_base: str, sec: dict) -> str:
+    """Generate a clean HTML fragment that pastes well into Naver Cafe."""
+
+    def _p(inner: str) -> str:
+        return f"<p>{inner}</p>"
+
+    def _spacer() -> str:
+        return "<p>&nbsp;</p>"
+
+    title_display = sec.get("title") or vod_info.title
+    parts: list[str] = [f"<h2>📋 방송 분석 리포트: {_html_escape(title_display)}</h2>", _spacer()]
+
+    if public_url_base:
+        report_url = f"{public_url_base.rstrip('/')}/vods/{vod_info.video_no}/report"
+        parts.append(
+            _p(
+                '<strong>🔗 요약 웹페이지:</strong> '
+                f'<a href="{_html_escape(report_url)}">{_html_escape(report_url)}</a>'
+            )
+        )
+
+    if vod_info.video_no:
+        chzzk_url = f"https://chzzk.naver.com/video/{vod_info.video_no}"
+        parts.append(
+            _p(
+                '<strong>▶️ 치지직 다시보기:</strong> '
+                f'<a href="{_html_escape(chzzk_url)}">{_html_escape(chzzk_url)}</a>'
+            )
+        )
+
+    if sec.get("hashtags"):
+        tags = " ".join(f"#{_html_escape(tag)}" for tag in sec["hashtags"][:6])
+        parts.append(_p(f"<strong>핵심 요약:</strong> {tags}"))
+
+    if sec.get("pull_quote"):
+        parts.extend([
+            _spacer(),
+            "<blockquote>",
+            _p(f"&quot;{_html_escape(sec['pull_quote'])}&quot;"),
+            "</blockquote>",
+        ])
+
+    if sec.get("timeline"):
+        parts.extend([_spacer(), "<h2>📍 타임라인 상세 요약</h2>", _spacer()])
+        for item in sec["timeline"]:
+            mood_suffix = f" (분위기: {_html_escape(item['mood_raw'])})" if item.get("mood_raw") else ""
+            parts.append(
+                _p(
+                    f"<strong>[{_html_escape(item['tc'])}] "
+                    f"{_render_inline_md(item['title'])}</strong>{mood_suffix}"
+                )
+            )
+            if item.get("summary"):
+                parts.append(_p(f"내용: {_render_inline_md(item['summary'])}"))
+            if item.get("evidence"):
+                parts.append(_p(f"근거: {_render_inline_md(item['evidence'])}"))
+            parts.append(_spacer())
+
+    if sec.get("highlights"):
+        parts.extend(["<hr>", _spacer(), "<h2>🎬 하이라이트 추천 구간</h2>", _spacer()])
+        for idx, item in enumerate(sec["highlights"], start=1):
+            parts.append(
+                _p(
+                    f"{idx}. <strong>[{_html_escape(item['tc_range'])}]</strong> "
+                    f"{_render_inline_md(item['title'])}"
+                )
+            )
+            if item.get("reason"):
+                parts.append(_p(f"추천 이유: {_render_inline_md(item['reason'])}"))
+            parts.append(_spacer())
+
+    if sec.get("editor_notes"):
+        parts.extend(["<hr>", _spacer(), "<h2>📝 에디터의 방송 후기</h2>", _spacer()])
+        for paragraph in sec["editor_notes"]:
+            parts.append(_p(_render_inline_md(paragraph)))
+
+    return "\n".join(parts)
+
+
 _HIGHLIGHT_ONELINE_RE = re.compile(
     r'^(\s*\d+\.\s*\*\*\[?\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?\]?\*\*\s*)'
     r'(.+?)\s*\(\s*추천 이유\s*[:：]\s*(.+?)\)\s*$',
@@ -801,7 +908,21 @@ def _reformat_highlights_multiline(md: str) -> str:
     def _sub(m):
         prefix, title, reason = m.group(1), m.group(2).strip().rstrip("*").strip(), m.group(3).strip().rstrip(")").strip()
         return f"{prefix}{title}\n    - 추천 이유: {reason}"
-    return _HIGHLIGHT_ONELINE_RE.sub(_sub, md)
+    md = _HIGHLIGHT_ONELINE_RE.sub(_sub, md)
+
+    # 하이라이트 섹션 안에서 항목 사이에 빈 줄을 보장 (`1. ...` → `2. ...` 사이).
+    def _space_items(section_match: "_re.Match") -> str:
+        body = section_match.group(0)
+        # 이전 라인이 공백이 아닌 경우에만 blank line 주입.
+        spaced = _re.sub(r"(?<!\n)\n([ \t]*\d+\.\s*\*\*\[?\d{2}:\d{2}:\d{2})", r"\n\n\1", body)
+        return spaced
+    md = _re.sub(
+        r"###\s*(?:🎬\s*)?[^\n]*하이라이트[^\n]*\n.+?(?=\n###\s|\n---|\Z)",
+        _space_items,
+        md,
+        flags=_re.S,
+    )
+    return md
 
 
 def _postprocess_summary_md(summary: str, vod_info: VODInfo,
@@ -981,6 +1102,40 @@ def _generate_html(
     #    - 전체 파싱 실패: 펼친 카드로 표시 (사용자가 곧장 본문 확인)
     #    - 부분 파싱: <details> 로 접어두기 (raw 원본 보존, 필요 시 펼침)
     import re
+    naver_cafe_html = _render_naver_cafe_html(vod_info, public_url_base, sec)
+    naver_export_html = f'''
+<div class="card">
+  <div class="card-head"><h2>네이버 카페 붙여넣기</h2></div>
+  <div class="card-body">
+    <p class="export-help">버튼을 누르면 네이버 카페 글쓰기 창에 바로 붙여넣기 쉬운 HTML이 복사됩니다.</p>
+    <div class="export-actions">
+      <button type="button" class="export-btn" onclick="copyNaverCafeHtml(this)">HTML 복사</button>
+      <span class="export-status" id="naverCafeCopyStatus" aria-live="polite"></span>
+    </div>
+    <details class="export-preview">
+      <summary>붙여넣기용 미리보기</summary>
+      <div class="naver-preview">{naver_cafe_html}</div>
+    </details>
+    <template id="naverCafeTemplate">{naver_cafe_html}</template>
+    <div id="naverCafeClipboard" class="clipboard-sandbox" aria-hidden="true"></div>
+  </div>
+</div>'''
+
+    chzzk_comment_text = _render_chzzk_comment_text(sec)
+    chzzk_comment_escaped = _html_escape(chzzk_comment_text)
+    chzzk_export_html = f'''
+<div class="card">
+  <div class="card-head"><h2>치지직 다시보기 댓글 붙여넣기용</h2></div>
+  <div class="card-body">
+    <p class="export-help">버튼을 누르면 아래 타임라인 텍스트가 그대로 복사됩니다. 치지직 다시보기 댓글창에 바로 붙여넣으세요.</p>
+    <div class="export-actions">
+      <button type="button" class="export-btn" onclick="copyChzzkCommentText(this)">텍스트 복사</button>
+      <span class="export-status" id="chzzkCommentCopyStatus" aria-live="polite"></span>
+    </div>
+    <pre class="chzzk-comment-preview" id="chzzkCommentPreview">{chzzk_comment_escaped}</pre>
+  </div>
+</div>''' if chzzk_comment_text else ""
+
     body = _html_escape(summary_md)
     body = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", body, flags=re.M)
     body = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", body, flags=re.M)
@@ -1074,6 +1229,44 @@ def _generate_html(
   .quote {{
     font-size: 17px; color: var(--text-strong); font-weight: 500; line-height: 1.55;
     padding-left: 16px; border-left: 3px solid var(--accent-warm); font-style: italic;
+  }}
+
+  .export-help {{ color: var(--muted); margin-bottom: 14px; }}
+  .export-actions {{ display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }}
+  .export-btn {{
+    appearance: none; border: 1px solid rgba(122,162,247,0.35); cursor: pointer;
+    background: rgba(122,162,247,0.12); color: var(--text-strong);
+    padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  }}
+  .export-btn:hover {{ background: rgba(122,162,247,0.18); }}
+  .export-status {{ color: var(--muted); font-size: 13px; }}
+  .export-preview summary {{
+    cursor: pointer; color: var(--muted); font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+  }}
+  .naver-preview {{
+    margin-top: 14px; background: var(--surface-2); border: 1px solid var(--border-soft);
+    border-radius: 12px; padding: 18px; color: var(--text-strong);
+  }}
+  .naver-preview h2 {{ font-size: 21px; margin: 0 0 10px; color: var(--text-strong); }}
+  .naver-preview p {{ margin: 0 0 10px; }}
+  .naver-preview blockquote {{
+    margin: 0; padding: 12px 16px; border-left: 3px solid var(--accent-warm);
+    background: rgba(224,175,104,0.08); color: var(--text-strong);
+  }}
+  .naver-preview hr {{
+    border: 0; border-top: 1px solid var(--border); margin: 18px 0;
+  }}
+  .naver-preview a {{ color: var(--accent); word-break: break-all; }}
+  .clipboard-sandbox {{
+    position: fixed; left: -9999px; top: 0; opacity: 0; pointer-events: none;
+  }}
+  .chzzk-comment-preview {{
+    margin: 0; background: var(--surface-2); border: 1px solid var(--border-soft);
+    border-radius: 12px; padding: 16px 18px; color: var(--text-strong);
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+    max-height: 420px; overflow: auto;
   }}
 
   .stats-wrap {{ background: var(--surface); border-bottom: 1px solid var(--border); }}
@@ -1192,6 +1385,8 @@ def _generate_html(
   {timeline_html}
   {highlights_html}
   {notes_html}
+  {naver_export_html}
+  {chzzk_export_html}
   {fallback_html}
 
 </div>
@@ -1236,6 +1431,70 @@ function toggleAll(btn) {{
   const anyClosed = Array.from(items).some(i => i.getAttribute('data-open') !== '1');
   items.forEach(i => i.setAttribute('data-open', anyClosed ? '1' : '0'));
   btn.textContent = anyClosed ? '근거 모두 접기' : '근거 모두 펼치기';
+}}
+
+async function copyNaverCafeHtml(btn) {{
+  const template = document.getElementById('naverCafeTemplate');
+  const status = document.getElementById('naverCafeCopyStatus');
+  const sandbox = document.getElementById('naverCafeClipboard');
+  if (!template || !status || !sandbox) return;
+
+  const html = template.innerHTML.trim();
+  const text = (template.content.textContent || '')
+    .replace(/\\u00a0/g, ' ')
+    .replace(/\\n\\s*\\n\\s*\\n+/g, '\\n\\n')
+    .trim();
+
+  try {{
+    if (navigator.clipboard && window.ClipboardItem) {{
+      await navigator.clipboard.write([
+        new ClipboardItem({{
+          'text/html': new Blob([html], {{ type: 'text/html' }}),
+          'text/plain': new Blob([text], {{ type: 'text/plain' }})
+        }})
+      ]);
+    }} else {{
+      sandbox.innerHTML = html;
+      const range = document.createRange();
+      range.selectNodeContents(sandbox);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      sandbox.innerHTML = '';
+      if (!ok) throw new Error('execCommand copy failed');
+    }}
+    status.textContent = '복사됨. 네이버 카페 글쓰기 창에 바로 붙여넣으세요.';
+    btn.blur();
+  }} catch (err) {{
+    status.textContent = '브라우저가 HTML 복사를 막았습니다. 미리보기 내용을 직접 복사해 주세요.';
+  }}
+}}
+
+async function copyChzzkCommentText(btn) {{
+  const pre = document.getElementById('chzzkCommentPreview');
+  const status = document.getElementById('chzzkCommentCopyStatus');
+  if (!pre || !status) return;
+  const text = pre.textContent || '';
+  try {{
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      await navigator.clipboard.writeText(text);
+    }} else {{
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      if (!ok) throw new Error('execCommand copy failed');
+    }}
+    status.textContent = '복사됨. 치지직 다시보기 댓글창에 바로 붙여넣으세요.';
+    btn.blur();
+  }} catch (err) {{
+    status.textContent = '브라우저가 복사를 막았습니다. 미리보기 내용을 직접 복사해 주세요.';
+  }}
 }}
 </script>
 

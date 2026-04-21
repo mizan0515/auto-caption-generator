@@ -29,7 +29,12 @@ sys.path.insert(0, str(ROOT))
 
 from pipeline.config import load_config, get_public_url_base  # noqa: E402
 from pipeline.models import VODInfo  # noqa: E402
-from pipeline.summarizer import _postprocess_summary_md  # noqa: E402
+from pipeline.summarizer import (  # noqa: E402
+    _postprocess_summary_md,
+    _parse_summary_sections,
+    _render_naver_cafe_html,
+    _render_chzzk_comment_text,
+)
 
 CHART_ASSET = ROOT / "publish" / "web" / "assets" / "vendor" / "chart.umd.min.js"
 OLD_SCRIPT_TAG = '<script src="../../assets/vendor/chart.umd.min.js"></script>'
@@ -187,6 +192,165 @@ FALLBACK_EMPTY_NOTES_PAT = re.compile(
     re.DOTALL,
 )
 
+RAW_MARKDOWN_CARD_PAT = re.compile(
+    r'(<div class="card"><div class="card-body">.*?원본 요약 마크다운 보기.*?</div></div>)',
+    re.DOTALL,
+)
+NAVER_CARD_PROBE = 'id="naverCafeTemplate"'
+NAVER_COPY_FUNC_PROBE = "async function copyNaverCafeHtml"
+CHZZK_CARD_PROBE = 'id="chzzkCommentPreview"'
+CHZZK_COPY_FUNC_PROBE = "async function copyChzzkCommentText"
+CHZZK_CSS_PROBE = ".chzzk-comment-preview {"
+NAVER_EXPORT_CSS = """
+  .export-help { color: var(--muted); margin-bottom: 14px; }
+  .export-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .export-btn {
+    appearance: none; border: 1px solid rgba(122,162,247,0.35); cursor: pointer;
+    background: rgba(122,162,247,0.12); color: var(--text-strong);
+    padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  }
+  .export-btn:hover { background: rgba(122,162,247,0.18); }
+  .export-status { color: var(--muted); font-size: 13px; }
+  .export-preview summary {
+    cursor: pointer; color: var(--muted); font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+  }
+  .naver-preview {
+    margin-top: 14px; background: var(--surface-2); border: 1px solid var(--border-soft);
+    border-radius: 12px; padding: 18px; color: var(--text-strong);
+  }
+  .naver-preview h2 { font-size: 21px; margin: 0 0 10px; color: var(--text-strong); }
+  .naver-preview p { margin: 0 0 10px; }
+  .naver-preview blockquote {
+    margin: 0; padding: 12px 16px; border-left: 3px solid var(--accent-warm);
+    background: rgba(224,175,104,0.08); color: var(--text-strong);
+  }
+  .naver-preview hr {
+    border: 0; border-top: 1px solid var(--border); margin: 18px 0;
+  }
+  .naver-preview a { color: var(--accent); word-break: break-all; }
+  .clipboard-sandbox {
+    position: fixed; left: -9999px; top: 0; opacity: 0; pointer-events: none;
+  }
+""".strip()
+CHZZK_EXPORT_CSS = """
+  .chzzk-comment-preview {
+    margin: 0; background: var(--surface-2); border: 1px solid var(--border-soft);
+    border-radius: 12px; padding: 16px 18px; color: var(--text-strong);
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+    max-height: 420px; overflow: auto;
+  }
+""".strip()
+NAVER_COPY_FUNC = """
+async function copyNaverCafeHtml(btn) {
+  const template = document.getElementById('naverCafeTemplate');
+  const status = document.getElementById('naverCafeCopyStatus');
+  const sandbox = document.getElementById('naverCafeClipboard');
+  if (!template || !status || !sandbox) return;
+
+  const html = template.innerHTML.trim();
+  const text = (template.content.textContent || '')
+    .replace(/\\u00a0/g, ' ')
+    .replace(/\\n\\s*\\n\\s*\\n+/g, '\\n\\n')
+    .trim();
+
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' })
+        })
+      ]);
+    } else {
+      sandbox.innerHTML = html;
+      const range = document.createRange();
+      range.selectNodeContents(sandbox);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      sandbox.innerHTML = '';
+      if (!ok) throw new Error('execCommand copy failed');
+    }
+    status.textContent = '복사됨. 네이버 카페 글쓰기 창에 바로 붙여넣으세요.';
+    btn.blur();
+  } catch (err) {
+    status.textContent = '브라우저가 HTML 복사를 막았습니다. 미리보기 내용을 직접 복사해 주세요.';
+  }
+}
+""".strip()
+CHZZK_COPY_FUNC = """
+async function copyChzzkCommentText(btn) {
+  const pre = document.getElementById('chzzkCommentPreview');
+  const status = document.getElementById('chzzkCommentCopyStatus');
+  if (!pre || !status) return;
+  const text = pre.textContent || '';
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      if (!ok) throw new Error('execCommand copy failed');
+    }
+    status.textContent = '복사됨. 치지직 다시보기 댓글창에 바로 붙여넣으세요.';
+    btn.blur();
+  } catch (err) {
+    status.textContent = '브라우저가 복사를 막았습니다. 미리보기 내용을 직접 복사해 주세요.';
+  }
+}
+""".strip()
+
+
+def _build_chzzk_export_card(md_text: str) -> str:
+    sec = _parse_summary_sections(md_text)
+    text = _render_chzzk_comment_text(sec)
+    if not text:
+        return ""
+    escaped = _html_escape(text)
+    return f'''
+<div class="card">
+  <div class="card-head"><h2>치지직 다시보기 댓글 붙여넣기용</h2></div>
+  <div class="card-body">
+    <p class="export-help">버튼을 누르면 아래 타임라인 텍스트가 그대로 복사됩니다. 치지직 다시보기 댓글창에 바로 붙여넣으세요.</p>
+    <div class="export-actions">
+      <button type="button" class="export-btn" onclick="copyChzzkCommentText(this)">텍스트 복사</button>
+      <span class="export-status" id="chzzkCommentCopyStatus" aria-live="polite"></span>
+    </div>
+    <pre class="chzzk-comment-preview" id="chzzkCommentPreview">{escaped}</pre>
+  </div>
+</div>'''.strip()
+
+
+def _build_naver_export_card(vod_info: VODInfo, public_base: str, md_text: str) -> str:
+    sec = _parse_summary_sections(md_text)
+    naver_cafe_html = _render_naver_cafe_html(vod_info, public_base, sec)
+    return f'''
+<div class="card">
+  <div class="card-head"><h2>네이버 카페 붙여넣기</h2></div>
+  <div class="card-body">
+    <p class="export-help">버튼을 누르면 네이버 카페 글쓰기 창에 바로 붙여넣기 쉬운 HTML이 복사됩니다.</p>
+    <div class="export-actions">
+      <button type="button" class="export-btn" onclick="copyNaverCafeHtml(this)">HTML 복사</button>
+      <span class="export-status" id="naverCafeCopyStatus" aria-live="polite"></span>
+    </div>
+    <details class="export-preview">
+      <summary>붙여넣기용 미리보기</summary>
+      <div class="naver-preview">{naver_cafe_html}</div>
+    </details>
+    <template id="naverCafeTemplate">{naver_cafe_html}</template>
+    <div id="naverCafeClipboard" class="clipboard-sandbox" aria-hidden="true"></div>
+  </div>
+</div>'''.strip()
+
 
 def patch_html(html_text: str, meta: dict, public_base: str,
                inline_script: str, md_text: str) -> tuple[str, list[str]]:
@@ -201,6 +365,17 @@ def patch_html(html_text: str, meta: dict, public_base: str,
     """
     changes: list[str] = []
     report_url = _report_url(meta, public_base)
+    vod_info = VODInfo(
+        video_no=str(meta.get("video_no") or ""),
+        title=meta.get("title") or "",
+        channel_id=meta.get("channel_id") or "",
+        channel_name=meta.get("channel") or "",
+        duration=int(meta.get("duration") or 0),
+        publish_date=meta.get("publish_date") or "",
+        category=meta.get("category") or "",
+        thumbnail_url=meta.get("thumbnail_url") or "",
+        streamer_id=meta.get("streamer_id") or "",
+    )
 
     # 1. chart.js inline
     if OLD_SCRIPT_TAG in html_text:
@@ -248,6 +423,46 @@ def patch_html(html_text: str, meta: dict, public_base: str,
         changes.append("body-rerender")
         break
 
+    naver_card_html = _build_naver_export_card(vod_info, public_base, md_text)
+    if NAVER_CARD_PROBE not in html_text:
+        m = RAW_MARKDOWN_CARD_PAT.search(html_text)
+        if m:
+            html_text = html_text[:m.start()] + naver_card_html + "\n\n" + html_text[m.start():]
+            changes.append("naver-card")
+    if ".export-help {" not in html_text:
+        html_text, n = re.subn(r"(</style>)", lambda _m: NAVER_EXPORT_CSS + "\n\n</style>", html_text, count=1)
+        if n:
+            changes.append("naver-css")
+    if NAVER_COPY_FUNC_PROBE not in html_text:
+        html_text, n = re.subn(r"(</script>)", lambda _m: NAVER_COPY_FUNC + "\n</script>", html_text, count=1)
+        if n:
+            changes.append("naver-js")
+
+    chzzk_card_html = _build_chzzk_export_card(md_text)
+    if chzzk_card_html and CHZZK_CARD_PROBE not in html_text:
+        # 이미 네이버 카페 카드가 있으면 그 바로 뒤에 삽입. 아니면 raw md 카드 앞에.
+        naver_end_pat = re.compile(
+            r'(<template id="naverCafeTemplate">.*?</template>\s*<div id="naverCafeClipboard"[^>]*></div>\s*</div>\s*</div>)',
+            re.DOTALL,
+        )
+        m = naver_end_pat.search(html_text)
+        if m:
+            html_text = html_text[:m.end()] + "\n\n" + chzzk_card_html + html_text[m.end():]
+            changes.append("chzzk-card")
+        else:
+            m2 = RAW_MARKDOWN_CARD_PAT.search(html_text)
+            if m2:
+                html_text = html_text[:m2.start()] + chzzk_card_html + "\n\n" + html_text[m2.start():]
+                changes.append("chzzk-card")
+    if chzzk_card_html and CHZZK_CSS_PROBE not in html_text:
+        html_text, n = re.subn(r"(</style>)", lambda _m: CHZZK_EXPORT_CSS + "\n\n</style>", html_text, count=1)
+        if n:
+            changes.append("chzzk-css")
+    if chzzk_card_html and CHZZK_COPY_FUNC_PROBE not in html_text:
+        html_text, n = re.subn(r"(</script>)", lambda _m: CHZZK_COPY_FUNC + "\n</script>", html_text, count=1)
+        if n:
+            changes.append("chzzk-js")
+
     return html_text, changes
 
 
@@ -255,6 +470,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument(
+        "--no-publish", action="store_true",
+        help="변경 후 site 재빌드/배포 훅을 건너뛴다 (기본은 config 플래그 따라 실행).",
+    )
     args = ap.parse_args()
 
     cfg = load_config()
@@ -317,6 +536,36 @@ def main() -> int:
         total_changed += 1
 
     print(f"\n총 {total_changed}/{len(html_files)} 개 변경됨")
+
+    # 변경된 파일이 있으면 site 재빌드 + (선택) Cloudflare 배포를 수행.
+    if total_changed > 0 and not args.dry_run and not args.no_publish:
+        if cfg.get("publish_autorebuild", False):
+            try:
+                from publish.hook import rebuild_site_safe, deploy_to_cloudflare_safe
+                print("\n[publish] site 재빌드 중...")
+                result = rebuild_site_safe(
+                    output_dir=out_dir,
+                    site_dir=cfg.get("publish_site_dir", "./site"),
+                )
+                if result is None:
+                    print("[publish] 재빌드 실패 또는 스킵")
+                else:
+                    print(
+                        f"[publish] ✓ 재빌드 완료: vods={result['vod_count']}, "
+                        f"streamers={result['streamer_count']}"
+                    )
+                    if cfg.get("publish_autodeploy", False):
+                        print("[publish] Cloudflare Pages 배포 중...")
+                        ok = deploy_to_cloudflare_safe(
+                            site_dir=result["site_dir"],
+                            project_name=cfg.get("publish_cloudflare_project", ""),
+                        )
+                        print(f"[publish] 배포 {'완료' if ok else '실패'}")
+            except Exception as e:  # noqa: BLE001
+                print(f"[publish] 자동 퍼블리시 중 예외 (무시): {e}")
+        else:
+            print("\n[publish] publish_autorebuild=false — 스킵")
+
     return 0
 
 
