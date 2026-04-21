@@ -205,6 +205,10 @@ def _log_cli_usage(payload: dict) -> None:
     _persist_usage_jsonl(record)
 
 
+class _EmptyJsonResult(RuntimeError):
+    """Claude CLI JSON 모드가 빈 result 를 반환했을 때 내부에서 사용하는 표식."""
+
+
 def _parse_claude_output(result: subprocess.CompletedProcess) -> str:
     """Claude CLI 출력 파싱. JSON 모드와 텍스트 모드 모두 처리."""
     if result.returncode != 0:
@@ -234,7 +238,18 @@ def _parse_claude_output(result: subprocess.CompletedProcess) -> str:
                 raise RuntimeError(f"Claude API 오류: {error_msg}")
             if "result" in data:
                 _log_cli_usage(data)
-                return data["result"]
+                res = data["result"]
+                if not res:
+                    # Claude CLI JSON 모드가 긴 verbatim 응답에서 result="" 를
+                    # 반환하는 재현 가능한 버그. _call_claude_cli 에서 text 모드
+                    # 재시도를 발동시키도록 표식 예외를 던진다.
+                    logger.warning(
+                        f"Claude CLI result 빈 문자열 - stop_reason={data.get('stop_reason')} "
+                        f"subtype={data.get('subtype')} num_turns={data.get('num_turns')} "
+                        f"is_error={data.get('is_error')} stdout_preview={stdout[:500]}"
+                    )
+                    raise _EmptyJsonResult("JSON 모드 result=''")
+                return res
         if isinstance(data, list):
             for item in reversed(data):
                 if isinstance(item, dict):
@@ -300,7 +315,29 @@ def _call_claude_cli(prompt: str, timeout: int = 300, model: str = "") -> str:
             f"Claude CLI 실행 실패 ({type(e).__name__}: {e})."
         )
 
-    return _parse_claude_output(result)
+    try:
+        return _parse_claude_output(result)
+    except _EmptyJsonResult:
+        # JSON 모드 버그 회피: 같은 프롬프트로 text 모드 재호출.
+        logger.warning("Claude CLI JSON 모드 result='' — text 모드로 재호출")
+        text_cmd = ["claude", "-p", "--output-format", "text", "--max-turns", "1"]
+        if model:
+            text_cmd.extend(["--model", model])
+        text_result = subprocess.run(
+            text_cmd,
+            input=prompt,
+            capture_output=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            creationflags=cflags,
+        )
+        if text_result.returncode != 0 or not (text_result.stdout or "").strip():
+            raise RuntimeError(
+                f"Claude CLI text 모드 fallback 도 실패 (code={text_result.returncode})"
+            )
+        return text_result.stdout
 
 
 # ── 하위 호환 API ──────────────────────────────────────────────

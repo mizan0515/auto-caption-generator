@@ -400,8 +400,12 @@ def build_site(
 
     # 글로벌 인덱스
     _write_json(site_dir / "streamers.json", [asdict(s) for s in streamers.values()])
+    from datetime import datetime, timezone
+    _built_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     _write_json(site_dir / "index.json", {
-        "generated_at": _stable_generated_at(records),
+        "generated_at": _built_at,
+        "built_at": _built_at,
+        "latest_processed_at": _stable_generated_at(records),
         "total_streamers": len(streamers),
         "total_vods": len(records),
         "streamers": [asdict(s) for s in streamers.values()],

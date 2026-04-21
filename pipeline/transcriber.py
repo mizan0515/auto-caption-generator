@@ -35,6 +35,7 @@ def transcribe_video(
     progress_func=None,
     stall_sec: int = DEFAULT_STALL_SEC,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
+    initial_prompt_text: str | None = None,
 ) -> str:
     """비디오 → SRT.
 
@@ -88,6 +89,7 @@ def transcribe_video(
                 is_split=False,
                 log_func=log_func,
                 progress_func=prog_func,
+                initial_prompt_text=initial_prompt_text,
             )
         except Exception as e:
             import traceback

@@ -118,9 +118,22 @@ def _ffmpeg_creationflags() -> int:
 def extract_audio(video_path, log_func=print):
     audio_path = os.path.splitext(video_path)[0] + ".wav"
 
+    # 헤더만 있고 샘플이 없는 파일(=이전 런이 중간에 죽으면서 남은 스텁)은
+    # 재사용하지 말고 재추출한다. pcm_s16le 16kHz 모노는 1초만 해도 ~32KB.
+    _WAV_MIN_BYTES = 1024
     if os.path.isfile(audio_path):
-        log_func(f"  음성 이미 존재: {audio_path}")
-        return audio_path
+        try:
+            size = os.path.getsize(audio_path)
+        except OSError:
+            size = 0
+        if size >= _WAV_MIN_BYTES:
+            log_func(f"  음성 이미 존재: {audio_path}")
+            return audio_path
+        log_func(f"  [경고] 기존 wav 가 너무 작음 ({size}B) → 재추출: {audio_path}")
+        try:
+            os.remove(audio_path)
+        except OSError as e:
+            log_func(f"  [경고] 기존 wav 삭제 실패 (무시): {e}")
 
     cmd = [
         FFMPEG, "-y",
@@ -150,6 +163,28 @@ def extract_audio(video_path, log_func=print):
             continue
 
         if result.returncode == 0:
+            # ffmpeg 가 성공 코드를 반환해도 실제로 거의 비어있는 파일을
+            # 남기는 경우가 있다(중단/파이프 이슈). 크기를 검증해 스텁이면 실패로 취급.
+            try:
+                out_size = os.path.getsize(audio_path)
+            except OSError:
+                out_size = 0
+            if out_size < 1024:
+                log_func(
+                    f"  [시도 {attempt}/3] ffmpeg 성공 코드지만 결과물이 비어있음 "
+                    f"({out_size}B) → 재시도"
+                )
+                last_err = RuntimeError(
+                    f"ffmpeg 결과물 스텁: {os.path.basename(audio_path)} ({out_size}B)"
+                )
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+                if attempt < 3:
+                    time.sleep(2 * attempt)
+                    continue
+                break
             if attempt > 1:
                 log_func(f"  음성 추출 성공 (재시도 {attempt} 회 만에)")
             return audio_path
@@ -478,6 +513,7 @@ def transcribe_audio(
     precomputed_speech_segments=None,
     preloaded_audio=None,
     stop_event=None,
+    initial_prompt_text: str | None = None,
 ):
     """
     반환: (entries, total_chunks_in_this_part)
@@ -519,9 +555,14 @@ def transcribe_audio(
     entries = []
     count = 0
 
-    # initial_prompt: 한국어 구두점/스타일 가이드
+    # initial_prompt: 한국어 구두점/스타일 가이드 + (옵션) 스트리머별 고유명사 bias.
+    # Whisper prompt_ids 는 약 224 토큰 상한. 초과 시 processor 가 자르는데
+    # 우리는 lexicon 에서 이미 limit 로 컨트롤하므로 그대로 넘긴다.
+    _prompt_text = initial_prompt_text or (
+        "안녕하세요, 환영합니다. 오늘도 재밌게 해봅시다! 자, 그러면 시작할게요."
+    )
     prompt_ids = processor.get_prompt_ids(
-        "안녕하세요, 환영합니다. 오늘도 재밌게 해봅시다! 자, 그러면 시작할게요.",
+        _prompt_text,
         return_tensors="pt",
     ).to(device)
 
@@ -707,7 +748,7 @@ def _get_merge_output_path(files_info: list) -> str:
 # 메인 엔트리 포인트
 # ──────────────────────────────────────────────
 
-def run_caption_generation(files_info, is_split, log_func=print, progress_func=None, cleanup=False, stop_event=None):
+def run_caption_generation(files_info, is_split, log_func=print, progress_func=None, cleanup=False, stop_event=None, initial_prompt_text: str | None = None):
     """
     files_info: [{"path": str, ...}, ...]
     is_split=False: files_info[0] 단일 파일 → 1시간 단위 분할 후 처리
@@ -823,6 +864,7 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
             precomputed_speech_segments=precomp_segs,
             preloaded_audio=preloaded,
             stop_event=stop_event,
+            initial_prompt_text=initial_prompt_text,
         )
         all_entries.extend(entries)
         chunk_offset += part_chunks
