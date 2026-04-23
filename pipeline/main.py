@@ -927,6 +927,8 @@ def run_single(
     cfg: dict,
     limit_duration_sec: int = 0,
     start_offset_sec: int = 0,
+    search_keywords_override: list[str] | None = None,
+    streamer_name_override: str | None = None,
 ):
     """특정 VOD 수동 처리"""
     log_dir = os.path.join(cfg["output_dir"], "logs")
@@ -944,8 +946,34 @@ def run_single(
     logger.info(f"VOD {video_no} 정보 조회 중...")
 
     _, _, _, _, _, metadata = NetworkManager.get_video_info(video_no, cookies)
-    channel_id = cfg.get("target_channel_id", "")
     channel_name = metadata.get("channelName", "")
+    # VOD 실제 채널 ID 를 우선 사용 (config 의 target_channel_id 와 다를 수 있음)
+    channel_id = metadata.get("channelId") or cfg.get("target_channel_id", "")
+
+    # streamers 리스트에 해당 채널이 등록돼 있으면 per-streamer 키워드/이름을 적용
+    streamer_cfg = dict(cfg)
+    matched_name = streamer_name_override or channel_name
+    matched_from_list = False
+    for s in normalize_streamers(cfg):
+        if s.get("channel_id") == channel_id:
+            matched_from_list = True
+            matched_name = streamer_name_override or s.get("name") or channel_name
+            if s.get("search_keywords"):
+                streamer_cfg["fmkorea_search_keywords"] = s["search_keywords"]
+            break
+
+    # CLI override (--search-keyword / --streamer-name) 는 streamers 리스트보다 우선
+    if search_keywords_override:
+        streamer_cfg["fmkorea_search_keywords"] = list(search_keywords_override)
+    streamer_cfg["streamer_name"] = matched_name
+    streamer_cfg["target_channel_id"] = channel_id
+
+    if not matched_from_list and not search_keywords_override:
+        logger.warning(
+            f"config.streamers 에 channel_id={channel_id[:8]}...({channel_name}) 가 없고 "
+            "--search-keyword 도 지정되지 않았습니다. 기본 키워드로 진행합니다."
+        )
+
     vod = VODInfo(
         video_no=video_no,
         title=metadata.get("title", ""),
@@ -959,7 +987,7 @@ def run_single(
 
     process_vod(
         vod,
-        cfg,
+        streamer_cfg,
         state,
         logger,
         limit_duration_sec=limit_duration_sec,
@@ -991,6 +1019,19 @@ def main():
         default=0,
         help="slice processing start offset in seconds. use with --process",
     )
+    parser.add_argument(
+        "--search-keyword",
+        action="append",
+        default=None,
+        help="fmkorea 검색 키워드 override (--process 용, 여러 번 지정 가능). "
+             "등록되지 않은 스트리머의 1회성 처리에 사용.",
+    )
+    parser.add_argument(
+        "--streamer-name",
+        type=str,
+        default=None,
+        help="스트리머 표시명 override (--process 용). 미지정 시 VOD 의 channelName 사용.",
+    )
     args = parser.parse_args()
 
     if args.setup_cookies:
@@ -1019,6 +1060,8 @@ def main():
             cfg,
             limit_duration_sec=args.limit_duration,
             start_offset_sec=args.start_offset,
+            search_keywords_override=args.search_keyword,
+            streamer_name_override=args.streamer_name,
         )
     elif args.once:
         run_once(cfg)

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from pipeline.config import get_public_url_base, load_config  # noqa: E402
+from pipeline.config import derive_streamer_id, get_public_url_base, load_config  # noqa: E402
 from pipeline.models import VODInfo  # noqa: E402
 from pipeline.summarizer import (  # noqa: E402
     _build_og_meta,
@@ -99,8 +99,47 @@ LIST_PAGE = """<!doctype html>
       color: var(--muted);
       font-size: 13px;
     }
-    .grid {
+    .streamer-bar {
       margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chip {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .chip.active {
+      color: var(--text);
+      border-color: rgba(109,211,160,0.55);
+      background: rgba(109,211,160,0.12);
+    }
+    .chip .count {
+      margin-left: 6px;
+      opacity: 0.7;
+      font-size: 11px;
+    }
+    .group {
+      margin-top: 22px;
+    }
+    .group-head {
+      margin: 0 0 10px;
+      font-size: 15px;
+      color: var(--muted);
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .group-head .group-count {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 14px;
@@ -172,14 +211,17 @@ LIST_PAGE = """<!doctype html>
     </div>
     <div id="meta" class="meta">불러오는 중...</div>
     <div id="error" class="error"></div>
-    <div id="list" class="grid"></div>
+    <div id="streamerBar" class="streamer-bar"></div>
+    <div id="list"></div>
   </main>
   <script>
     const searchEl = document.getElementById('search');
     const listEl = document.getElementById('list');
     const metaEl = document.getElementById('meta');
     const errorEl = document.getElementById('error');
+    const streamerBarEl = document.getElementById('streamerBar');
     let reports = [];
+    let activeStreamer = '__all__';
 
     async function api(path) {
       const res = await fetch(path);
@@ -190,32 +232,102 @@ LIST_PAGE = """<!doctype html>
       return data;
     }
 
+    function streamerKey(report) {
+      return report.streamer_id || report.channel_id || report.channel || '__unknown__';
+    }
+    function streamerLabel(report) {
+      return report.channel || report.streamer_id || '(unknown)';
+    }
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
     function label(report) {
-      return `${report.video_no} ${report.title} ${report.site_only ? 'site-only' : ''}`.toLowerCase();
+      return `${report.video_no} ${report.title} ${streamerLabel(report)} ${report.site_only ? 'site-only' : ''}`.toLowerCase();
+    }
+
+    function renderStreamerBar() {
+      const counts = new Map();
+      const names = new Map();
+      reports.forEach((r) => {
+        const key = streamerKey(r);
+        counts.set(key, (counts.get(key) || 0) + 1);
+        if (!names.has(key)) names.set(key, streamerLabel(r));
+      });
+      const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+      const parts = [`<button class="chip${activeStreamer === '__all__' ? ' active' : ''}" data-key="__all__">전체<span class="count">${reports.length}</span></button>`];
+      entries.forEach(([key, count]) => {
+        const name = names.get(key) || key;
+        parts.push(`<button class="chip${activeStreamer === key ? ' active' : ''}" data-key="${escapeHtml(key)}">${escapeHtml(name)}<span class="count">${count}</span></button>`);
+      });
+      streamerBarEl.innerHTML = parts.join('');
+      streamerBarEl.querySelectorAll('.chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activeStreamer = btn.dataset.key;
+          render();
+        });
+      });
+    }
+
+    function renderCard(report) {
+      const anchor = document.createElement('a');
+      anchor.className = 'card';
+      anchor.href = `/report?base=${encodeURIComponent(report.base)}`;
+      anchor.innerHTML = `
+        <div class="title">${escapeHtml(report.title)}</div>
+        <div class="row">
+          <span>${escapeHtml(report.video_no)}</span>
+          <span class="badge">${escapeHtml(streamerLabel(report))}</span>
+          ${report.publish_date ? `<span>${escapeHtml(report.publish_date)}</span>` : ''}
+          ${report.site_only ? '<span class="badge">site-only</span>' : ''}
+        </div>
+      `;
+      return anchor;
     }
 
     function render() {
       const keyword = (searchEl.value || '').trim().toLowerCase();
-      const filtered = reports.filter((report) => !keyword || label(report).includes(keyword));
+      const filtered = reports.filter((report) => {
+        if (activeStreamer !== '__all__' && streamerKey(report) !== activeStreamer) return false;
+        if (keyword && !label(report).includes(keyword)) return false;
+        return true;
+      });
       metaEl.textContent = `전체 ${reports.length}개 · 현재 ${filtered.length}개`;
+      renderStreamerBar();
       listEl.innerHTML = '';
       if (!filtered.length) {
         listEl.innerHTML = '<div class="empty">검색 결과가 없습니다.</div>';
         return;
       }
-      filtered.forEach((report) => {
-        const anchor = document.createElement('a');
-        anchor.className = 'card';
-        anchor.href = `/report?base=${encodeURIComponent(report.base)}`;
-        anchor.innerHTML = `
-          <div class="title">${report.title}</div>
-          <div class="row">
-            <span>${report.video_no}</span>
-            ${report.site_only ? '<span class="badge">site-only</span>' : ''}
-          </div>
-        `;
-        listEl.appendChild(anchor);
-      });
+
+      if (activeStreamer === '__all__') {
+        const groups = new Map();
+        filtered.forEach((r) => {
+          const key = streamerKey(r);
+          if (!groups.has(key)) groups.set(key, { name: streamerLabel(r), items: [] });
+          groups.get(key).items.push(r);
+        });
+        const sorted = Array.from(groups.entries()).sort((a, b) => b[1].items.length - a[1].items.length);
+        sorted.forEach(([_, group]) => {
+          const section = document.createElement('section');
+          section.className = 'group';
+          const head = document.createElement('h2');
+          head.className = 'group-head';
+          head.innerHTML = `${escapeHtml(group.name)} <span class="group-count">${group.items.length}개</span>`;
+          const grid = document.createElement('div');
+          grid.className = 'grid';
+          group.items.forEach((r) => grid.appendChild(renderCard(r)));
+          section.appendChild(head);
+          section.appendChild(grid);
+          listEl.appendChild(section);
+        });
+      } else {
+        const grid = document.createElement('div');
+        grid.className = 'grid';
+        filtered.forEach((r) => grid.appendChild(renderCard(r)));
+        listEl.appendChild(grid);
+      }
     }
 
     async function loadReports() {
@@ -840,14 +952,33 @@ class ReportAdminApp:
             if meta_path is None or not meta_path.exists():
                 continue
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            channel_id = meta.get("channel_id") or ""
+            channel = meta.get("channel") or ""
+            # 구 리포트는 streamer_id 가 비어 있거나 snake_case 가 일관되지 않으므로,
+            # channel_id → derive_streamer_id 로 강제 정규화해 그룹 키를 일치시킨다.
+            streamer_id = meta.get("streamer_id") or derive_streamer_id(channel_id, channel)
             rows.append(
                 {
                     "base": paths.base,
                     "video_no": str(meta.get("video_no") or paths.video_no),
                     "title": meta.get("title") or paths.base,
+                    "channel": channel,
+                    "channel_id": channel_id,
+                    "streamer_id": streamer_id,
+                    "publish_date": meta.get("publish_date") or "",
                     "site_only": paths.site_only,
                 }
             )
+
+        # 2차 병합: channel_id 가 빠진 레거시 레코드를, 같은 channel 이름을
+        # 갖고 있으면서 channel_id 가 채워진 다른 레코드의 streamer_id 로 흡수.
+        name_to_sid: dict[str, str] = {}
+        for row in rows:
+            if row["channel_id"] and row["channel"]:
+                name_to_sid.setdefault(row["channel"], row["streamer_id"])
+        for row in rows:
+            if not row["channel_id"] and row["channel"] in name_to_sid:
+                row["streamer_id"] = name_to_sid[row["channel"]]
         return rows
 
     def get_report(self, base: str) -> dict:
