@@ -103,6 +103,7 @@ class NetworkManager:
             'title': re.sub(r'[\\/:\*\?"<>|\n]', '', content.get('videoTitle', 'Unknown Title')), # 정규식으로 특수문자 제거
             'thumbnailImageUrl': content.get('thumbnailImageUrl', ''),
             'category': content.get('videoCategoryValue', 'Unknown Category'),
+            'channelId': content.get('channel', {}).get('channelId', ''),
             'channelName': content.get('channel', {}).get('channelName', 'Unknown Channel'),
             'channelImageUrl': content.get('channel', {}).get('channelImageUrl', ''),
             'createdDate': content.get('liveOpenDate', 'Unknown Date'),

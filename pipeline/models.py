@@ -37,6 +37,7 @@ class CommunityPost:
     timestamp: str = ""
     views: int = 0
     comments: int = 0
+    likes: int = 0
 
 
 @dataclass
