@@ -1,0 +1,53 @@
+[slice] work/12862847/12862847_압도적긍정적 원딜_144p_part001.wav → C:\github\auto-caption-generator\work\_bench_slice.wav (600s)
+
+=== Arm A: HF pipeline (transcribe_audio) ===
+Loading weights:   0%|          | 0/587 [00:00<?, ?it/s]Loading weights:  75%|███████▌  | 443/587 [00:00<00:00, 4429.77it/s]Loading weights: 100%|██████████| 587/587 [00:00<00:00, 4586.56it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Using cache found in C:\Users\mizan/.cache\torch\hub\snakers4_silero-vad_master
+{
+  "arm": "A_hf_pipeline",
+  "sec": 25.39,
+  "segments": 30,
+  "chars": 910,
+  "chunks": 30,
+  "vram_before_mib": "3997",
+  "vram_after_mib": "4048",
+  "head": "안녕? 안녕? 안녕하세요. 또 일찍 왔죠. 오늘 7시에 마작되어 있으니까 또... 오늘요? 오늘 근데 여러분들 말씀드릴 게 하나 있어요. 쭈가 섹시해요. 다리를 이렇게 쭉 뻗고 있어요. 뭐지? 23개월 동안 따효니와 취를 보는 중 23개월동안 구독 고맙습니다, 엠비룸님. 감사합니다. 와, 2년이네요, 이제. 다음 주에 묘기 한번 보여드릴게요. 나, 좋아. ",
+  "mid": "러 가볼까? 아, 어제 그리고 내가 못한 이유가 있어. 어제 마우스 충전을 못해가지고 유선으로 게임했어요. 그게 좀 커요. 어제 유선 으로 좀 게임해가지고... 들어가볼까? 대회에서도 충전 안 할 거는 아니지? 아, 그러니까 유선으로 하면 안 되지. 무선으로 해야지. 선의 그 장력 때문에 좀 검열에 서야. 이건 또 뭐야? 캐릭터 생성? 이거 뭐야? 검사! ",
+  "tail": "는구나! 오케이. 아, 이거 마작이고 이거는? 이변! 아, 이게 스토리! 가윙님, 어로카잖아. 뭐야, 이거는. 이게 어찌된... 위험해! 저는 키리토입니다. 7시에 대회 시작이고, 저는 두번째, 첫번째는 이제.. 그.. 뉴비대전! 두번쨰가 이제 진짜 대전! 신규작사 이번에 콜라보 했잖아요, 콜라하고. 이거 볼까요? 어, 소리 왜 이렇게 크냐? 좀 줄일게요."
+}
+
+=== Arm B: faster-whisper fp16 ===
+  loading fw large-v3-turbo (float16)...
+{
+  "arm": "fw_float16",
+  "sec": 20.19,
+  "segments": 64,
+  "chars": 859,
+  "vram_before_mib": "4484",
+  "vram_after_mib": "4490",
+  "head": " 안녕  오늘은 또 일찍 왔죠  오늘 7시에 모자도 되어있으니까  오늘은요?  근데 오늘 여러분들  말씀드리기 하나 있어요  츄가 섹시해요  다리를 이렇게 축 뻗고 있어요  뭐지 Prter  23개월 동안 따현이와 츄을 보는 중  23개월동안 구독 고맙습니다 Plニeru님 감사합니다  와 이제 2년이네요  주의 묘기 한 번 보여드릴게요  나. 주아  개인기",
+  "mid": " 그게 쪼록..  그게 쏘어원이지  링...  링클 스타트  그러면 한번  링 크 스타트라 가볼까?  아 어제 그리고 내가 못한 이유가 있어  어제 마우스 충전을 못해가지고  유선으로 게임했어요  그게 좀 커요  어제 유선 으로 좀 게임 해가지고  들어가 볼까  아 그니까 유선으로 하면 안 되지 무선으로 해야지.  선의 장력 때문에 좀 검열에 서야.  이건",
+  "tail": "링크 스타트!  아니 던전을 공략하자.  오 주황색 검 같은 거를 얻어야 되는구나.  오케이 이거 마작이고 이거는.  이변 아 이게 스토리.  뭐야 이건?  이게 어찌된.. 위험해!  키리토링크  7시에 대회 시작이고 저는 두 번째  첫 번째는 이제 그 뉴비 내전  두 번째가 이제 진짜 내전  휠다스랑 이번에 콜라보 했잖아요  소리 이렇게 크냐 좀 줄일게요"
+}
+
+=== Arm C: faster-whisper int8_float16 ===
+  loading fw large-v3-turbo (int8_float16)...
+{
+  "arm": "fw_int8_float16",
+  "sec": 23.85,
+  "segments": 61,
+  "chars": 826,
+  "vram_before_mib": "3466",
+  "vram_after_mib": "3466",
+  "head": " 안녕  안녕하세요  오늘은 또 일찍 왔죠  오늘 7시에 마작 대회 있으니까  근데 오늘요?  오늘 여러분들  말씀 드릴 게 하나 있어요  쭈가 섹시해요  다리를 이렇게 툭 뻗고있어요  뭐지?  떠내버렸어  23개월 구독 고맙습니다, MB릉님 감사합니다  와.. 2년이네요 이제  쭈의 묘기 한번 보여드릴게요  나 쭈로  개인기  쭌 8살  아 근데 오늘  ",
+  "mid": "러면 한번  링크를 스타트라 가볼까  아 어제 그리고 내가 못 한 이유가 있어  어제 마우스 충전을 못 해가지고  유선으로 게임했어요  그게 좀 커요  어제 유선 으로 좀 게임해 가지고  들어가볼까?  아 그러니까 유선으로 하면 안되지 무선으로 해야지.  선의 그 작력때문에 좀.  검열에서야.  이건 또 뭐야 캐릭터 생성 이거 뭐야.  검사.  �hein ",
+  "tail": "트.  어디 던전을 공약하자?  오 주황색 검 같은 걸 얻어야 되는구나.  오케이.  아 이건 마작이고 이거는.  이변! 이게 스토리.  뭐야 이건?  이게 어찌된 위험해!  키랅토 링크  7시에 대회 시작이고 저는 두 번째,  첫 번째는 이제 뉴비대전  두 번째가 인제 진짜 내전  소위� illustratedamente  손을 이렇게 크냐? 좀 줄일게요!"
+}
+
+=== Summary ===
+  A_hf_pipeline                time=  25.39s segs=  30 chars=   910
+  fw_float16                   time=  20.19s segs=  64 chars=   859  speedup=1.26x  completeness=94%
+  fw_int8_float16              time=  23.85s segs=  61 chars=   826  speedup=1.06x  completeness=91%
+
+saved: experiments\results\faster_whisper_bench_v2.json
