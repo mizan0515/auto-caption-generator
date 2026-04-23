@@ -242,19 +242,27 @@ def _parse_search_results(html: str) -> list[dict]:
                 raw_timestamp = time_td.get_text(strip=True) if time_td else ""
                 parsed_time = _parse_relative_time(raw_timestamp) if raw_timestamp else None
 
-                # 조회수 (첫 번째 td.m_no)
+                # 조회수 (첫 번째 td.m_no), 추천수 (td.m_no.m_no_voted)
                 views = 0
-                view_tds = row.select("td.m_no")
-                if view_tds:
-                    m = re.search(r"\d+", view_tds[0].get_text(strip=True).replace(",", ""))
+                likes = 0
+                m_no_tds = row.select("td.m_no")
+                if m_no_tds:
+                    m = re.search(r"\d+", m_no_tds[0].get_text(strip=True).replace(",", ""))
                     if m:
                         views = int(m.group())
+                voted_td = row.select_one("td.m_no_voted") or (
+                    m_no_tds[1] if len(m_no_tds) > 1 else None
+                )
+                if voted_td is not None:
+                    m = re.search(r"\d+", voted_td.get_text(strip=True).replace(",", ""))
+                    if m:
+                        likes = int(m.group())
 
                 posts.append({
                     "title": title, "url": href, "body_preview": "",
                     "author": author, "timestamp": raw_timestamp,
                     "timestamp_parsed": parsed_time,
-                    "views": views, "comments": comments,
+                    "views": views, "comments": comments, "likes": likes,
                 })
             except Exception as e:
                 logger.debug(f"게시글 파싱 오류: {e}")
@@ -273,7 +281,7 @@ def _parse_search_results(html: str) -> list[dict]:
             posts.append({
                 "title": title, "url": href, "body_preview": "",
                 "author": "", "timestamp": "", "timestamp_parsed": None,
-                "views": 0, "comments": 0,
+                "views": 0, "comments": 0, "likes": 0,
             })
 
     return posts[:30]
@@ -387,6 +395,7 @@ def scrape_fmkorea(
             timestamp=p["timestamp"],
             views=p["views"],
             comments=p["comments"],
+            likes=p.get("likes", 0),
         )
         for p in result_posts
     ]
@@ -435,7 +444,10 @@ def load_community_posts(video_no: str, work_dir: str) -> Optional[list[Communit
     try:
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, list):
+        if not isinstance(data, list) or not data:
+            # 빈 리스트 저장은 스크랩 실패(레이트리밋 등)의 흔적일 가능성이 높다.
+            # 성공적인 0-result 스크랩과 구분할 방법이 없으므로, 안전한 쪽으로
+            # 캐시 미스 처리 → 다음 run 에서 재스크랩 기회를 준다.
             return None
         return [
             CommunityPost(
@@ -446,6 +458,7 @@ def load_community_posts(video_no: str, work_dir: str) -> Optional[list[Communit
                 timestamp=d.get("timestamp", ""),
                 views=int(d.get("views") or 0),
                 comments=int(d.get("comments") or 0),
+                likes=int(d.get("likes") or 0),
             )
             for d in data
             if isinstance(d, dict)
@@ -458,14 +471,29 @@ def load_community_posts(video_no: str, work_dir: str) -> Optional[list[Communit
 def format_community_for_prompt(
     posts: list[CommunityPost],
     broadcast_start: Optional[str] = None,
-    max_chars: int = 5000,
+    max_chars: int = 8000,
+    full_entry_top_n: int = 20,
 ) -> str:
     """
     커뮤니티 게시글을 프롬프트용 텍스트로 포맷.
     시간축 불일치를 명시적으로 알림.
+
+    2단 구조로 주입:
+      - Top N (engagement = views + comments*10 내림차순): title + body_preview 풀 엔트리
+      - 나머지: 제목만 (압축) — 맥락 커버리지 확보 + 토큰 절약
+    max_chars 에 걸리면 더 이상 추가하지 않고 요약 꼬리를 붙인다.
     """
     if not posts:
         return "(커뮤니티 데이터 없음)"
+
+    def _engagement(p: CommunityPost) -> int:
+        # 가중치 근거: fmkorea 에서 조회는 '노출'(제목 낚시에도 오름)이라 비중 낮춤.
+        # 댓글은 관심 지표, 추천은 독자 승인(진짜 반응) 지표. 1 추천 ≈ 4 댓글 ≈ 1000 조회.
+        return (p.views or 0) // 50 + (p.comments or 0) * 5 + (p.likes or 0) * 20
+
+    ranked = sorted(posts, key=_engagement, reverse=True)
+    top_posts = ranked[:full_entry_top_n]
+    tail_posts = ranked[full_entry_top_n:]
 
     lines = []
     lines.append("⚠ 아래 커뮤니티 글은 '실제 시계 시간' 기준이며, 영상 타임코드와 직접 대응하지 않습니다.")
@@ -474,14 +502,39 @@ def format_community_for_prompt(
     lines.append("")
 
     total_chars = sum(len(l) for l in lines)
-    for i, p in enumerate(posts, 1):
-        entry = f"{i}. [{p.timestamp}] {p.title} (조회 {p.views}, 댓글 {p.comments})"
-        if p.body_preview:
-            entry += f"\n   > {p.body_preview[:100]}"
-        if total_chars + len(entry) > max_chars:
-            lines.append(f"... 외 {len(posts) - i + 1}개 게시글")
-            break
-        lines.append(entry)
-        total_chars += len(entry)
+    emitted = 0
+    truncated_remaining = 0
+
+    # Tier 1: 상위 engagement — 풀 엔트리
+    if top_posts:
+        lines.append("### 반응 많은 글 (본문 미리보기 포함)")
+        total_chars += len(lines[-1])
+        for i, p in enumerate(top_posts, 1):
+            entry = f"{i}. [{p.timestamp}] {p.title} (추천 {p.likes}, 댓글 {p.comments}, 조회 {p.views})"
+            if p.body_preview:
+                entry += f"\n   > {p.body_preview[:100]}"
+            if total_chars + len(entry) > max_chars:
+                truncated_remaining = (len(top_posts) - i + 1) + len(tail_posts)
+                break
+            lines.append(entry)
+            total_chars += len(entry)
+            emitted += 1
+
+    # Tier 2: 나머지 — 제목만
+    if tail_posts and not truncated_remaining:
+        lines.append("")
+        lines.append("### 그 외 글 (제목만 — 추가 맥락 참고용)")
+        total_chars += sum(len(l) for l in lines[-2:])
+        for i, p in enumerate(tail_posts, 1):
+            entry = f"- [{p.timestamp}] {p.title} (추천 {p.likes}, 댓글 {p.comments}, 조회 {p.views})"
+            if total_chars + len(entry) > max_chars:
+                truncated_remaining = len(tail_posts) - i + 1
+                break
+            lines.append(entry)
+            total_chars += len(entry)
+            emitted += 1
+
+    if truncated_remaining:
+        lines.append(f"... 외 {truncated_remaining}개 게시글 생략")
 
     return "\n".join(lines)
