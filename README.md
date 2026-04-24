@@ -94,6 +94,7 @@ python -m pipeline.settings_ui
   "streamer_name": "탬탬",                                    // 표시용 이름
   "poll_interval_sec": 300,                                   // 폴링 간격 (초)
   "download_resolution": 144,                                 // 다운로드 해상도
+  "whisper_vad_prescan_workers": 4,                           // 기본 4(per-thread VAD, ~3x 가속). 크래시 재발 시 1 로 하향
   "fmkorea_enabled": true,                                    // 커뮤니티 수집 on/off
   "fmkorea_search_keywords": ["탬탬버린", "탬탬"],             // 검색 키워드
   "cookies": {
@@ -148,6 +149,61 @@ python -m pipeline.main --setup-cookies
 2. `F12` > `Application` > `Cookies` > `chzzk.naver.com`
 3. `NID_AUT`, `NID_SES` 값을 복사
 4. 설정 GUI 또는 `pipeline_config.json`에 붙여넣기
+
+### VAD 크래시 대응
+
+`whisper_vad_prescan_workers` 기본값은 `4` (per-thread VAD 모델 인스턴스 방식).
+각 워커가 `threading.local()` 을 통해 자기 Silero VAD 인스턴스를 갖도록 지연
+로딩하므로, 과거에 관측된 공유-모델 heap corruption (0xc0000374) 은 구조적으로
+제거됩니다. 검증 실험: `experiments/test_vad_prescan_threadlocal.py` — 4 part
+기준 workers=4 에서 x3.13 가속, segments 완전 일치.
+
+Windows에서 `pythonw.exe - 응용 프로그램 오류`와 함께 `메모리를 read될 수 없습니다`가
+뜨면서 Whisper 단계가 죽으면:
+
+- 즉시 `whisper_vad_prescan_workers` 를 `1` 로 낮추세요.
+- `experiments/results/` 에 환경(torch/silero 버전)과 로그를 남기세요.
+- `VAD 사전 분석 중` 직후 크래시 이력이 있는 머신이라면 `1` 에서 올리지 않는 것이
+  안전합니다.
+
+### fmkorea 430 대응
+
+fmkorea가 `HTTP 430 (rate limit/anti-bot)`를 반환하면 자동 스크랩은 즉시 중단됩니다.
+이건 현재 코드도 의도적으로 재시도하지 않습니다. 같은 fingerprint로 계속 때리면 더 나빠지기 때문입니다.
+
+대신 수동 override를 넣을 수 있습니다.
+
+1. 브라우저에서 직접 관련 글을 찾습니다.
+2. 아래 경로에 JSON 파일을 만듭니다.
+
+```text
+work/<video_no>/<video_no>_community.manual.json
+```
+
+예:
+
+```json
+[
+  {
+    "title": "탬탬 호종컵 고수달 관련 반응",
+    "url": "https://www.fmkorea.com/1234567890",
+    "body_preview": "오물달 밈 얘기가 많았음",
+    "author": "닉네임",
+    "timestamp": "2026.04.25 02:03",
+    "views": 1234,
+    "comments": 45,
+    "likes": 18
+  }
+]
+```
+
+3. 같은 VOD를 다시 처리하면, 파이프라인은 이 파일을 먼저 읽고 `fmkorea` 스크랩을 건너뜁니다.
+
+로그는 이렇게 바뀝니다.
+
+```text
+✓ 수동 커뮤니티 입력 재사용: N개 (fmkorea 스크랩 스킵)
+```
 
 ---
 
@@ -275,7 +331,40 @@ report_admin.bat
 - 편집 화면에서 원본 요약 마크다운을 수정하면 미리보기와 저장을 할 수 있다.
 - `저장 후 site 재퍼블리시` 를 켜 두면 `output/*.md`, `output/*.html`, `site/` 가 한 번에 갱신된다.
 - 네이버 카페 붙여넣기 HTML 과 치지직 다시보기 댓글 붙여넣기용 텍스트도 같은 원본 마크다운에서 다시 생성되므로 별도 수동 수정이 필요 없다.
+- 편집 화면의 `유튜브 다시보기 댓글 붙여넣기용` 섹션에서 YouTube URL 을 넣으면, 기존 치지직 요약 타임라인을 유튜브 시간축 기준으로 재매핑한 댓글용 텍스트를 만들 수 있다.
 - 포트 변경이 필요하면 `python scripts/report_admin_server.py --port 8877` 처럼 실행한다.
+
+#### 유튜브 다시보기 정렬 사용법
+
+유튜브 다시보기는 치지직 VOD 와 시작 시점, 길이, 중간 컷 편집이 다를 수 있다.
+그래서 이 기능은 `완전 자동`이 아니라 `자동 초안 + 수동 보정` 흐름으로 설계되어 있다.
+
+1. 관리자 편집 화면에서 해당 VOD 를 연다.
+2. `유튜브 다시보기 댓글 붙여넣기용` 섹션에 YouTube URL 을 넣고 `유튜브 미리보기 생성` 을 누른다.
+3. 시스템이 치지직 길이와 유튜브 길이 차이로 자동 offset 을 계산해 초안 타임라인을 만든다.
+4. 추천 앵커 4개 중 실제로 찾기 쉬운 장면 2개 이상을 유튜브에서 확인하고, 해당 유튜브 시각을 입력한다.
+5. 다시 `유튜브 미리보기 생성` 을 누르면 입력한 앵커 기준으로 offset 또는 piecewise 보정이 적용된다.
+6. 결과가 맞으면 `텍스트 복사` 로 댓글용 텍스트를 가져가거나 `정렬 설정 저장` 으로 `youtube_alignment.json` 을 저장한다.
+
+권장 앵커 선택 기준:
+
+- 제목에 `픽`, `확정`, `승리`, `탄생`, `개막`, `커버` 같은 단어가 있는 장면을 우선 사용한다.
+- 가능한 한 방송 전반에 걸쳐 떨어진 시점 2개 이상을 고른다.
+- 두 앵커가 비슷한 오프셋이면 단순 시작 지연 케이스다.
+- 앵커별 오프셋이 다르면 중간 컷 편집이 있는 영상일 가능성이 높다.
+
+출력 하단에 표시되는 `confidence` 해석:
+
+- `0.45` 전후: 길이차만 사용한 자동 초안
+- `0.72` 전후: 수동 앵커 1개로 보정
+- `0.86` 전후: 수동 앵커 2개 이상이 거의 같은 offset 에 합의
+- `0.78~0.90`: 구간별 piecewise 보정
+
+제한 사항:
+
+- YouTube URL 이 비공개, 연령 제한, 지역 제한이면 메타데이터 읽기가 실패할 수 있다.
+- 자막 기반 요약을 유튜브 시간축으로 옮기는 방식이라 몇 초 정도 오차는 남을 수 있다.
+- 앵커를 2개 이상 넣으면 정확도가 크게 올라간다. 길이차만으로는 중간 컷 편집을 복원할 수 없다.
 
 ### 배포
 
