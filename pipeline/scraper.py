@@ -33,12 +33,18 @@ _SESSION_TTL_SEC = 1800  # 30분 후 메인 페이지 재방문하여 쿠키 갱
 
 KST = timezone(timedelta(hours=9))
 
+# B26: UA 로테이션 — fmkorea 가 장기적으로 같은 fingerprint 를 관찰하면
+# 차단 가속. 세션 신규 생성 시마다 리스트에서 랜덤 선택하여 지문 분산.
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+]
+
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENTS[0],  # 기본값. 세션 생성 시 random.choice 로 덮어씀.
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     # Brotli(br) 은 requests 기본 설치에 포함 안 됨 — gzip/deflate 만 사용
@@ -50,8 +56,14 @@ HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-REQUEST_DELAY = 5.0   # 요청 간 기본 딜레이(초)
-REQUEST_JITTER = 2.5  # 0~N 사이 랜덤 딜레이 추가
+# B26: 요청 간격 상향 (평균 10초, 최대 12초). 차단 확률 감소가 총 시간 증가보다 이득.
+REQUEST_DELAY = 8.0   # 요청 간 기본 딜레이(초)
+REQUEST_JITTER = 4.0  # 0~N 사이 랜덤 딜레이 추가
+
+# B26: 430/429 한번 맞으면 같은 IP 로 즉시 재시도하면 차단 영구화 위험.
+# work_dir 에 쿨다운 마커 파일을 남겨 N시간 동안 자동 수집을 스킵한다.
+_COOLDOWN_FILENAME = ".fmkorea_cooldown"
+_COOLDOWN_SEC = 3 * 3600  # 3시간
 
 
 class FmkoreaBlocked(Exception):
@@ -74,8 +86,10 @@ def _get_or_create_session() -> requests.Session:
         if sess is None:
             sess = requests.Session()
             sess.headers.update(HEADERS)
+            # B26: 세션 신규 생성 시마다 UA 랜덤 선택 → fingerprint 분산
+            sess.headers["User-Agent"] = random.choice(USER_AGENTS)
             _SESSION_CACHE["session"] = sess
-            logger.debug("fmkorea 세션 신규 생성")
+            logger.debug(f"fmkorea 세션 신규 생성 (UA={sess.headers['User-Agent'][:40]}...)")
 
         if needs_main_visit:
             try:
@@ -87,6 +101,53 @@ def _get_or_create_session() -> requests.Session:
                 logger.debug(f"fmkorea 메인 방문 실패 (무시, 캐시된 세션 그대로 사용): {e}")
 
         return sess
+
+
+def _cooldown_path(work_dir: str) -> str:
+    import os as _os
+    return _os.path.join(work_dir, _COOLDOWN_FILENAME)
+
+
+def _is_in_cooldown(work_dir: Optional[str]) -> bool:
+    """B26: 직전 런에서 430/429 를 맞았다면 N시간 쿨다운. True 면 스크랩 스킵."""
+    import os as _os
+    if not work_dir:
+        return False
+    p = _cooldown_path(work_dir)
+    if not _os.path.isfile(p):
+        return False
+    try:
+        age = time.time() - _os.path.getmtime(p)
+    except OSError:
+        return False
+    if age < _COOLDOWN_SEC:
+        remaining_min = (_COOLDOWN_SEC - age) / 60
+        logger.warning(
+            f"fmkorea 쿨다운 중 (남은 {remaining_min:.0f}분) — 자동 수집 스킵. "
+            f"필요 시 {p} 파일을 수동 삭제하거나 manual JSON 주입."
+        )
+        return True
+    # 만료된 쿨다운 파일 정리
+    try:
+        _os.remove(p)
+    except OSError:
+        pass
+    return False
+
+
+def _mark_cooldown(work_dir: Optional[str]) -> None:
+    """B26: 차단 감지 시 쿨다운 마커 생성."""
+    import os as _os
+    if not work_dir:
+        return
+    try:
+        _os.makedirs(work_dir, exist_ok=True)
+        p = _cooldown_path(work_dir)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(str(time.time()))
+        logger.info(f"fmkorea 쿨다운 마커 생성: {p} ({_COOLDOWN_SEC//3600}시간 스킵)")
+    except OSError as e:
+        logger.debug(f"쿨다운 마커 생성 실패 (무시): {e}")
 
 
 def reset_fmkorea_session() -> None:
@@ -292,6 +353,8 @@ def scrape_fmkorea(
     max_pages: int = 3,
     max_posts: int = 20,
     broadcast_start: Optional[str] = None,
+    work_dir: Optional[str] = None,
+    scraper_mode: str = "http",
 ) -> list[CommunityPost]:
     """
     fmkorea에서 키워드 검색 결과 수집.
@@ -301,7 +364,25 @@ def scrape_fmkorea(
         max_pages: 키워드당 최대 페이지 수
         max_posts: 최종 반환할 최대 게시글 수
         broadcast_start: 방송 시작 시각 (ISO format). 제공 시 ±24시간 내 글만 필터링.
+        work_dir: 쿨다운 마커(.fmkorea_cooldown) 저장 경로. 비우면 쿨다운 비활성.
+        scraper_mode: "http" (기본, requests 기반) | "chromium" (미구현, 백로그 B27)
     """
+    # B26: 직전 런에서 차단 맞았으면 쿨다운 동안 스킵
+    if _is_in_cooldown(work_dir):
+        return []
+
+    # B27 (백로그): 실제 브라우저(Playwright) 기반 스크래퍼. 차단 회피 강화.
+    if scraper_mode == "chromium":
+        raise NotImplementedError(
+            "scraper_mode='chromium' 은 아직 미구현입니다 (PIPELINE-BACKLOG B27). "
+            "현재는 'http' 만 지원. pipeline_config.json 에서 "
+            "fmkorea_scraper_mode 를 'http' 로 되돌리거나, 커뮤니티 자동 수집을 비활성화하세요."
+        )
+    if scraper_mode != "http":
+        raise ValueError(
+            f"알 수 없는 scraper_mode: {scraper_mode!r}. 'http' 또는 'chromium' 만 허용."
+        )
+
     all_posts = []
 
     # 방송 시작 시각 파싱 (필터링용)
@@ -351,6 +432,8 @@ def scrape_fmkorea(
                 logger.warning(f"  ⚠ fmkorea 레이트리밋 감지 ({e}) — 추가 요청 중단")
                 # B10: 차단 발생 시 세션 캐시 폐기 → 다음 스크랩은 새 세션으로 시도
                 reset_fmkorea_session()
+                # B26: 쿨다운 마커로 다음 런에서도 N시간 스킵 → IP 평판 회복 시간 확보
+                _mark_cooldown(work_dir)
                 blocked = True
                 break
             except Exception as e:
@@ -465,6 +548,52 @@ def load_community_posts(video_no: str, work_dir: str) -> Optional[list[Communit
         ]
     except (OSError, json.JSONDecodeError, TypeError) as e:
         logger.warning(f"커뮤니티 JSON 로드 실패 → 재수집: {e}")
+        return None
+
+
+def load_manual_community_posts(video_no: str, work_dir: str) -> Optional[list[CommunityPost]]:
+    """수동으로 수집한 커뮤니티 글 JSON override 를 로드한다.
+
+    경로:
+      work/<video_no>/<video_no>_community.manual.json
+
+    이 파일이 존재하면 네트워크 스크랩보다 우선한다. anti-bot/430 발생 시
+    사용자가 브라우저에서 직접 찾은 글 목록을 주입하기 위한 경로다.
+    """
+    import json
+    import os as _os
+
+    manual_path = _os.path.join(work_dir, f"{video_no}_community.manual.json")
+    if not _os.path.isfile(manual_path) or _os.path.getsize(manual_path) == 0:
+        return None
+
+    try:
+        with open(manual_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list) or not data:
+            logger.warning(f"수동 커뮤니티 JSON 이 비어있음: {manual_path}")
+            return None
+        posts = [
+            CommunityPost(
+                title=str(d.get("title", "")).strip(),
+                url=str(d.get("url", "")).strip(),
+                body_preview=str(d.get("body_preview", "")).strip(),
+                author=str(d.get("author", "")).strip(),
+                timestamp=str(d.get("timestamp", "")).strip(),
+                views=int(d.get("views") or 0),
+                comments=int(d.get("comments") or 0),
+                likes=int(d.get("likes") or 0),
+            )
+            for d in data
+            if isinstance(d, dict) and str(d.get("title", "")).strip()
+        ]
+        if not posts:
+            logger.warning(f"수동 커뮤니티 JSON 에 유효한 title 이 없음: {manual_path}")
+            return None
+        logger.info(f"수동 커뮤니티 JSON 로드: {manual_path} ({len(posts)}개)")
+        return posts
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(f"수동 커뮤니티 JSON 로드 실패: {manual_path} ({e})")
         return None
 
 

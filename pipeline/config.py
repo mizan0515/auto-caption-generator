@@ -45,6 +45,13 @@ DEFAULT_CONFIG = {
     #   whisper_timeout_sec: 전체 실행 시간 상한. 0 = 무제한 (긴 VOD 보호 비활성).
     "whisper_stall_sec": 600,
     "whisper_timeout_sec": 0,
+    # VAD prescan 병렬 워커 수. 과거 공유 모델 방식은 pythonw.exe heap corruption
+    # (0xc0000374) 을 일으켰으나, 현재 구현은 per-thread VAD 인스턴스
+    # (threading.local 지연 로딩)로 전환되어 공유 상태가 없다.
+    # experiments/test_vad_prescan_threadlocal.py 에서 workers=4 기준 x3.13 가속,
+    # segments 완전 일치를 확인하여 기본값을 4 로 상향.
+    # 크래시 재발 시 1 로 즉시 하향.
+    "whisper_vad_prescan_workers": 4,
     # 채팅 수집 wall-clock 상한. Chzzk API 가 10hr+ VOD 에서 페이지를 수천 번
     # 돌 때 collecting 단계가 zombie_stale_after_sec(1h) 를 넘으면 좀비로
     # 오판되는 문제를 막는다. 상한 도달 시 지금까지 모은 분량만 반환. 0 = 무제한.
@@ -53,6 +60,12 @@ DEFAULT_CONFIG = {
     "fmkorea_max_pages": 3,
     "fmkorea_max_posts": 20,
     "fmkorea_enabled": True,
+    # B26/B27: fmkorea 스크랩 백엔드
+    #   "http"     : requests 기반 (기본, 빠름, 가끔 430 맞음)
+    #   "chromium" : Playwright + 실제 크롬 (미구현, B27 백로그). 차단 회피에 강하지만
+    #                바이너리 300~500MB 추가 + 페이지당 3~5초 느림. 자동 수집 차단이
+    #                일상화되면 이쪽으로 전환.
+    "fmkorea_scraper_mode": "http",
     # B11: VOD publish_date 가 N시간 이전이면 fmkorea 검색 스킵 (오래된 방송은
     # 커뮤니티 화제 자료가 거의 없어 네트워크 비용 대비 가치 낮음).
     # 0 이하면 시간 제한 비활성화 (모든 VOD 에 대해 fmkorea 시도).
@@ -108,6 +121,7 @@ class ConfigError(ValueError):
 
 _VALID_CLAUDE_MODELS = {"", "haiku", "sonnet", "opus"}
 _VALID_BOOTSTRAP_MODES = {None, "skip_all", "latest_n"}
+_VALID_FMKOREA_SCRAPER_MODES = {"http", "chromium"}
 
 # (field, positive_only). bool 은 isinstance(bool, int) 이므로 별도 배제.
 # positive_only=True 면 value > 0 강제, False 면 value >= 0 허용 (0=비활성 의미).
@@ -121,6 +135,7 @@ _INT_FIELDS: list[tuple[str, bool]] = [
     ("claude_timeout_sec", True),
     ("whisper_stall_sec", False),
     ("whisper_timeout_sec", False),
+    ("whisper_vad_prescan_workers", True),
     ("chat_fetch_max_wall_sec", False),
     ("fmkorea_max_pages", False),
     ("fmkorea_max_posts", False),
@@ -179,6 +194,13 @@ def validate_config(cfg: dict, *, source_path: Optional[str | Path] = None) -> N
     if bm not in _VALID_BOOTSTRAP_MODES:
         errors.append(
             f"  - 'bootstrap_mode': null / 'skip_all' / 'latest_n' 중 하나여야 합니다. 현재: {bm!r}"
+        )
+
+    sm = cfg.get("fmkorea_scraper_mode", "http")
+    if sm not in _VALID_FMKOREA_SCRAPER_MODES:
+        allowed = ", ".join(repr(x) for x in sorted(_VALID_FMKOREA_SCRAPER_MODES))
+        errors.append(
+            f"  - 'fmkorea_scraper_mode': 허용 값은 {allowed}. 현재: {sm!r}"
         )
 
     ck = cfg.get("cookies")

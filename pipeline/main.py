@@ -42,7 +42,12 @@ from .chat_collector import fetch_all_chats, save_chat_log, load_chat_log_json
 from .chat_analyzer import find_edit_points
 from .transcriber import transcribe_video
 from .chunker import chunk_srt
-from .scraper import scrape_fmkorea, save_community_posts, load_community_posts
+from .scraper import (
+    scrape_fmkorea,
+    save_community_posts,
+    load_community_posts,
+    load_manual_community_posts,
+)
 from .summarizer import process_chunks, merge_results, generate_reports
 from .models import VODInfo, PipelineResult
 from .utils import setup_logging, sec_to_hms, format_duration, clip_video
@@ -380,6 +385,15 @@ def process_vod(
             # 다른 Claude 모델로 재요약 시에도 동일한 커뮤니티 입력을 보장 → 비교 공정성.
             cached_community: list | None = None
             if not slice_mode:
+                manual_community = load_manual_community_posts(vod.video_no, work_dir)
+                if manual_community is not None:
+                    cached_community = manual_community
+                    logger.info(
+                        f"✓ 수동 커뮤니티 입력 재사용: {len(cached_community)}개 "
+                        "(fmkorea 스크랩 스킵)"
+                    )
+
+            if not slice_mode and cached_community is None:
                 cached_community = load_community_posts(vod.video_no, work_dir)
                 if cached_community is not None:
                     logger.info(
@@ -403,6 +417,8 @@ def process_vod(
                     max_pages=cfg.get("fmkorea_max_pages", 3),
                     max_posts=cfg.get("fmkorea_max_posts", 20),
                     broadcast_start=vod.publish_date,
+                    work_dir=work_dir,
+                    scraper_mode=cfg.get("fmkorea_scraper_mode", "http"),
                 )
 
             # 결과 수집
@@ -549,6 +565,7 @@ def process_vod(
                         stall_sec=cfg.get("whisper_stall_sec", 600),
                         timeout_sec=cfg.get("whisper_timeout_sec", 0),
                         initial_prompt_text=initial_prompt_text,
+                        vad_prescan_workers=cfg.get("whisper_vad_prescan_workers", 1),
                     )
                 except TimeoutError as e:
                     logger.error(f"Whisper 타임아웃 → VOD 실패 처리: {e}")
@@ -751,6 +768,12 @@ def run_daemon(cfg: dict):
         logger.error("쿠키가 설정되지 않았습니다. --setup-cookies로 설정하세요.")
         _release_daemon_lock(daemon_lock_fd)
         return
+
+    recovered = state.recover_orphaned_processing()
+    if recovered:
+        logger.warning(
+            f"이전 데몬이 남긴 진행중 엔트리 {len(recovered)}개를 orphan recovery 처리"
+        )
 
     while True:
         if state.should_stop():
