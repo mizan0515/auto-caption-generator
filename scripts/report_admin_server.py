@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import re
 import sys
@@ -26,6 +27,15 @@ from pipeline.summarizer import (  # noqa: E402
     _render_naver_cafe_html,
     _render_chzzk_comment_text,
 )
+from pipeline.timeline_alignment import (  # noqa: E402
+    build_offset_profile,
+    build_profile_from_anchor_dicts,
+    fetch_youtube_video_info,
+    pick_anchor_candidates,
+    remap_sections,
+    render_youtube_comment_text,
+)
+from pipeline.utils import sec_to_hms  # noqa: E402
 from publish.hook import deploy_to_cloudflare_safe, rebuild_site_safe  # noqa: E402
 
 
@@ -463,6 +473,88 @@ EDIT_PAGE = """<!doctype html>
       color: var(--warn);
       font-size: 13px;
     }
+    .section {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(32, 40, 59, 0.58);
+    }
+    .section h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .field:first-child { margin-top: 0; }
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .field input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+    }
+    .anchor-grid {
+      display: grid;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .anchor-row {
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(16, 20, 31, 0.34);
+    }
+    .anchor-head {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .anchor-row input[type="text"] {
+      width: 100%;
+      padding: 9px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+    }
+    .mono {
+      font-family: Consolas, "Cascadia Code", monospace;
+    }
+    .preview-box {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(16, 20, 31, 0.34);
+      white-space: pre-wrap;
+      line-height: 1.65;
+      font-size: 12px;
+      font-family: Consolas, "Cascadia Code", monospace;
+      max-height: 280px;
+      overflow: auto;
+    }
+    .meta-note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .guide {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+    }
     .preview-bar {
       padding: 14px 18px;
       border-bottom: 1px solid var(--border);
@@ -508,6 +600,26 @@ EDIT_PAGE = """<!doctype html>
         <button id="reloadBtn" type="button">원본 다시 불러오기</button>
         <label class="checkbox"><input id="publishCheckbox" type="checkbox" checked> 저장 후 반영</label>
       </div>
+      <section class="section">
+        <h2>유튜브 다시보기 댓글 붙여넣기용</h2>
+        <div class="field">
+          <label for="youtubeUrl">YouTube URL</label>
+          <input id="youtubeUrl" type="text" placeholder="https://www.youtube.com/watch?v=...">
+        </div>
+        <div class="row">
+          <button id="youtubePreviewBtn" type="button">유튜브 미리보기 생성</button>
+          <button id="youtubeSaveBtn" type="button">정렬 설정 저장</button>
+          <button id="youtubeCopyBtn" type="button">텍스트 복사</button>
+        </div>
+        <div class="guide">
+          1. 유튜브 URL 입력 후 미리보기 생성
+          2. 추천 앵커 2개 이상을 유튜브 시각으로 채우기
+          3. 다시 미리보기 생성 후 텍스트 복사 또는 정렬 설정 저장
+        </div>
+        <div id="youtubeMeta" class="meta-note">아직 생성되지 않음</div>
+        <div id="anchorGrid" class="anchor-grid"></div>
+        <div id="youtubePreview" class="preview-box">유튜브 미리보기를 생성하면 여기에 댓글용 텍스트가 표시됩니다.</div>
+      </section>
       <div id="status" class="status"></div>
     </aside>
     <main class="main">
@@ -531,11 +643,59 @@ EDIT_PAGE = """<!doctype html>
     const previewInfoEl = document.getElementById('previewInfo');
     const previewFrame = document.getElementById('previewFrame');
     const publishCheckbox = document.getElementById('publishCheckbox');
+    const youtubeUrlEl = document.getElementById('youtubeUrl');
+    const youtubeMetaEl = document.getElementById('youtubeMeta');
+    const anchorGridEl = document.getElementById('anchorGrid');
+    const youtubePreviewEl = document.getElementById('youtubePreview');
     const statusEl = document.getElementById('status');
+    let youtubeState = { anchor_candidates: [], text: '', youtube_url: '' };
 
     function setStatus(msg, isError = false) {
       statusEl.textContent = msg || '';
       statusEl.style.color = isError ? 'var(--danger)' : 'var(--warn)';
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+
+    function renderAnchorInputs(candidates) {
+      const rows = (candidates || []).map((item, index) => `
+        <div class="anchor-row" data-index="${index}">
+          <div class="anchor-head">
+            <span class="mono">${escapeHtml(item.src_tc || '')}</span> · ${escapeHtml(item.label || '')}
+            ${item.summary ? `<div>${escapeHtml(item.summary)}</div>` : ''}
+          </div>
+          <input type="text" class="anchor-input" data-src-tc="${escapeHtml(item.src_tc || '')}" data-label="${escapeHtml(item.label || '')}" placeholder="유튜브 시각 입력 (예: 01:24:57)" value="${escapeHtml(item.dst_tc || '')}">
+        </div>
+      `).join('');
+      anchorGridEl.innerHTML = rows || '<div class="meta-note">추천 앵커가 없습니다.</div>';
+    }
+
+    function collectAnchorPayload() {
+      return Array.from(document.querySelectorAll('.anchor-input'))
+        .map((input) => ({
+          src_tc: input.dataset.srcTc || '',
+          dst_tc: (input.value || '').trim(),
+          label: input.dataset.label || '',
+        }))
+        .filter((row) => row.src_tc && row.dst_tc);
+    }
+
+    function applyYoutubePayload(data) {
+      youtubeState = data || {};
+      if (data.youtube_url) youtubeUrlEl.value = data.youtube_url;
+      renderAnchorInputs(data.anchor_candidates || []);
+      youtubePreviewEl.textContent = data.text || '결과 없음';
+      const parts = [];
+      if (data.youtube_title) parts.push(`YouTube: ${data.youtube_title}`);
+      if (data.youtube_duration_hms) parts.push(`길이 ${data.youtube_duration_hms}`);
+      if (data.mode) parts.push(`모드 ${data.mode}`);
+      if (typeof data.confidence === 'number') parts.push(`confidence ${data.confidence.toFixed(2)}`);
+      if (typeof data.offset_sec === 'number') parts.push(`auto offset ${data.offset_sec}초`);
+      youtubeMetaEl.textContent = parts.join(' · ') || '아직 생성되지 않음';
     }
 
     async function api(path, options = {}) {
@@ -560,6 +720,7 @@ EDIT_PAGE = """<!doctype html>
       publicLinkEl.style.visibility = data.public_report_url ? 'visible' : 'hidden';
       previewTitleEl.textContent = data.title;
       previewInfoEl.textContent = `${data.video_no} · ${data.channel}`;
+      applyYoutubePayload(data.youtube_alignment || {});
       await previewCurrent();
     }
 
@@ -591,6 +752,52 @@ EDIT_PAGE = """<!doctype html>
       setStatus(data.message || '저장 완료');
     }
 
+    async function previewYoutube() {
+      if (!base) return;
+      setStatus('유튜브 댓글 미리보기 생성 중...');
+      const data = await api('/api/youtube-preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          base,
+          md: mdEditor.value,
+          youtube_url: youtubeUrlEl.value,
+          anchors: collectAnchorPayload(),
+        }),
+      });
+      applyYoutubePayload(data);
+      setStatus('유튜브 댓글 미리보기 생성 완료');
+    }
+
+    async function saveYoutubeAlignment() {
+      if (!base) return;
+      setStatus('유튜브 정렬 저장 중...');
+      const data = await api('/api/youtube-save', {
+        method: 'POST',
+        body: JSON.stringify({
+          base,
+          md: mdEditor.value,
+          youtube_url: youtubeUrlEl.value,
+          anchors: collectAnchorPayload(),
+        }),
+      });
+      applyYoutubePayload(data);
+      setStatus(data.message || '유튜브 정렬 저장 완료');
+    }
+
+    async function copyYoutubeText() {
+      const text = youtubePreviewEl.textContent || '';
+      if (!text.trim()) {
+        setStatus('복사할 유튜브 댓글 텍스트가 없습니다.', true);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus('유튜브 댓글 텍스트 복사 완료');
+      } catch (err) {
+        setStatus('브라우저가 복사를 막았습니다. 미리보기 영역을 직접 복사해 주세요.', true);
+      }
+    }
+
     document.getElementById('reloadBtn').addEventListener('click', () => {
       loadReport().catch((err) => setStatus(err.message, true));
     });
@@ -599,6 +806,15 @@ EDIT_PAGE = """<!doctype html>
     });
     document.getElementById('saveBtn').addEventListener('click', () => {
       saveCurrent().catch((err) => setStatus(err.message, true));
+    });
+    document.getElementById('youtubePreviewBtn').addEventListener('click', () => {
+      previewYoutube().catch((err) => setStatus(err.message, true));
+    });
+    document.getElementById('youtubeSaveBtn').addEventListener('click', () => {
+      saveYoutubeAlignment().catch((err) => setStatus(err.message, true));
+    });
+    document.getElementById('youtubeCopyBtn').addEventListener('click', () => {
+      copyYoutubeText().catch((err) => setStatus(err.message, true));
     });
 
     loadReport().catch((err) => {
@@ -639,6 +855,29 @@ class ReportPaths:
     site_html_path: Path | None
     site_meta_path: Path | None
     site_only: bool
+
+
+def _youtube_alignment_path(path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    return path.with_name("youtube_alignment.json")
+
+
+def _load_youtube_alignment(paths: ReportPaths) -> dict:
+    for candidate in (_youtube_alignment_path(paths.site_meta_path), _youtube_alignment_path(paths.meta_path)):
+        if candidate is None or not candidate.exists():
+            continue
+        try:
+            return json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+    return {}
+
+
+def _merge_youtube_inputs(saved: dict, youtube_url: str, anchors: list[dict]) -> tuple[str, list[dict]]:
+    merged_url = str(youtube_url or "").strip() or str(saved.get("youtube_url") or "").strip()
+    merged_anchors = anchors or saved.get("manual_anchors") or []
+    return merged_url, merged_anchors
 
 
 def _make_base_from_meta(video_no: str, meta: dict) -> str:
@@ -882,6 +1121,62 @@ def _render_blocks(summary_md: str, vod_info: VODInfo, public_url_base: str) -> 
     }
 
 
+def _build_youtube_alignment_preview(vod_info: VODInfo, summary_md: str, youtube_url: str, anchors: list[dict]) -> dict:
+    youtube_url = str(youtube_url or "").strip()
+    if not youtube_url:
+        return {}
+    sec = _parse_summary_sections(summary_md)
+    youtube = fetch_youtube_video_info(youtube_url)
+    auto_profile = build_offset_profile(vod_info.duration, youtube["duration_sec"])
+    offset_sec = vod_info.duration - youtube["duration_sec"]
+    profile = build_profile_from_anchor_dicts(anchors or [], offset_sec)
+    remapped = remap_sections(sec, profile)
+    candidates = pick_anchor_candidates(sec)
+
+    anchor_map = {
+        (str(row.get("src_tc") or "").strip(), str(row.get("label") or "").strip()): str(row.get("dst_tc") or "").strip()
+        for row in anchors or []
+        if str(row.get("dst_tc") or "").strip()
+    }
+    for item in candidates:
+        item["dst_tc"] = anchor_map.get((item["src_tc"], item["label"]), "")
+
+    return {
+        "youtube_url": youtube_url,
+        "youtube_video_id": youtube["video_id"],
+        "youtube_title": youtube["title"],
+        "youtube_channel": youtube["channel"],
+        "youtube_duration_sec": youtube["duration_sec"],
+        "youtube_duration_hms": sec_to_hms(youtube["duration_sec"]),
+        "source_duration_sec": vod_info.duration,
+        "source_duration_hms": sec_to_hms(vod_info.duration),
+        "offset_sec": offset_sec,
+        "auto_confidence": auto_profile.confidence,
+        "mode": profile.mode,
+        "confidence": profile.confidence,
+        "notes": profile.notes,
+        "anchor_candidates": candidates,
+        "manual_anchors": [
+            {
+                "src_tc": str(row.get("src_tc") or "").strip(),
+                "dst_tc": str(row.get("dst_tc") or "").strip(),
+                "label": str(row.get("label") or "").strip(),
+            }
+            for row in anchors or []
+            if str(row.get("src_tc") or "").strip() and str(row.get("dst_tc") or "").strip()
+        ],
+        "anchors": [
+            {
+                "src_tc": sec_to_hms(anchor.src_sec),
+                "dst_tc": sec_to_hms(anchor.dst_sec) if anchor.dst_sec >= 0 else "",
+                "label": anchor.label,
+            }
+            for anchor in profile.anchors
+        ],
+        "text": render_youtube_comment_text(remapped, profile, compact=False),
+    }
+
+
 def _replace_title_tag(html: str, title_display: str) -> str:
     new_title = f"<title>{_html_escape(title_display)} | 방송 분석 리포트</title>"
     if TITLE_TAG_RE.search(html):
@@ -997,6 +1292,7 @@ class ReportAdminApp:
             "md": ctx["md"],
             "public_report_url": public_url,
             "site_only": ctx["site_only"],
+            "youtube_alignment": _load_youtube_alignment(paths),
         }
 
     def preview_report(self, base: str, md_text: str) -> dict:
@@ -1054,6 +1350,32 @@ class ReportAdminApp:
 
         return {"html": patched_html, "title": title, "message": message}
 
+    def preview_youtube_comment(self, base: str, md_text: str, youtube_url: str, anchors: list[dict]) -> dict:
+        paths = self._paths_for_base(base)
+        ctx = _load_report_context(paths, self.cfg)
+        normalized_md = _postprocess_summary_md(md_text, ctx["vod_info"], ctx["public_base"])
+        saved = _load_youtube_alignment(paths)
+        youtube_url, anchors = _merge_youtube_inputs(saved, youtube_url, anchors)
+        return _build_youtube_alignment_preview(ctx["vod_info"], normalized_md, youtube_url, anchors)
+
+    def save_youtube_alignment(self, base: str, md_text: str, youtube_url: str, anchors: list[dict]) -> dict:
+        paths = self._paths_for_base(base)
+        with self.lock:
+            ctx = _load_report_context(paths, self.cfg)
+            normalized_md = _postprocess_summary_md(md_text, ctx["vod_info"], ctx["public_base"])
+            saved = _load_youtube_alignment(paths)
+            youtube_url, anchors = _merge_youtube_inputs(saved, youtube_url, anchors)
+            payload = _build_youtube_alignment_preview(ctx["vod_info"], normalized_md, youtube_url, anchors)
+            if not payload:
+                raise ValueError("youtube_url is required")
+            payload["saved_at"] = datetime.now().astimezone().isoformat()
+            for candidate in (_youtube_alignment_path(paths.meta_path), _youtube_alignment_path(paths.site_meta_path)):
+                if candidate is None:
+                    continue
+                candidate.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            payload["message"] = "유튜브 정렬 설정 저장 완료"
+            return payload
+
     def _paths_for_base(self, base: str) -> ReportPaths:
         for paths in _find_reports(self.output_dir, self.site_dir):
             if paths.base == base:
@@ -1103,6 +1425,26 @@ def make_handler(app: ReportAdminApp):
                             payload.get("base", ""),
                             payload.get("md", ""),
                             bool(payload.get("publish", True)),
+                        )
+                    )
+                    return
+                if parsed.path == "/api/youtube-preview":
+                    self._send_json(
+                        app.preview_youtube_comment(
+                            payload.get("base", ""),
+                            payload.get("md", ""),
+                            payload.get("youtube_url", ""),
+                            payload.get("anchors") or [],
+                        )
+                    )
+                    return
+                if parsed.path == "/api/youtube-save":
+                    self._send_json(
+                        app.save_youtube_alignment(
+                            payload.get("base", ""),
+                            payload.get("md", ""),
+                            payload.get("youtube_url", ""),
+                            payload.get("anchors") or [],
                         )
                     )
                     return
