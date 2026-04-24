@@ -208,6 +208,10 @@ class PipelineState:
                 entry["channel_id"] = channel_id
             entry["status"] = status
             entry["updated_at"] = now
+            if status not in ("error", "pending_retry"):
+                entry.pop("error", None)
+            if status != "completed":
+                entry.pop("completed_at", None)
             if status == "processing" and "started_at" not in entry:
                 entry["started_at"] = now
             if status == "completed":
@@ -329,6 +333,40 @@ class PipelineState:
                 entry["updated_at"] = datetime.now(KST).isoformat()
                 self._data["processed_vods"][key] = entry
                 self._save()
+
+    def recover_orphaned_processing(
+        self,
+        reason: str = "orphan recovery (daemon restart)",
+    ) -> list[tuple[str, Optional[str]]]:
+        """현재 실행 중인 worker 가 없다고 가정할 수 있는 시점에 non-terminal
+        엔트리를 즉시 error 로 전환한다.
+
+        사용처:
+          - daemon 프로세스/스레드가 새로 시작될 때
+          - pause 후 resume 로 새 루프를 띄울 때
+
+        의도:
+          기존 stale_after_sec(기본 1시간) 를 기다리지 않고, 직전 데몬이 죽으며
+          남긴 `collecting/transcribing/...` 상태를 곧바로 재시도 가능 상태로
+          돌린다. process_vod 의 RESUME 캐시(work_dir mp4/wav/srt/chat json) 가
+          있으므로 다음 재시도는 가능한 지점부터 재사용된다.
+        """
+        with self._lock:
+            self._data = self._load()
+            recovered: list[tuple[str, Optional[str]]] = []
+            changed = False
+            now = datetime.now(KST).isoformat()
+            for _key, entry in self._data["processed_vods"].items():
+                if entry.get("status") not in self._NONTERMINAL_PROCESSING:
+                    continue
+                entry["status"] = "error"
+                entry["error"] = reason
+                entry["updated_at"] = now
+                recovered.append((entry.get("video_no", _key), entry.get("channel_id")))
+                changed = True
+            if changed:
+                self._save()
+            return recovered
 
     def increment_retry(self, video_no: str, channel_id: Optional[str] = None) -> None:
         with self._lock:

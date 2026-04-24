@@ -191,6 +191,12 @@ class PipelineDaemon:
             self._release_single_instance_lock()
             return
 
+        recovered = self.state.recover_orphaned_processing()
+        if recovered:
+            log_logger.warning(
+                f"이전 데몬이 남긴 진행중 엔트리 {len(recovered)}개를 orphan recovery 처리"
+            )
+
         while self._running and not self._paused:
             if self.state.should_stop():
                 log_logger.info("종료 요청 감지")
