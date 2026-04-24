@@ -38,6 +38,7 @@ FIELDS = [
     ("chunk_max_chars",      "청크 최대 글자",      "int",   "SRT 청크 분할 기준 (기본: 8000)"),
     ("chunk_overlap_sec",    "청크 오버랩 (초)",    "int",   "청크 간 겹침 구간 (기본: 30)"),
     ("claude_timeout_sec",   "Claude 타임아웃 (초)","int",   "Claude CLI 호출 제한시간"),
+    ("whisper_vad_prescan_workers", "VAD prescan workers", "int", "기본 1. Windows 크래시가 있으면 1 유지, 2+는 실험적"),
 
     # 경로
     ("output_dir",           "출력 디렉터리",       "str",   "리포트 저장 경로"),
@@ -48,8 +49,8 @@ FIELDS = [
 # 섹션 분할 인덱스
 BASIC_END = 4        # 기본 설정 0..3
 COMMUNITY_END = 7    # 커뮤니티 4..6
-CHUNK_END = 10       # 자막/요약 7..9
-# 경로 10..
+CHUNK_END = 11       # 자막/요약 7..10
+# 경로 11..
 
 COOKIE_FIELDS = [
     ("NID_AUT", "NID_AUT", "Chzzk 인증 쿠키"),

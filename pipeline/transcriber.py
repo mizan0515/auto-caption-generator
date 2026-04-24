@@ -36,6 +36,7 @@ def transcribe_video(
     stall_sec: int = DEFAULT_STALL_SEC,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     initial_prompt_text: str | None = None,
+    vad_prescan_workers: int | None = None,
 ) -> str:
     """비디오 → SRT.
 
@@ -60,6 +61,8 @@ def transcribe_video(
     state = {"srt": None, "error": None}
     last_progress_ts = [time.time()]
     progress_seen = [False]
+    last_progress = [(0, 0)]
+    last_external_ping_ts = [time.time()]
 
     def log_func(msg):
         logger.info(f"  [Whisper] {msg}")
@@ -67,6 +70,8 @@ def transcribe_video(
     def prog_func(current, total):
         last_progress_ts[0] = time.time()
         progress_seen[0] = True
+        last_progress[0] = (current, total)
+        last_external_ping_ts[0] = time.time()
         if progress_func:
             try:
                 progress_func(current, total)
@@ -90,6 +95,7 @@ def transcribe_video(
                 log_func=log_func,
                 progress_func=prog_func,
                 initial_prompt_text=initial_prompt_text,
+                vad_prescan_workers=vad_prescan_workers,
             )
         except Exception as e:
             import traceback
@@ -120,6 +126,16 @@ def transcribe_video(
             msg = f"Whisper 진행 정체: {idle:.0f}s 동안 청크 진행 없음 (>{stall_sec}s)"
             logger.error(msg)
             raise TimeoutError(msg)
+
+        # 모델 로드 / VAD prescan 처럼 progress callback 이 늦게 오는 구간도
+        # 외부 state.updated_at 이 얼지 않도록 heartbeat 를 흘린다.
+        if progress_func and (time.time() - last_external_ping_ts[0] >= 30):
+            try:
+                current, total = last_progress[0]
+                progress_func(current, total)
+                last_external_ping_ts[0] = time.time()
+            except Exception as cb_err:
+                logger.warning(f"progress heartbeat 콜백 에러 무시: {cb_err}")
 
     if state["error"] is not None:
         logger.error(f"Whisper 실행 에러: {state['error']}")

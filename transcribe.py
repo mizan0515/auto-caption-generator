@@ -60,6 +60,35 @@ SPLIT_PATTERNS = [
 ]
 
 
+def resolve_vad_prescan_workers(n_parts, configured_workers=None):
+    """VAD prescan worker 수를 안전하게 결정한다.
+
+    Windows + torch/silero 조합에서 공유 VAD 모델을 여러 스레드로 돌릴 때
+    pythonw.exe access violation / heap corruption 이 보고되어, 기본값은 1
+    (직렬)로 둔다. 필요 시 config/env 로만 명시적으로 늘린다.
+    """
+    if n_parts <= 0:
+        return 1
+
+    raw = os.environ.get("WHISPER_VAD_PRESCAN_WORKERS")
+    if raw is not None:
+        try:
+            requested = int(raw)
+        except ValueError:
+            requested = 1
+    elif configured_workers is not None:
+        try:
+            requested = int(configured_workers)
+        except (TypeError, ValueError):
+            requested = 1
+    else:
+        requested = 1
+
+    if requested < 1:
+        requested = 1
+    return min(requested, n_parts)
+
+
 # ──────────────────────────────────────────────
 # 영상 분할 / 음성 추출
 # ──────────────────────────────────────────────
@@ -243,7 +272,7 @@ def load_models(log_func=print):
     processor = AutoProcessor.from_pretrained(model_id)
     log_func("Whisper 로드 완료!")
 
-    # Silero VAD 로드
+    # Silero VAD 로드 (CPU 유지: 작은 모델이라 GPU 커널 런치 오버헤드가 더 크다)
     log_func("Silero VAD 로드 중...")
     vad_model, vad_utils = torch.hub.load(
         repo_or_dir="snakers4/silero-vad",
@@ -748,7 +777,16 @@ def _get_merge_output_path(files_info: list) -> str:
 # 메인 엔트리 포인트
 # ──────────────────────────────────────────────
 
-def run_caption_generation(files_info, is_split, log_func=print, progress_func=None, cleanup=False, stop_event=None, initial_prompt_text: str | None = None):
+def run_caption_generation(
+    files_info,
+    is_split,
+    log_func=print,
+    progress_func=None,
+    cleanup=False,
+    stop_event=None,
+    initial_prompt_text: str | None = None,
+    vad_prescan_workers: int | None = None,
+):
     """
     files_info: [{"path": str, ...}, ...]
     is_split=False: files_info[0] 단일 파일 → 1시간 단위 분할 후 처리
@@ -820,18 +858,85 @@ def run_caption_generation(files_info, is_split, log_func=print, progress_func=N
     model, processor, device, torch_dtype, vad_model, vad_utils = load_models(log_func)
 
     # ── VAD 사전 스캔: total_chunks_global 계산 (오디오 캐싱) ──
-    log_func("\nVAD 사전 분석 중...")
-    all_precomputed_segments = []
-    all_preloaded_audios = []
-    all_chunk_counts = []
-    for afi in audio_infos:
-        audio = load_audio(afi["audio_path"])
-        speech_segs = get_speech_segments(audio, vad_model, vad_utils)
-        chunks = merge_vad_into_chunks(speech_segs, len(audio))
-        all_precomputed_segments.append(speech_segs)
-        all_preloaded_audios.append(audio)   # 캐싱 → transcribe 시 재로드 불필요
-        all_chunk_counts.append(len(chunks))
-        log_func(f"  {os.path.basename(afi['audio_path'])}: {len(chunks)}개 청크")
+    # 병렬화 정책:
+    #   - Silero VAD 의 get_speech_timestamps 는 model.reset_states() 등으로
+    #     모델 내부 버퍼를 mutate 하므로, 단일 모델 인스턴스를 여러 스레드에서
+    #     공유하면 heap corruption (0xc0000374) 이 발생한다.
+    #   - 안전 전략: 스레드마다 자기 VAD 모델 인스턴스를 보유하도록
+    #     threading.local() 에 지연 로딩한다. Silero 는 ~1MB 라 복제 비용 무시 가능.
+    #   - 검증 내역: experiments/test_vad_prescan_threadlocal.py
+    #     (workers=2 에서 x1.98, workers=4 에서 x3.13, segments 완전 일치)
+    n_parts = len(audio_infos)
+    vad_workers = resolve_vad_prescan_workers(
+        n_parts,
+        configured_workers=vad_prescan_workers,
+    )
+    if vad_workers == 1:
+        log_func("\nVAD 사전 분석 중 (안전 모드, workers=1)...")
+    else:
+        log_func(f"\nVAD 사전 분석 중 (병렬, workers={vad_workers}, per-thread VAD 모델)...")
+
+    all_precomputed_segments = [None] * n_parts
+    all_preloaded_audios = [None] * n_parts
+    all_chunk_counts = [0] * n_parts
+
+    if vad_workers == 1:
+        for i, afi in enumerate(audio_infos):
+            audio = load_audio(afi["audio_path"])
+            speech_segs = get_speech_segments(audio, vad_model, vad_utils)
+            chunks = merge_vad_into_chunks(speech_segs, len(audio))
+            all_precomputed_segments[i] = speech_segs
+            all_preloaded_audios[i] = audio
+            all_chunk_counts[i] = len(chunks)
+            log_func(
+                f"  [{i + 1}/{n_parts}] {os.path.basename(audio_infos[i]['audio_path'])}: "
+                f"{len(chunks)}개 청크"
+            )
+    else:
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # 각 워커 스레드가 자기 VAD 인스턴스를 갖게 하여 모델 내부 버퍼 충돌을 원천 차단.
+        tlocal = threading.local()
+
+        def _get_thread_vad():
+            m = getattr(tlocal, "model", None)
+            if m is None:
+                import torch
+
+                tlocal.model, tlocal.utils = torch.hub.load(
+                    repo_or_dir="snakers4/silero-vad",
+                    model="silero_vad",
+                    force_reload=False,
+                    trust_repo=True,
+                    verbose=False,
+                )
+            return tlocal.model, tlocal.utils
+
+        def _prescan_one_threadlocal(afi):
+            local_vad, local_utils = _get_thread_vad()
+            audio = load_audio(afi["audio_path"])
+            speech_segs = get_speech_segments(audio, local_vad, local_utils)
+            chunks = merge_vad_into_chunks(speech_segs, len(audio))
+            return audio, speech_segs, len(chunks)
+
+        with ThreadPoolExecutor(max_workers=vad_workers) as pool:
+            futures = {
+                pool.submit(_prescan_one_threadlocal, afi): i
+                for i, afi in enumerate(audio_infos)
+            }
+            done_count = 0
+            for fut in as_completed(futures):
+                i = futures[fut]
+                audio, speech_segs, n_chunks = fut.result()
+                all_precomputed_segments[i] = speech_segs
+                all_preloaded_audios[i] = audio
+                all_chunk_counts[i] = n_chunks
+                done_count += 1
+                log_func(
+                    f"  [{done_count}/{n_parts}] {os.path.basename(audio_infos[i]['audio_path'])}: "
+                    f"{n_chunks}개 청크"
+                )
 
     total_chunks_global = sum(all_chunk_counts)
     log_func(f"총 청크 수: {total_chunks_global}")
