@@ -4,10 +4,12 @@ import logging
 import os
 import re
 import sys
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
 
 _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
@@ -23,6 +25,27 @@ logger = logging.getLogger("pipeline")
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 CHUNK_SIZE = 1024 * 1024
 PART_SIZE = 10 * 1024 * 1024
+M3U8_PARALLEL_WORKERS = 8
+
+
+def _make_segment_session(workers: int) -> requests.Session:
+    session = requests.Session()
+    adapter = HTTPAdapter(pool_connections=workers, pool_maxsize=workers * 2)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.headers.update(HEADERS)
+    return session
+
+
+def _fetch_segment(session: requests.Session, url: str) -> bytes:
+    try:
+        resp = session.get(url, timeout=60)
+        resp.raise_for_status()
+        return resp.content
+    except requests.RequestException:
+        resp = session.get(url, timeout=60)
+        resp.raise_for_status()
+        return resp.content
 
 
 def _is_valid_media_file(path: str) -> bool:
@@ -184,28 +207,35 @@ def _download_m3u8(
         raise RuntimeError("요청한 시간 범위에 해당하는 m3u8 세그먼트가 없습니다.")
 
     tmp_path = dest_path + ".downloading"
+    workers = min(M3U8_PARALLEL_WORKERS, len(segment_urls))
+    in_flight = workers * 2
+    session = _make_segment_session(workers)
 
     try:
-        with open(tmp_path, "wb") as out_f:
-            for i, seg_url in enumerate(segment_urls):
+        with open(tmp_path, "wb") as out_f, ThreadPoolExecutor(max_workers=workers) as pool:
+            futures: deque = deque()
+            next_submit = 0
+            written = 0
+            total = len(segment_urls)
+
+            while written < total:
+                while len(futures) < in_flight and next_submit < total:
+                    futures.append(pool.submit(_fetch_segment, session, segment_urls[next_submit]))
+                    next_submit += 1
+
+                fut = futures.popleft()
                 try:
-                    with requests.get(seg_url, headers=HEADERS, timeout=60, stream=True) as seg_resp:
-                        seg_resp.raise_for_status()
-                        for chunk in seg_resp.iter_content(chunk_size=CHUNK_SIZE):
-                            if chunk:
-                                out_f.write(chunk)
+                    data = fut.result()
                 except requests.RequestException as e:
-                    logger.warning(f"  세그먼트 {i} 다운로드 실패, 재시도: {e}")
-                    with requests.get(seg_url, headers=HEADERS, timeout=60, stream=True) as seg_resp:
-                        seg_resp.raise_for_status()
-                        for chunk in seg_resp.iter_content(chunk_size=CHUNK_SIZE):
-                            if chunk:
-                                out_f.write(chunk)
+                    logger.error(f"  세그먼트 {written} 다운로드 실패: {e}")
+                    raise
+                out_f.write(data)
+                written += 1
 
                 if progress_func:
-                    progress_func(i + 1, len(segment_urls))
-                if (i + 1) % 100 == 0:
-                    logger.info(f"  세그먼트 {i + 1}/{len(segment_urls)} 완료")
+                    progress_func(written, total)
+                if written % 100 == 0:
+                    logger.info(f"  세그먼트 {written}/{total} 완료")
 
         if not _is_valid_media_file(tmp_path):
             raise RuntimeError(f"m3u8 download produced invalid media file: {tmp_path}")
@@ -220,6 +250,8 @@ def _download_m3u8(
             except OSError as e:
                 logger.warning(f"  불완전 파일 삭제 실패: {e}")
         raise
+    finally:
+        session.close()
 
 
 def download_vod_144p(
