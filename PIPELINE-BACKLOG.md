@@ -262,19 +262,7 @@
   - 부작용: 키워드당 3페이지 기준 총 수집 시간 ~20초 증가 (전체 파이프라인 5h 대비 무시)
   - 회귀: manual JSON 우선 경로 (`load_manual_community_posts`) 유지, 기존 FmkoreaBlocked/reset_fmkorea_session 동작 유지
 
-- [ ] **B27 fmkorea 스크랩 백엔드를 Chromium(Playwright) 로 전환 (옵션)**
-  - 파일: `pipeline/scraper.py` (신규 `_scrape_fmkorea_chromium()` 추가), `pipeline/config.py`
-  - 동기: 크롬 기반 접근은 실제 브라우저 fingerprint + JS 렌더링으로 차단 회피에 월등.
-    현재 설정값 `fmkorea_scraper_mode` 는 이미 준비되어 있고 `"chromium"` 선택 시
-    NotImplementedError 로 명시적 실패 → B27 완료 시 `_scrape_fmkorea_chromium()` 구현만 추가.
-  - 작업 범위:
-    - Playwright 의존성 추가 (`requirements.txt`, 설치 가이드)
-    - `playwright install chromium` 자동 확인 스텝
-    - 브라우저 기반 검색 결과 페이지 파싱 (기존 `_parse_search_results()` 재사용 가능)
-    - 세션 간 쿠키 persist (user_data_dir)
-    - fallback: chromium 실행 실패 시 http 로 자동 전환 + 경고
-  - 비용: 바이너리 300~500MB 증가, 페이지당 3~5초 (http 대비 ~8배 느림)
-  - 우선순위 승격 트리거: B26 적용 후에도 430 이 일상화 / 하루 수십 VOD 자동 처리 필요 / 사이트 여러 곳으로 확장
+- [x] **B27 fmkorea 스크랩 백엔드를 Chromium(Playwright) 로 전환 (옵션)** — 완료 기록 참조
 
 ## 완료 기록
 
@@ -306,4 +294,5 @@
 | B24 | 2026-04-17 | ✅ Tier2: 7/7 ConfigError→exit2/에러 원문 전달/RuntimeError 전파/happy run()/비-win32 stderr/ctypes 실패 폴백/multi-line 메시지 + B23 7/7 + B21 13/13 회귀 유지 | tray_app.py `main()` ConfigError 포획 + `_show_fatal_dialog` Win32 MessageBoxW + experiments/b24_tray_config_error.py |
 | B25 | 2026-04-17 | ✅ Tier2: 11/11 pid_alive 3종/lock 신규·stale·live·self·손상 5종/release 멱등/main 대화상자(exit 3)/B24 ConfigError exit 2 차별 회귀 + B24 7/7 + B23 7/7 + B21 13/13 회귀 유지 | tray_app.py `AlreadyRunningError` + `_pid_alive` + `_acquire_lock` + `_release_lock` + `_on_quit` 해제 + main() exit 3 + experiments/b25_tray_single_instance.py |
 | B26 | 2026-04-25 | ✅ UA 로테이션(5종)/요청간격 8~12s/쿨다운 3h 마커/scraper_mode 설정 게이트/chromium 선택 시 NotImplementedError 명시 실패 | scraper.py USER_AGENTS + _is_in_cooldown + _mark_cooldown + scrape_fmkorea(work_dir, scraper_mode) + config.py fmkorea_scraper_mode + main.py 호출 갱신 |
+| B27 | 2026-04-27 | ✅ Tier2: 6/6 dispatch chromium·http / invalid mode / 쿨다운 회귀 / playwright 미설치 폴백 / user_data_dir 레이아웃 + manual override 회귀 유지 (LIVE=1 옵션 검증 추가) | scraper.py `_scrape_fmkorea_http()` + `_scrape_fmkorea_chromium()` + `_playwright_user_data_dir()` + scrape_fmkorea() dispatch + requirements.txt playwright>=1.40 + experiments/b27_fmkorea_chromium.py + experiments/results/2026-04-27_b27_chromium-backend.md |
 | — | — | — | — |

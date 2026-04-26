@@ -205,6 +205,38 @@ work/<video_no>/<video_no>_community.manual.json
 ✓ 수동 커뮤니티 입력 재사용: N개 (fmkorea 스크랩 스킵)
 ```
 
+### fmkorea Chromium(Playwright) 백엔드 (B27, 옵션)
+
+`HTTP 430` 이 일상화된다면 requests 기반 백엔드를 Chromium 으로 전환할 수 있습니다.
+실제 브라우저 fingerprint + JS 렌더링으로 안티봇 회피에 강합니다.
+
+활성화 절차:
+
+```bash
+pip install playwright
+playwright install chromium   # 최초 1회, ~300MB 다운로드
+```
+
+`pipeline_config.json` 에서:
+
+```json
+{
+  "fmkorea_scraper_mode": "chromium"
+}
+```
+
+기본값은 `"http"` 입니다. `"chromium"` 으로 바꾸면:
+
+- 페이지당 3~5초 (http 대비 ~8배 느림)
+- 키워드 3개 × 3페이지 기준 총 ~30~45초 추가 (전체 파이프라인 대비 무시 가능)
+- 쿠키는 `./work/.playwright-userdata/` 에 persist (VOD 간 공유, gitignore 됨)
+
+폴백 동작:
+
+- `playwright` 미설치 → 자동 http 폴백 (warning 로그)
+- chromium 실행 실패 → 자동 http 폴백
+- chromium 도 429/430/CAPTCHA 맞으면 → 쿨다운 마커 후 중단 (manual override 경로 권장)
+
 ---
 
 ## 실행

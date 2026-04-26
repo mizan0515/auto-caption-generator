@@ -638,17 +638,17 @@ def _parse_summary_sections(md: str) -> dict:
         entries = re.split(r"\n(?=\s*[-*]\s*\**\s*\[?\d{2}:\d{2}:\d{2}\]?)", tl_body)
         # 엔트리 패턴 (strict → loose 순으로 시도)
         _entry_patterns = [
-            # strict: - **[HH:MM:SS] title**
+            # strict: - **[HH:MM:SS] title** or - **[HH:MM:SS~HH:MM:SS] title**
             re.compile(
-                r"\s*[-*]\s*\*\*\s*\[(\d{2}:\d{2}:\d{2})\]\s*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?"
+                r"\s*[-*]\s*\*\*\s*\[(\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?)\]\s*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?"
             ),
             # loose A: - [HH:MM:SS] **title** (분위기: ...)
             re.compile(
-                r"\s*[-*]\s*\[?(\d{2}:\d{2}:\d{2})\]?\s*\*\*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?"
+                r"\s*[-*]\s*\[?(\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?)\]?\s*\*\*(.+?)\*\*\s*(?:\(분위기:\s*(.+?)\))?"
             ),
             # loose B: - [HH:MM:SS] title — desc (no bold, dash separator)
             re.compile(
-                r"\s*[-*]\s*\[?(\d{2}:\d{2}:\d{2})\]?\s*(.+?)(?:\s*[—\-–]\s*|$)(?:\(분위기:\s*(.+?)\))?"
+                r"\s*[-*]\s*\[?(\d{2}:\d{2}:\d{2}(?:~\d{2}:\d{2}:\d{2})?)\]?\s*(.+?)(?:\s*[—\-–]\s*|$)(?:\(분위기:\s*(.+?)\))?"
             ),
         ]
         for ent in entries:
@@ -864,8 +864,6 @@ def _render_naver_cafe_html(vod_info: VODInfo, public_url_base: str, sec: dict) 
             )
             if item.get("summary"):
                 parts.append(_p(f"내용: {_render_inline_md(item['summary'])}"))
-            if item.get("evidence"):
-                parts.append(_p(f"근거: {_render_inline_md(item['evidence'])}"))
             parts.append(_spacer())
 
     if sec.get("highlights"):
