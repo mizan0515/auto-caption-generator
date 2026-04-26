@@ -348,6 +348,204 @@ def _parse_search_results(html: str) -> list[dict]:
     return posts[:30]
 
 
+def _scrape_fmkorea_http(
+    keywords: list[str],
+    max_pages: int,
+    work_dir: Optional[str],
+) -> list[dict]:
+    """requests 기반 백엔드. raw post dict 리스트를 반환.
+
+    차단 감지 시 _mark_cooldown 으로 마커 남기고 즉시 중단.
+    상위 scrape_fmkorea 가 dedup/시간필터/CommunityPost 변환 담당.
+    """
+    session = _get_or_create_session()
+    all_posts: list[dict] = []
+    blocked = False
+
+    for keyword in keywords:
+        if blocked:
+            break
+        logger.info(f"fmkorea[http] 검색: '{keyword}'")
+
+        for page in range(1, max_pages + 1):
+            url = _build_search_url(keyword, page)
+            try:
+                html = _fetch_page(url, session=session)
+                if html is None:
+                    break
+
+                posts = _parse_search_results(html)
+                if not posts:
+                    html_lower = html.lower()
+                    hint = ""
+                    if "captcha" in html_lower or "robot" in html_lower:
+                        hint = " (CAPTCHA 또는 봇 감지 페이지로 추정)"
+                    elif "login" in html_lower and "fmkorea" in html_lower and len(html) < 5000:
+                        hint = " (로그인 리다이렉트로 추정)"
+                    elif len(html) < 1000:
+                        hint = f" (응답이 너무 짧음: {len(html)}바이트 — 차단 의심)"
+                    logger.info(f"  페이지 {page}: 결과 없음{hint} (응답 {len(html):,}바이트)")
+                    break
+
+                all_posts.extend(posts)
+                logger.info(f"  페이지 {page}: {len(posts)}개 수집")
+
+            except FmkoreaBlocked as e:
+                logger.warning(f"  ⚠ fmkorea 레이트리밋 감지 ({e}) — 추가 요청 중단")
+                reset_fmkorea_session()
+                _mark_cooldown(work_dir)
+                blocked = True
+                break
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"  페이지 {page} 수집 실패: {e}")
+                break
+
+            time.sleep(REQUEST_DELAY + random.uniform(0, REQUEST_JITTER))
+
+    return all_posts
+
+
+def _playwright_user_data_dir(work_dir: Optional[str]) -> str:
+    """Playwright persistent context 의 쿠키/스토리지 저장 경로.
+
+    work_dir 의 부모(보통 ./work) 아래 .playwright-userdata/ 로 통일하여
+    VOD 간 쿠키를 공유 → fmkorea 메인페이지 재방문 비용 절감 + 트러스트 누적.
+    """
+    import os as _os
+    if work_dir:
+        parent = _os.path.dirname(_os.path.abspath(work_dir))
+        return _os.path.join(parent, ".playwright-userdata")
+    return _os.path.abspath(".playwright-userdata")
+
+
+def _scrape_fmkorea_chromium(
+    keywords: list[str],
+    max_pages: int,
+    work_dir: Optional[str],
+) -> list[dict]:
+    """Playwright(headless Chromium) 기반 백엔드. raw post dict 리스트 반환.
+
+    실제 브라우저 fingerprint + JS 렌더링으로 안티봇 회피에 강하다.
+    - playwright 미설치 → http 폴백
+    - chromium 실행 실패 → http 폴백
+    - 페이지 로드 중 429/430/CAPTCHA 감지 → _mark_cooldown 후 중단 (폴백 없음)
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning(
+            "playwright 미설치 — http 모드로 폴백. "
+            "설치: pip install playwright && playwright install chromium"
+        )
+        return _scrape_fmkorea_http(keywords, max_pages=max_pages, work_dir=work_dir)
+
+    user_data_dir = _playwright_user_data_dir(work_dir)
+    try:
+        import os as _os
+        _os.makedirs(user_data_dir, exist_ok=True)
+    except OSError as e:
+        logger.warning(f"playwright user_data_dir 생성 실패 ({e}) — http 모드로 폴백")
+        return _scrape_fmkorea_http(keywords, max_pages=max_pages, work_dir=work_dir)
+
+    all_posts: list[dict] = []
+    blocked = False
+    ua = random.choice(USER_AGENTS)
+
+    try:
+        with sync_playwright() as p:
+            try:
+                ctx = p.chromium.launch_persistent_context(
+                    user_data_dir=user_data_dir,
+                    headless=True,
+                    user_agent=ua,
+                    locale="ko-KR",
+                    viewport={"width": 1280, "height": 900},
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"chromium 실행 실패 ({e}) — http 모드로 폴백. "
+                    "최초 1회 'playwright install chromium' 필요할 수 있음."
+                )
+                return _scrape_fmkorea_http(keywords, max_pages=max_pages, work_dir=work_dir)
+
+            try:
+                page = ctx.new_page()
+                # 메인 페이지 1회 방문하여 쿠키 워밍
+                try:
+                    page.goto(
+                        "https://www.fmkorea.com/",
+                        wait_until="domcontentloaded",
+                        timeout=20000,
+                    )
+                    time.sleep(1.5 + random.uniform(0, 1.0))
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"chromium 메인페이지 방문 실패 (무시): {e}")
+
+                for keyword in keywords:
+                    if blocked:
+                        break
+                    logger.info(f"fmkorea[chromium] 검색: '{keyword}'")
+
+                    for pg in range(1, max_pages + 1):
+                        url = _build_search_url(keyword, pg)
+                        try:
+                            resp = page.goto(
+                                url, wait_until="domcontentloaded", timeout=25000
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning(f"  페이지 {pg} 로드 실패: {e}")
+                            break
+
+                        status = resp.status if resp else 0
+                        if status in (429, 430):
+                            logger.warning(
+                                f"  ⚠ chromium fmkorea 레이트리밋 (HTTP {status}) — 추가 요청 중단"
+                            )
+                            _mark_cooldown(work_dir)
+                            blocked = True
+                            break
+
+                        try:
+                            html = page.content()
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning(f"  페이지 {pg} 본문 추출 실패: {e}")
+                            break
+
+                        posts = _parse_search_results(html)
+                        if not posts:
+                            html_lower = html.lower()
+                            hint = ""
+                            antibot = False
+                            if "captcha" in html_lower or "robot" in html_lower:
+                                hint = " (CAPTCHA/봇 감지 — 쿨다운 마커 생성)"
+                                antibot = True
+                            elif len(html) < 1000:
+                                hint = f" (응답 {len(html)}바이트 — 차단 의심)"
+                            logger.info(
+                                f"  페이지 {pg}: 결과 없음{hint} ({len(html):,}바이트)"
+                            )
+                            if antibot:
+                                _mark_cooldown(work_dir)
+                                blocked = True
+                            break
+
+                        all_posts.extend(posts)
+                        logger.info(f"  페이지 {pg}: {len(posts)}개 수집")
+                        time.sleep(REQUEST_DELAY + random.uniform(0, REQUEST_JITTER))
+            finally:
+                try:
+                    ctx.close()
+                except Exception:  # noqa: BLE001
+                    pass
+    except Exception as e:  # noqa: BLE001
+        # sync_playwright 컨텍스트 자체 실패 → 폴백 (이미 부분 결과 있어도 버림)
+        logger.warning(f"chromium 스크랩 예외 ({e}) — http 모드로 폴백")
+        return _scrape_fmkorea_http(keywords, max_pages=max_pages, work_dir=work_dir)
+
+    return all_posts
+
+
 def scrape_fmkorea(
     keywords: list[str],
     max_pages: int = 3,
@@ -365,25 +563,27 @@ def scrape_fmkorea(
         max_posts: 최종 반환할 최대 게시글 수
         broadcast_start: 방송 시작 시각 (ISO format). 제공 시 ±24시간 내 글만 필터링.
         work_dir: 쿨다운 마커(.fmkorea_cooldown) 저장 경로. 비우면 쿨다운 비활성.
-        scraper_mode: "http" (기본, requests 기반) | "chromium" (미구현, 백로그 B27)
+        scraper_mode: "http" (기본, requests 기반) | "chromium" (B27, Playwright).
+            chromium 모드는 playwright 미설치 / 브라우저 실행 실패 시 자동으로 http 폴백.
     """
     # B26: 직전 런에서 차단 맞았으면 쿨다운 동안 스킵
     if _is_in_cooldown(work_dir):
         return []
 
-    # B27 (백로그): 실제 브라우저(Playwright) 기반 스크래퍼. 차단 회피 강화.
     if scraper_mode == "chromium":
-        raise NotImplementedError(
-            "scraper_mode='chromium' 은 아직 미구현입니다 (PIPELINE-BACKLOG B27). "
-            "현재는 'http' 만 지원. pipeline_config.json 에서 "
-            "fmkorea_scraper_mode 를 'http' 로 되돌리거나, 커뮤니티 자동 수집을 비활성화하세요."
+        # B27: 실제 브라우저(Playwright) 기반. 차단 회피 강화.
+        # 미설치/실행 실패 시 _scrape_fmkorea_chromium 내부에서 http 폴백.
+        all_posts = _scrape_fmkorea_chromium(
+            keywords, max_pages=max_pages, work_dir=work_dir
         )
-    if scraper_mode != "http":
+    elif scraper_mode == "http":
+        all_posts = _scrape_fmkorea_http(
+            keywords, max_pages=max_pages, work_dir=work_dir
+        )
+    else:
         raise ValueError(
             f"알 수 없는 scraper_mode: {scraper_mode!r}. 'http' 또는 'chromium' 만 허용."
         )
-
-    all_posts = []
 
     # 방송 시작 시각 파싱 (필터링용)
     broadcast_dt = None
@@ -394,55 +594,6 @@ def scrape_fmkorea(
                 broadcast_dt = broadcast_dt.replace(tzinfo=KST)
         except (ValueError, TypeError):
             logger.warning(f"방송 시작 시각 파싱 실패: {broadcast_start}")
-
-    # B10: 캐시된 세션 재사용 (TTL 만료 시에만 메인 페이지 재방문)
-    session = _get_or_create_session()
-
-    blocked = False
-    for keyword in keywords:
-        if blocked:
-            break
-        logger.info(f"fmkorea 검색: '{keyword}'")
-
-        for page in range(1, max_pages + 1):
-            url = _build_search_url(keyword, page)
-            try:
-                html = _fetch_page(url, session=session)
-                if html is None:
-                    break
-
-                posts = _parse_search_results(html)
-                if not posts:
-                    # 응답 내용 간단 검사 — 안티봇 / 차단 / 로그인 필요 페이지 구분
-                    html_lower = html.lower()
-                    hint = ""
-                    if "captcha" in html_lower or "robot" in html_lower:
-                        hint = " (CAPTCHA 또는 봇 감지 페이지로 추정)"
-                    elif "login" in html_lower and "fmkorea" in html_lower and len(html) < 5000:
-                        hint = " (로그인 리다이렉트로 추정)"
-                    elif len(html) < 1000:
-                        hint = f" (응답이 너무 짧음: {len(html)}바이트 — 차단 의심)"
-                    logger.info(f"  페이지 {page}: 결과 없음{hint} (응답 {len(html):,}바이트)")
-                    break
-
-                all_posts.extend(posts)
-                logger.info(f"  페이지 {page}: {len(posts)}개 수집")
-
-            except FmkoreaBlocked as e:
-                logger.warning(f"  ⚠ fmkorea 레이트리밋 감지 ({e}) — 추가 요청 중단")
-                # B10: 차단 발생 시 세션 캐시 폐기 → 다음 스크랩은 새 세션으로 시도
-                reset_fmkorea_session()
-                # B26: 쿨다운 마커로 다음 런에서도 N시간 스킵 → IP 평판 회복 시간 확보
-                _mark_cooldown(work_dir)
-                blocked = True
-                break
-            except Exception as e:
-                logger.warning(f"  페이지 {page} 수집 실패: {e}")
-                break
-
-            # 다음 요청까지 지터 포함 딜레이
-            delay = REQUEST_DELAY + random.uniform(0, REQUEST_JITTER)
-            time.sleep(delay)
 
     # 중복 제거 (URL 기준)
     seen_urls = set()

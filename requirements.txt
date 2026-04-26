@@ -12,6 +12,11 @@ beautifulsoup4>=4.12.0
 lxml>=5.0.0
 requests>=2.31.0
 
+# Pipeline: fmkorea Chromium 백엔드 (B27, 옵션). pipeline_config.json 에서
+# fmkorea_scraper_mode="chromium" 일 때만 사용. 미설치 시 자동으로 http 폴백.
+# 설치: pip install playwright && playwright install chromium
+playwright>=1.40.0  # optional
+
 # Pipeline: 쿠키 자동 갱신 (브라우저 쿠키 DB 에서 NID_AUT/NID_SES 추출)
 browser_cookie3>=0.20.0
 
