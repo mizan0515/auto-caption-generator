@@ -864,8 +864,6 @@ def _render_naver_cafe_html(vod_info: VODInfo, public_url_base: str, sec: dict) 
             )
             if item.get("summary"):
                 parts.append(_p(f"내용: {_render_inline_md(item['summary'])}"))
-            if item.get("evidence"):
-                parts.append(_p(f"근거: {_render_inline_md(item['evidence'])}"))
             parts.append(_spacer())
 
     if sec.get("highlights"):
