@@ -240,7 +240,42 @@ def _parse_relative_time(text: str) -> Optional[datetime]:
     m = re.match(r"(\d{1,2})[./](\d{1,2})\s+(\d{1,2}):(\d{2})", text)
     if m:
         month, day, hour, minute = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
-        return now.replace(month=month, day=day, hour=hour, minute=minute, second=0, microsecond=0)
+        try:
+            candidate = now.replace(month=month, day=day, hour=hour, minute=minute,
+                                    second=0, microsecond=0)
+        except ValueError:
+            return None
+        if candidate > now:
+            # 같은 해 미래 → 작년
+            candidate = candidate.replace(year=candidate.year - 1)
+        return candidate
+
+    # 'HH:MM' 단독 (오늘 시각). 파싱 결과가 미래면 어제로 보정.
+    # fmkorea 검색 결과 td.time 이 오늘 글에 대해 이 포맷을 사용한다 (B30 LIVE 검증).
+    m = re.match(r"^(\d{1,2}):(\d{2})$", text)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        try:
+            candidate = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+        except ValueError:
+            return None
+        if candidate > now:
+            candidate -= timedelta(days=1)
+        return candidate
+
+    # 'MM.DD' 단독 (시간 미상 → 12:00 기본). 미래면 작년으로 보정.
+    # fmkorea 가 어제 이전~ 같은 해 글에 사용.
+    m = re.match(r"^(\d{1,2})\.(\d{1,2})$", text)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+        try:
+            candidate = now.replace(month=month, day=day, hour=12, minute=0,
+                                    second=0, microsecond=0)
+        except ValueError:
+            return None
+        if candidate > now:
+            candidate = candidate.replace(year=candidate.year - 1)
+        return candidate
 
     # '어제 HH:MM'
     m = re.match(r"어제\s+(\d{1,2}):(\d{2})", text)
