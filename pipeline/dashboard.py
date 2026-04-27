@@ -48,6 +48,8 @@ _STATUS_LABELS = {
     "summarizing": "요약 중",
     "completed": "완료",
     "error": "에러",
+    "skipped_bootstrap": "스킵 (bootstrap)",
+    "skipped_user": "스킵 (사용자)",
 }
 _STATUS_COLORS = {
     "queued": "#7a7a7a",
@@ -56,6 +58,8 @@ _STATUS_COLORS = {
     "summarizing": "#e8a33c",
     "completed": "#4caf50",
     "error": "#e85c5c",
+    "skipped_bootstrap": "#9aa1b3",
+    "skipped_user": "#9aa1b3",
 }
 
 
@@ -1078,6 +1082,13 @@ class Dashboard:
             menu.add_command(
                 label="리포트 열기", command=lambda: self._open_report_for(key)
             )
+        # 스킵: terminal status (completed / skipped_*) 가 아닌 모든 엔트리에 노출.
+        # 진행 중이면 협력적 cancel, 비-진행이면 즉시 skipped_user 마킹.
+        if status not in ("completed", "skipped_bootstrap", "skipped_user"):
+            menu.add_command(
+                label="스킵 (영구 제외 + work dir 정리)",
+                command=lambda: self._action_skip(key, status),
+            )
         menu.add_separator()
         menu.add_command(
             label="상태에서 제거", command=lambda: self._remove_from_state(key)
@@ -1126,6 +1137,93 @@ class Dashboard:
             self._header_flash(f"재처리 요청: {video_no}")
         except Exception as e:  # noqa: BLE001
             self._header_flash(f"재처리 실패: {e}")
+
+    _ACTIVE_STATUSES = {
+        "processing", "collecting", "analyzing", "transcribing",
+        "chunking", "summarizing", "saving",
+    }
+
+    def _action_skip(self, key: str, status: str) -> None:
+        """VOD 스킵.
+
+        진행 중 (collecting / transcribing / ...): state 에 skip_requested 플래그 만
+            설정. process_vod 가 다음 stage 경계 또는 Whisper batch 경계에서
+            SkipRequested 를 raise → 외부 핸들러가 skipped_user 마킹 + work_dir 정리.
+            대시보드는 "스킵 요청됨" 안내만 띄우고 즉시 반환.
+
+        비-진행 (대기/error/pending_retry): 즉시 skipped_user 마킹 + work_dir 정리.
+            진행 중인 worker 가 없으므로 협력적 cancel 불필요.
+        """
+        from tkinter import messagebox
+        import shutil as _shutil
+
+        if self.root is None:
+            return
+        # 키 → (channel_id, video_no) 분리
+        if ":" in key:
+            channel_id, video_no = key.split(":", 1)
+        else:
+            channel_id, video_no = None, key
+
+        is_active = status in self._ACTIVE_STATUSES
+        if is_active:
+            confirm_msg = (
+                f"VOD [{video_no}] 가 현재 '{status}' 진행 중입니다.\n\n"
+                "스킵을 요청하면 다음 stage 경계 또는 Whisper batch 경계에서\n"
+                "처리를 중단하고 work_dir 을 정리합니다.\n\n"
+                "Whisper 진행 중이면 현재 batch 가 끝나야 멈추므로\n"
+                "최대 수 분이 걸릴 수 있습니다. 계속할까요?"
+            )
+        else:
+            confirm_msg = (
+                f"VOD [{video_no}] 를 영구 스킵 처리합니다.\n"
+                "monitor 가 다음 폴링부터 이 VOD 를 다시 잡지 않습니다.\n"
+                "work_dir 도 정리됩니다. 계속할까요?"
+            )
+        if not messagebox.askyesno("스킵 확인", confirm_msg, parent=self.root):
+            return
+
+        # work_dir 경로 — pipeline_config.json 의 work_dir 기준
+        work_dir = None
+        try:
+            cfg_work = (self.cfg or {}).get("work_dir", "./work")
+            work_dir = os.path.join(cfg_work, video_no)
+        except Exception:  # noqa: BLE001
+            pass
+
+        if is_active:
+            # 협력적 cancel — 플래그만 설정. work_dir 정리는 process_vod 가 담당.
+            try:
+                ok = self.state.request_skip(video_no, channel_id=channel_id)
+            except Exception as e:  # noqa: BLE001
+                self._header_flash(f"스킵 요청 실패: {e}")
+                return
+            if ok:
+                self._header_flash(
+                    f"스킵 요청됨: {video_no} (다음 stage 경계에서 적용)"
+                )
+            else:
+                self._header_flash(f"엔트리 없음: {video_no}")
+        else:
+            # 즉시 skipped_user 마킹 + work_dir 정리
+            try:
+                self.state.mark_skipped_user(
+                    video_no, channel_id=channel_id, reason="user skip via dashboard"
+                )
+            except Exception as e:  # noqa: BLE001
+                self._header_flash(f"스킵 마킹 실패: {e}")
+                return
+            if work_dir and os.path.isdir(work_dir):
+                try:
+                    _shutil.rmtree(work_dir, ignore_errors=True)
+                except Exception as e:  # noqa: BLE001
+                    self._header_flash(
+                        f"스킵 OK ({video_no}) — work_dir 정리 실패: {e}"
+                    )
+                    return
+            self._header_flash(f"스킵 완료: {video_no} (영구 제외)")
+
+        threading.Thread(target=self._refresh_status_bg, daemon=True).start()
 
     def _open_report_for(self, key: str) -> None:
         state = self._read_state()

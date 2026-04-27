@@ -37,6 +37,7 @@ def transcribe_video(
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     initial_prompt_text: str | None = None,
     vad_prescan_workers: int | None = None,
+    cancel_check=None,
 ) -> str:
     """비디오 → SRT.
 
@@ -45,12 +46,17 @@ def transcribe_video(
         progress_func: 외부 progress callback (current, total)
         stall_sec: 진행 콜백이 N초간 없으면 TimeoutError. 0 = 비활성.
         timeout_sec: 전체 실행 시간 상한. 0 = 비활성.
+        cancel_check: 호출 시 True 반환하면 cooperative cancel.
+            transcribe.py 내부 stop_event 를 set 하여 다음 batch 경계에서 종료
+            시키고, 전체 실행은 RuntimeError("cancelled") 로 raise.
+            호출자(process_vod) 는 이를 SkipRequested 흐름과 결합.
 
     Returns:
         SRT 파일 경로
 
     Raises:
         TimeoutError: stall 또는 전체 timeout 도달
+        RuntimeError("cancelled"): cancel_check 가 True 반환
         Exception: Whisper 내부 에러를 그대로 전달
     """
     from transcribe import run_caption_generation
@@ -63,6 +69,7 @@ def transcribe_video(
     progress_seen = [False]
     last_progress = [(0, 0)]
     last_external_ping_ts = [time.time()]
+    stop_event = threading.Event()
 
     def log_func(msg):
         logger.info(f"  [Whisper] {msg}")
@@ -96,6 +103,7 @@ def transcribe_video(
                 progress_func=prog_func,
                 initial_prompt_text=initial_prompt_text,
                 vad_prescan_workers=vad_prescan_workers,
+                stop_event=stop_event,
             )
         except Exception as e:
             import traceback
@@ -127,6 +135,19 @@ def transcribe_video(
             logger.error(msg)
             raise TimeoutError(msg)
 
+        # 협력적 cancel — 사용자 스킵 요청 시 다음 batch 경계에서 worker 가
+        # stop_event 보고 종료. 실제 worker join 은 batch 길이만큼 더 기다리지만
+        # 여기서 stop 신호만 흘리고 watchdog 루프 계속 → worker 가 exit 하면
+        # break (line 112) 로 빠져나옴. 그 직후 RuntimeError raise.
+        if cancel_check is not None:
+            try:
+                if cancel_check():
+                    if not stop_event.is_set():
+                        stop_event.set()
+                        logger.info("Whisper cancel 요청 — 다음 batch 경계에서 종료")
+            except Exception as cb_err:  # noqa: BLE001
+                logger.warning(f"cancel_check 콜백 에러 무시: {cb_err}")
+
         # 모델 로드 / VAD prescan 처럼 progress callback 이 늦게 오는 구간도
         # 외부 state.updated_at 이 얼지 않도록 heartbeat 를 흘린다.
         if progress_func and (time.time() - last_external_ping_ts[0] >= 30):
@@ -143,6 +164,11 @@ def transcribe_video(
         if tb:
             logger.error(f"Whisper 실행 트레이스백:\n{tb}")
         raise state["error"]
+
+    # cancel 신호로 종료된 경우 — Whisper 가 부분 SRT 를 반환했어도
+    # 처리 중단을 의미. 호출자가 SkipRequested 흐름으로 가도록 raise.
+    if stop_event.is_set():
+        raise RuntimeError("cancelled")
 
     srt_path = state["srt"]
     if not srt_path:

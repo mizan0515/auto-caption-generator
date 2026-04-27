@@ -35,7 +35,7 @@ from .config import (
     get_public_url_base,
     ConfigError,
 )
-from .state import PipelineState
+from .state import PipelineState, SkipRequested
 from .monitor import check_new_vods
 from .downloader import download_vod_144p
 from .chat_collector import fetch_all_chats, save_chat_log, load_chat_log_json
@@ -257,6 +257,14 @@ def _cleanup_work_dir(work_dir: str, logger):
                 pass
 
 
+def _raise_if_skip(state: PipelineState, vod: VODInfo, stage: str) -> None:
+    """stage 경계 협력적 cancel 체크. 사용자가 대시보드에서 스킵 요청했으면 raise."""
+    if state.is_skip_requested(vod.video_no, channel_id=vod.channel_id):
+        raise SkipRequested(
+            vod.video_no, vod.channel_id, f"user skip at stage={stage}"
+        )
+
+
 def process_vod(
     vod: VODInfo,
     cfg: dict,
@@ -295,6 +303,9 @@ def process_vod(
     os.makedirs(work_dir, exist_ok=True)
 
     try:
+        # 시작 전 skip 체크 — 사용자가 daemon polling 사이에 스킵 요청한 경우.
+        _raise_if_skip(state, vod, "start")
+
         # ── 1단계: 병렬 데이터 수집 ──
         result.stage = "collecting"
         state.update(vod.video_no, status="collecting", channel_id=vod.channel_id)
@@ -500,6 +511,7 @@ def process_vod(
             result.chat_log_path = chat_log_path
 
         # ── 2단계: 채팅 분석 ──
+        _raise_if_skip(state, vod, "analyzing")
         result.stage = "analyzing"
         state.update(vod.video_no, status="analyzing", channel_id=vod.channel_id)
 
@@ -516,6 +528,7 @@ def process_vod(
             logger.warning("채팅 없음 → 하이라이트 분석 건너뜀")
 
         # ── 3단계: 자막 생성 ──
+        _raise_if_skip(state, vod, "transcribing")
         result.stage = "transcribing"
         state.update(vod.video_no, status="transcribing", channel_id=vod.channel_id)
 
@@ -566,9 +579,23 @@ def process_vod(
                         timeout_sec=cfg.get("whisper_timeout_sec", 0),
                         initial_prompt_text=initial_prompt_text,
                         vad_prescan_workers=cfg.get("whisper_vad_prescan_workers", 1),
+                        cancel_check=lambda: state.is_skip_requested(
+                            vod.video_no, channel_id=vod.channel_id
+                        ),
                     )
                 except TimeoutError as e:
                     logger.error(f"Whisper 타임아웃 → VOD 실패 처리: {e}")
+                    raise
+                except RuntimeError as e:
+                    if str(e) == "cancelled":
+                        # cancel_check 가 신호 → SkipRequested 로 변환하여
+                        # 외부 핸들러가 skipped_user 마킹 + work_dir 정리.
+                        logger.info(f"Whisper cancel 완료 — SkipRequested 변환")
+                        raise SkipRequested(
+                            vod.video_no, vod.channel_id,
+                            "user skip during transcribing"
+                        )
+                    logger.error(f"Whisper 실행 실패 → VOD 실패 처리: {e}")
                     raise
                 except Exception as e:
                     logger.error(f"Whisper 실행 실패 → VOD 실패 처리: {e}")
@@ -581,6 +608,7 @@ def process_vod(
             _cleanup_whisper_temp(video_path, work_dir, logger)
 
         # ── 4단계: SRT 청크 분할 ──
+        _raise_if_skip(state, vod, "chunking")
         result.stage = "chunking"
         state.update(vod.video_no, status="chunking", channel_id=vod.channel_id)
 
@@ -619,6 +647,7 @@ def process_vod(
             return result
 
         # ── 5단계: Claude 요약 ──
+        _raise_if_skip(state, vod, "summarizing")
         result.stage = "summarizing"
         state.update(vod.video_no, status="summarizing", channel_id=vod.channel_id)
 
@@ -685,6 +714,7 @@ def process_vod(
         logger.info(f"✓ 통합 요약 생성 완료")
 
         # ── 6단계: 리포트 저장 ──
+        _raise_if_skip(state, vod, "saving")
         result.stage = "saving"
         state.update(vod.video_no, status="saving", channel_id=vod.channel_id)
 
@@ -722,6 +752,19 @@ def process_vod(
         if cfg.get("auto_cleanup", True):
             _cleanup_work_dir_on_success(work_dir, logger)
 
+        return result
+
+    except SkipRequested as e:
+        # 사용자 요청 스킵 — 정상 종료 경로. error 로 마킹하지 않는다.
+        result.stage = "skipped_user"
+        result.error = str(e)
+        state.mark_skipped_user(
+            vod.video_no, channel_id=vod.channel_id, reason=e.reason
+        )
+        logger.info(f"VOD [{vod.video_no}] 사용자 스킵: {e.reason}")
+        # work_dir 정리 — 스킵된 VOD 의 다운로드/WAV/SRT 등 중간 산출물 제거
+        if cfg.get("auto_cleanup", True):
+            _cleanup_work_dir(work_dir, logger)
         return result
 
     except Exception as e:

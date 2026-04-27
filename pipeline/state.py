@@ -9,7 +9,21 @@ from pathlib import Path
 from typing import Optional
 
 KST = timezone(timedelta(hours=9))
-_TERMINAL_STATUSES = ("completed", "skipped_bootstrap")
+_TERMINAL_STATUSES = ("completed", "skipped_bootstrap", "skipped_user")
+
+
+class SkipRequested(Exception):
+    """협력적 cancel 신호. process_vod stage 경계에서 raise.
+
+    외부 핸들러가 이를 잡아 status="skipped_user" 로 마킹하고 work_dir 정리.
+    """
+
+    def __init__(self, video_no: str, channel_id: Optional[str] = None,
+                 reason: str = "user requested skip"):
+        self.video_no = video_no
+        self.channel_id = channel_id
+        self.reason = reason
+        super().__init__(f"[{video_no}] {reason}")
 
 # 파일 잠금 재시도 파라미터.
 # daemon 스레드 ↔ `--process` 서브프로세스 간 inter-process race 를 커버한다.
@@ -375,6 +389,76 @@ class PipelineState:
             entry = self._data["processed_vods"].get(key, {})
             entry["retry_count"] = entry.get("retry_count", 0) + 1
             entry["status"] = "pending_retry"
+            self._data["processed_vods"][key] = entry
+            self._save()
+
+    def request_skip(self, video_no: str, channel_id: Optional[str] = None) -> bool:
+        """진행 중 VOD 의 skip 을 협력적으로 요청.
+
+        엔트리에 `skip_requested=True` 플래그만 설정. 실제 skip 처리는
+        process_vod 의 stage 경계 체크가 SkipRequested 를 raise 하면서 진행.
+
+        Returns:
+            엔트리가 존재하고 플래그를 새로 설정했으면 True. 엔트리 부재 시 False.
+        """
+        with self._lock:
+            self._data = self._load()
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key)
+            if entry is None:
+                return False
+            entry["skip_requested"] = True
+            entry["updated_at"] = datetime.now(KST).isoformat()
+            self._data["processed_vods"][key] = entry
+            self._save()
+            return True
+
+    def is_skip_requested(self, video_no: str, channel_id: Optional[str] = None) -> bool:
+        """process_vod 가 stage 경계에서 호출. True 이면 SkipRequested raise.
+
+        디스크 재로드를 통해 외부(대시보드 등) 변경을 즉시 반영.
+        """
+        with self._lock:
+            self._data = self._load()
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key)
+            if entry is None:
+                return False
+            return bool(entry.get("skip_requested"))
+
+    def clear_skip(self, video_no: str, channel_id: Optional[str] = None) -> None:
+        """skip_requested 플래그 해제 (terminal 처리 완료 후 호출 권장)."""
+        with self._lock:
+            self._data = self._load()
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key)
+            if entry is None:
+                return
+            if "skip_requested" in entry:
+                entry.pop("skip_requested", None)
+                entry["updated_at"] = datetime.now(KST).isoformat()
+                self._data["processed_vods"][key] = entry
+                self._save()
+
+    def mark_skipped_user(self, video_no: str, channel_id: Optional[str] = None,
+                          reason: str = "user skip") -> None:
+        """status='skipped_user' (terminal) 로 전환 + skip_requested 해제.
+
+        SkipRequested 핸들러 또는 비-진행 VOD 의 즉시 스킵에서 사용.
+        """
+        with self._lock:
+            self._data = self._load()
+            key = self._resolve_key(video_no, channel_id)
+            entry = self._data["processed_vods"].get(key, {})
+            now = datetime.now(KST).isoformat()
+            entry["video_no"] = video_no
+            if channel_id:
+                entry["channel_id"] = channel_id
+            entry["status"] = "skipped_user"
+            entry["updated_at"] = now
+            entry["skip_reason"] = reason
+            entry.pop("skip_requested", None)
+            entry.pop("error", None)
             self._data["processed_vods"][key] = entry
             self._save()
 
