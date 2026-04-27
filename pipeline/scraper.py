@@ -397,60 +397,97 @@ def _score_post(p: dict) -> int:
     )
 
 
+# date-only timestamp 패턴 — fmkorea 의 'MM.DD' 또는 'YYYY-MM-DD' / 'YYYY.MM.DD' 단독.
+# 이런 글은 정확한 시각을 모르므로 hour bin 에 인공적으로 몰리는 아티팩트 회피.
+_DATE_ONLY_RE_SHORT = re.compile(r"^\d{1,2}[./]\d{1,2}$")
+_DATE_ONLY_RE_LONG = re.compile(r"^\d{4}[-./]\d{1,2}[-./]\d{1,2}$")
+
+
+def _bin_key(p: dict, broadcast_dt: Optional[datetime]) -> tuple:
+    """게시글의 시간 bin 분류.
+
+    반환 tuple 첫 요소가 bin 종류:
+      - "unknown": timestamp 파싱 실패
+      - "day":     date-only (HH:MM 없음). 한 날짜에 다수 글이 12:00 으로 떨어져
+                   hour bin 에 인공 집중되는 아티팩트 회피용. 날짜 단위로 cap.
+      - "hour":    HH:MM 까지 정확한 timestamp. broadcast_dt 기준 시간 offset bin.
+    """
+    pt = p.get("timestamp_parsed")
+    if pt is None:
+        return ("unknown",)
+    ts_raw = (p.get("timestamp") or "").strip()
+    if _DATE_ONLY_RE_SHORT.match(ts_raw) or _DATE_ONLY_RE_LONG.match(ts_raw):
+        return ("day", pt.date())
+    if broadcast_dt:
+        return ("hour", int((pt - broadcast_dt).total_seconds() // 3600))
+    # broadcast_dt 미제공: wall-clock (epoch hour) 으로 분산
+    return ("hour", int(pt.timestamp() // 3600))
+
+
 def _select_top_diverse(
     posts: list[dict],
     max_posts: int,
     broadcast_dt: Optional[datetime],
     per_hour_cap: int = 6,
+    per_day_cap: int = 24,
     unknown_cap_ratio: float = 0.25,
 ) -> list[dict]:
-    """점수 내림차순 + 시간 bin per-hour cap 으로 hot 시간대 쏠림 방지.
+    """점수 내림차순 + 다중 bin cap 으로 분산 선별.
 
     Args:
-        posts: 후보 게시글 dict 리스트 (timestamp_parsed datetime|None 포함)
-        max_posts: 최종 반환 개수 cap
-        broadcast_dt: 방송 시작 시각 (KST). None 이면 wall-clock 시각 기준 bin.
-        per_hour_cap: 한 시간대에서 채택할 최대 글 수
-        unknown_cap_ratio: timestamp 파싱 실패 글의 quota = max_posts * 이 비율
+        posts: 후보 게시글 dict 리스트
+        max_posts: 최종 반환 개수 목표
+        broadcast_dt: 방송 시작 시각 (KST). None 이면 wall-clock 시각 기준.
+        per_hour_cap: 한 시간(hour bin)에서 base 패스에 채택할 최대 글 수
+        per_day_cap: 한 날짜(date-only bin)에서 base 패스에 채택할 최대 글 수.
+            HH:MM 모르는 글이 12:00 으로 한 hour bin 에 몰리는 아티팩트를 분리하여
+            넓게 펼쳐 잡기 위한 cap. 시간단위 평균(2.5) × 약 10배.
+        unknown_cap_ratio: timestamp 파싱 실패 글의 base cap = max_posts × 이 비율
 
-    그리디 알고리즘:
-        1. 점수 내림차순 정렬
-        2. 위에서부터 순회하며 해당 시간 bin 이 cap 미만이면 채택, 아니면 skip
-        3. max_posts 도달 시 종료
+    다중 패스 알고리즘:
+        1) base cap 으로 시간 분산 우선 — 모든 bin 에 균등 기회
+        2) cap × 2 로 부족분 보충 — pass1 에서 cap 못 채운 hot bin 추가 흡수
+        3) cap 무한 (점수순) — max_posts 미달 시 잔여 후보로 마지막 fill
+
+    같은 url 은 한 번만 채택.
     """
     if not posts:
         return []
 
     scored = sorted(posts, key=_score_post, reverse=True)
 
-    bin_count: dict[int, int] = {}
-    unknown_cap = max(1, int(max_posts * unknown_cap_ratio))
-    unknown_count = 0
+    base_caps: dict[str, int] = {
+        "hour": per_hour_cap,
+        "day": per_day_cap,
+        "unknown": max(1, int(max_posts * unknown_cap_ratio)),
+    }
+    bin_count: dict = {}
+    selected_urls: set[str] = set()
     selected: list[dict] = []
 
-    for p in scored:
-        if len(selected) >= max_posts:
-            break
-        pt = p.get("timestamp_parsed")
-        if pt is None:
-            if unknown_count >= unknown_cap:
+    def _try_take(cap_factor: Optional[float]) -> None:
+        """cap_factor=None 이면 cap 무한 → 점수순으로만 채움."""
+        for p in scored:
+            if len(selected) >= max_posts:
+                return
+            if p["url"] in selected_urls:
                 continue
-            unknown_count += 1
+            key = _bin_key(p, broadcast_dt)
+            if cap_factor is None:
+                cap_limit: float = float("inf")
+            else:
+                cap_limit = base_caps[key[0]] * cap_factor
+            if bin_count.get(key, 0) >= cap_limit:
+                continue
+            bin_count[key] = bin_count.get(key, 0) + 1
             selected.append(p)
-            continue
+            selected_urls.add(p["url"])
 
-        if broadcast_dt:
-            hour_key = int((pt - broadcast_dt).total_seconds() // 3600)
-        else:
-            # broadcast_dt 미제공: wall-clock (date+hour) 으로 분산
-            hour_key = int(pt.timestamp() // 3600)
-
-        cur = bin_count.get(hour_key, 0)
-        if cur >= per_hour_cap:
-            continue
-        bin_count[hour_key] = cur + 1
-        selected.append(p)
-
+    _try_take(1.0)
+    if len(selected) < max_posts:
+        _try_take(2.0)
+    if len(selected) < max_posts:
+        _try_take(None)
     return selected
 
 
