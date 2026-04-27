@@ -192,7 +192,7 @@ def check_new_vods(
         if existing_status in (
             "processing", "completed", "collecting", "analyzing",
             "transcribing", "chunking", "summarizing", "saving",
-            "skipped_bootstrap",
+            "skipped_bootstrap", "skipped_user",
             "error", "pending_retry",
         ):
             continue
