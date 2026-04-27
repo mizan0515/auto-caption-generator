@@ -348,6 +348,77 @@ def _parse_search_results(html: str) -> list[dict]:
     return posts[:30]
 
 
+def _score_post(p: dict) -> int:
+    """게시글 화제도 점수 (높을수록 hot).
+
+    - comments 는 단순 조회보다 적극적인 반응이라 가중치 10
+    - likes 는 긍정적 동의 — 댓글보다 약하지만 조회보다 강해서 5
+    - views 는 baseline 1
+    """
+    return (
+        int(p.get("views") or 0)
+        + int(p.get("comments") or 0) * 10
+        + int(p.get("likes") or 0) * 5
+    )
+
+
+def _select_top_diverse(
+    posts: list[dict],
+    max_posts: int,
+    broadcast_dt: Optional[datetime],
+    per_hour_cap: int = 6,
+    unknown_cap_ratio: float = 0.25,
+) -> list[dict]:
+    """점수 내림차순 + 시간 bin per-hour cap 으로 hot 시간대 쏠림 방지.
+
+    Args:
+        posts: 후보 게시글 dict 리스트 (timestamp_parsed datetime|None 포함)
+        max_posts: 최종 반환 개수 cap
+        broadcast_dt: 방송 시작 시각 (KST). None 이면 wall-clock 시각 기준 bin.
+        per_hour_cap: 한 시간대에서 채택할 최대 글 수
+        unknown_cap_ratio: timestamp 파싱 실패 글의 quota = max_posts * 이 비율
+
+    그리디 알고리즘:
+        1. 점수 내림차순 정렬
+        2. 위에서부터 순회하며 해당 시간 bin 이 cap 미만이면 채택, 아니면 skip
+        3. max_posts 도달 시 종료
+    """
+    if not posts:
+        return []
+
+    scored = sorted(posts, key=_score_post, reverse=True)
+
+    bin_count: dict[int, int] = {}
+    unknown_cap = max(1, int(max_posts * unknown_cap_ratio))
+    unknown_count = 0
+    selected: list[dict] = []
+
+    for p in scored:
+        if len(selected) >= max_posts:
+            break
+        pt = p.get("timestamp_parsed")
+        if pt is None:
+            if unknown_count >= unknown_cap:
+                continue
+            unknown_count += 1
+            selected.append(p)
+            continue
+
+        if broadcast_dt:
+            hour_key = int((pt - broadcast_dt).total_seconds() // 3600)
+        else:
+            # broadcast_dt 미제공: wall-clock (date+hour) 으로 분산
+            hour_key = int(pt.timestamp() // 3600)
+
+        cur = bin_count.get(hour_key, 0)
+        if cur >= per_hour_cap:
+            continue
+        bin_count[hour_key] = cur + 1
+        selected.append(p)
+
+    return selected
+
+
 def _scrape_fmkorea_http(
     keywords: list[str],
     max_pages: int,
@@ -617,8 +688,16 @@ def scrape_fmkorea(
         logger.info(f"  시간 필터: {len(unique_posts)}개 → {len(filtered)}개 (±24시간)")
         unique_posts = filtered
 
-    result_posts = unique_posts[:max_posts]
-    logger.info(f"fmkorea 수집 완료: {len(result_posts)}개 게시글")
+    # B30: 단순 [:max_posts] 슬라이스 대신 점수 내림차순 + 시간 bin 분산 선별.
+    # hot 시간대(예: 방송 직후 1시간)에 모든 글이 몰려 다른 시간대 화제가
+    # 누락되던 문제 해결. score = views + comments*10 + likes*5.
+    result_posts = _select_top_diverse(
+        unique_posts, max_posts=max_posts, broadcast_dt=broadcast_dt
+    )
+    logger.info(
+        f"fmkorea 수집 완료: {len(result_posts)}개 게시글 "
+        f"(후보 {len(unique_posts)} → top {max_posts} 점수+시간분산 선별)"
+    )
 
     return [
         CommunityPost(
