@@ -308,7 +308,12 @@ def process_vod(
 
         # ── 1단계: 병렬 데이터 수집 ──
         result.stage = "collecting"
-        state.update(vod.video_no, status="collecting", channel_id=vod.channel_id)
+        # B36: 비고 표시용 메타 — 첫 update 에 title/publish_date 동봉.
+        # 이후 update 들은 entry.update(kwargs) 로 보존되므로 한 번만 기록.
+        state.update(
+            vod.video_no, status="collecting", channel_id=vod.channel_id,
+            title=vod.title, publish_date=vod.publish_date,
+        )
         logger.info(f"{'='*60}")
         logger.info(f"VOD 처리 시작: [{vod.video_no}] {vod.title}")
         logger.info(f"  길이: {format_duration(vod.duration)}, 카테고리: {vod.category}")

@@ -1035,16 +1035,34 @@ class Dashboard:
         self.header_label.config(text=summary)
 
         # Active tree 갱신
+        # B36: VOD 컬럼 = "<video_no> <title 30자>" / 비고 = "<MM-DD HH:MM> · <info>"
         self.status_tree.delete(*self.status_tree.get_children())
         for key, v in active:
             status = v.get("status", "?")
             label = _STATUS_LABELS.get(status, status)
             updated = _short_ts(v.get("updated_at", ""))
-            info = v.get("error") or v.get("video_no") or ""
+
+            # VOD 컬럼: video_no + 제목 (30자 잘림). 제목 미상이면 fallback.
+            video_no = v.get("video_no") or (
+                key.split(":", 1)[-1] if ":" in key else key
+            )
+            title = (v.get("title") or "").strip()
+            if title:
+                display_title = title if len(title) <= 30 else title[:30] + "…"
+                vod_display = f"{video_no} {display_title}"
+            else:
+                vod_display = video_no
+
+            # 비고 컬럼: publish_date + 기존 info (error / progress)
+            publish_short = _format_publish_date(v.get("publish_date", ""))
+            info_raw = v.get("error") or v.get("progress") or ""
+            info_parts = [p for p in (publish_short, info_raw) if p]
+            info = " · ".join(info_parts) if info_parts else (v.get("video_no") or "")
+
             row = self.status_tree.insert(
                 "",
                 "end",
-                values=(key, label, updated, info),
+                values=(vod_display, label, updated, info),
                 tags=(status,),
             )
             color = _STATUS_COLORS.get(status)
@@ -1787,6 +1805,41 @@ def _short_ts(iso: str) -> str:
         return dt.strftime("%m-%d %H:%M")
     except (TypeError, ValueError):
         return iso[:16]
+
+
+def _format_publish_date(value: str) -> str:
+    """B36: VOD publish_date 를 비고 컬럼용 짧은 포맷으로.
+
+    입력 가능 포맷:
+      - ISO: "2026-04-26T17:05:10+09:00"
+      - 공백 구분: "2026-04-26 17:05:10"
+      - 일부만 있음: "2026-04-26"
+      - 빈 문자열 / None → ""
+    출력: "04-26 17:05" 또는 "04-26" (시각 없을 때).
+    """
+    if not value:
+        return ""
+    s = str(value).strip().replace("T", " ").replace("Z", "+00:00")
+    try:
+        import datetime
+
+        has_time = ":" in s
+        # ISO 형식 우선 시도 (공백을 T로 복원)
+        try:
+            dt = datetime.datetime.fromisoformat(s.replace(" ", "T", 1))
+            return dt.strftime("%m-%d %H:%M") if has_time else dt.strftime("%m-%d")
+        except ValueError:
+            pass
+        # 날짜만 있는 케이스 (다른 구분자 fallback)
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                dt = datetime.datetime.strptime(s[:10], fmt)
+                return dt.strftime("%m-%d")
+            except ValueError:
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    return s[:16]
 
 
 def open_dashboard(cfg: Optional[dict] = None) -> None:
