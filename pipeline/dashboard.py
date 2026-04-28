@@ -359,7 +359,7 @@ class Dashboard:
         active_group = ttk.LabelFrame(frame, text="진행 중 / 최근 업데이트", padding=10)
         active_group.pack(fill="x", pady=(0, 10))
 
-        # 상단 툴바 — 오류 일괄 제거
+        # 상단 툴바 — 수동 처리 + 오류 일괄 제거
         toolbar = ttk.Frame(active_group)
         toolbar.pack(fill="x", pady=(0, 6))
         ttk.Label(
@@ -373,6 +373,12 @@ class Dashboard:
             command=self._clear_all_errors,
             width=20,
         ).pack(side="right")
+        ttk.Button(
+            toolbar,
+            text="+ 수동 VOD 처리",
+            command=self._open_manual_process_dialog,
+            width=18,
+        ).pack(side="right", padx=(0, 6))
 
         cols = ("key", "status", "updated", "info")
         self.status_tree = ttk.Treeview(
@@ -1114,6 +1120,177 @@ class Dashboard:
             self._open_report_for(key)
         elif status == "error":
             self._show_error_details(key, info)
+
+    def _open_manual_process_dialog(self) -> None:
+        """VOD 번호 + (옵션) 스트리머/키워드/limit 를 입력받아 수동 처리.
+
+        spawn 명령:
+            python -m pipeline.main --process <VOD>
+                [--streamer-name "..."] [--search-keyword K1 --search-keyword K2 ...]
+                [--limit-duration N]
+        """
+        if self.root is None:
+            return
+        from tkinter import messagebox
+
+        win = tk.Toplevel(self.root)
+        win.title("수동 VOD 처리")
+        win.transient(self.root)
+        win.resizable(False, False)
+        win.grab_set()
+
+        frm = ttk.Frame(win, padding=14)
+        frm.pack(fill="both", expand=True)
+
+        # VOD 번호 (필수)
+        ttk.Label(frm, text="VOD 번호 (필수)").grid(row=0, column=0, sticky="w", pady=4)
+        vod_var = tk.StringVar()
+        vod_entry = ttk.Entry(frm, textvariable=vod_var, width=24)
+        vod_entry.grid(row=0, column=1, sticky="we", padx=(8, 0), pady=4)
+
+        # 스트리머 이름 (선택)
+        ttk.Label(frm, text="스트리머 이름 (선택)").grid(row=1, column=0, sticky="w", pady=4)
+        streamer_var = tk.StringVar()
+        ttk.Entry(frm, textvariable=streamer_var, width=24).grid(
+            row=1, column=1, sticky="we", padx=(8, 0), pady=4
+        )
+
+        # 검색 키워드 (선택, 콤마 구분)
+        ttk.Label(
+            frm, text="fmkorea 검색 키워드\n(콤마 구분, 선택)"
+        ).grid(row=2, column=0, sticky="w", pady=4)
+        keyword_var = tk.StringVar()
+        ttk.Entry(frm, textvariable=keyword_var, width=24).grid(
+            row=2, column=1, sticky="we", padx=(8, 0), pady=4
+        )
+
+        # 테스트 모드 — limit-duration (초 단위, 선택)
+        ttk.Label(
+            frm, text="테스트 모드 — 앞 N초만\n(0 또는 빈값 = 전체)"
+        ).grid(row=3, column=0, sticky="w", pady=4)
+        limit_var = tk.StringVar(value="")
+        ttk.Entry(frm, textvariable=limit_var, width=24).grid(
+            row=3, column=1, sticky="we", padx=(8, 0), pady=4
+        )
+
+        # 안내 라벨
+        ttk.Label(
+            frm,
+            text=(
+                "기존 데몬과 별도 프로세스로 detached 실행됩니다.\n"
+                "RESUME 캐시 (다운로드/SRT/채팅) 가 있으면 자동 활용."
+            ),
+            foreground="#7a86a8",
+            justify="left",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 6))
+
+        # 버튼
+        btns = ttk.Frame(frm)
+        btns.grid(row=5, column=0, columnspan=2, sticky="we", pady=(8, 0))
+        btns.columnconfigure(0, weight=1)
+
+        def _submit():
+            video_no = vod_var.get().strip()
+            if not video_no.isdigit():
+                messagebox.showerror(
+                    "입력 오류", "VOD 번호는 숫자여야 합니다.", parent=win
+                )
+                return
+            streamer_name = streamer_var.get().strip() or None
+            keywords_raw = keyword_var.get().strip()
+            keywords = [
+                k.strip() for k in keywords_raw.split(",") if k.strip()
+            ] if keywords_raw else []
+            limit_raw = limit_var.get().strip()
+            limit_sec: int = 0
+            if limit_raw:
+                if not limit_raw.isdigit():
+                    messagebox.showerror(
+                        "입력 오류", "테스트 모드 N초는 정수여야 합니다.",
+                        parent=win,
+                    )
+                    return
+                limit_sec = int(limit_raw)
+            win.destroy()
+            self._action_manual_process(
+                video_no, streamer_name=streamer_name,
+                keywords=keywords, limit_duration_sec=limit_sec,
+            )
+
+        ttk.Button(btns, text="처리 시작", command=_submit, width=12).pack(
+            side="right", padx=(6, 0)
+        )
+        ttk.Button(btns, text="취소", command=win.destroy, width=10).pack(
+            side="right"
+        )
+
+        frm.columnconfigure(1, weight=1)
+        vod_entry.focus_set()
+        # Enter 키로 submit
+        win.bind("<Return>", lambda _e: _submit())
+        win.bind("<Escape>", lambda _e: win.destroy())
+
+    def _build_manual_process_cmd(
+        self,
+        video_no: str,
+        streamer_name: Optional[str] = None,
+        keywords: Optional[list] = None,
+        limit_duration_sec: int = 0,
+    ) -> list:
+        """spawn 할 argv 리스트를 빌드 (단위 테스트 가능하도록 분리).
+
+        형식: [python, -m, pipeline.main, --process, VOD, ...옵션]
+        """
+        import sys as _sys
+        cmd = [_sys.executable, "-m", "pipeline.main", "--process", video_no]
+        if streamer_name:
+            cmd += ["--streamer-name", streamer_name]
+        if keywords:
+            for k in keywords:
+                cmd += ["--search-keyword", k]
+        if limit_duration_sec and limit_duration_sec > 0:
+            cmd += ["--limit-duration", str(limit_duration_sec)]
+        return cmd
+
+    def _action_manual_process(
+        self,
+        video_no: str,
+        streamer_name: Optional[str] = None,
+        keywords: Optional[list] = None,
+        limit_duration_sec: int = 0,
+    ) -> None:
+        """수동 처리 spawn — _action_reprocess 와 동일 패턴 (detached, env 보존)."""
+        import subprocess
+        import sys as _sys
+
+        cmd = self._build_manual_process_cmd(
+            video_no, streamer_name=streamer_name,
+            keywords=keywords, limit_duration_sec=limit_duration_sec,
+        )
+        try:
+            creationflags = 0
+            if _sys.platform == "win32":
+                creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+            subprocess.Popen(
+                cmd,
+                cwd=str(self.project_root),
+                creationflags=creationflags,
+                close_fds=True,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+            label_parts = [f"수동 처리: {video_no}"]
+            if streamer_name:
+                label_parts.append(f"스트리머={streamer_name}")
+            if keywords:
+                label_parts.append(f"키워드={','.join(keywords)}")
+            if limit_duration_sec:
+                label_parts.append(f"앞 {limit_duration_sec}초만")
+            self._header_flash(" / ".join(label_parts))
+            threading.Thread(target=self._refresh_status_bg, daemon=True).start()
+        except Exception as e:  # noqa: BLE001
+            self._header_flash(f"수동 처리 실패: {e}")
 
     def _action_reprocess(self, key: str) -> None:
         """특정 VOD 를 python -m pipeline.main --process <video_no> 로 재처리."""
