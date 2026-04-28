@@ -695,11 +695,26 @@ def process_vod(
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"lexicon 요약용 로드 실패 (무시): {e}")
 
+            # B35: 사용자 추가 맥락 — work/<video_no>/<video_no>_context.md.
+            # process_chunks 진입 직전 1회 스냅샷 (chunk loop 도중 디스크 변경
+            # 영향 없게).
+            context_doc_text: str | None = None
+            try:
+                from pipeline.context_doc import load_context_doc
+                context_doc_text = load_context_doc(vod.video_no, work_dir)
+                if context_doc_text:
+                    logger.info(
+                        f"  사용자 맥락 문서 적용: {len(context_doc_text):,}자"
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"context_doc 로드 실패 (무시): {e}")
+
             chunk_results = process_chunks(
                 chunks, highlights, chats, vod, claude_timeout,
                 claude_model=claude_model,
                 progress_func=_make_heartbeat("summarizing"),
                 lexicon_terms=lex_terms,
+                context_doc=context_doc_text,
             )
             logger.info(f"✓ 청크별 분석 완료: {len(chunk_results)}개")
 

@@ -1113,6 +1113,11 @@ class Dashboard:
                 label="스킵 (영구 제외 + work dir 정리)",
                 command=lambda: self._action_skip(key, status),
             )
+        # B35: 맥락 문서 편집 — 모든 status 에 노출 (재요약 시 활용 가능)
+        menu.add_command(
+            label="맥락 문서 편집…",
+            command=lambda: self._open_context_doc_dialog(key, status),
+        )
         menu.add_separator()
         menu.add_command(
             label="상태에서 제거", command=lambda: self._remove_from_state(key)
@@ -1364,6 +1369,234 @@ class Dashboard:
         "processing", "collecting", "analyzing", "transcribing",
         "chunking", "summarizing", "saving",
     }
+
+    # B35: 맥락 문서 단계별 안내 (요약 적용 타이밍 명시)
+    _CONTEXT_PRE_SUMMARY_STATUSES = {
+        "queued", "downloading", "collecting", "analyzing",
+        "transcribing", "chunking",
+    }
+    _CONTEXT_DURING_SUMMARY_STATUSES = {"summarizing"}
+    _CONTEXT_POST_STATUSES = {"saving", "completed", "skipped_bootstrap", "skipped_user"}
+
+    @classmethod
+    def _context_apply_hint(cls, status: str) -> tuple[str, str]:
+        """status → (한 줄 안내, fg 색상). 다이얼로그 안내 라벨용."""
+        if status in cls._CONTEXT_PRE_SUMMARY_STATUSES:
+            return ("✓ 곧 요약 단계에서 자동 적용됩니다.", "#9ece6a")
+        if status in cls._CONTEXT_DURING_SUMMARY_STATUSES:
+            return (
+                "⚠ 이미 요약이 시작된 상태입니다. 현재 진행에는 영향 없고,\n"
+                "   재요약(우클릭→재처리) 시점부터 반영됩니다.",
+                "#e0af68",
+            )
+        if status in cls._CONTEXT_POST_STATUSES:
+            return (
+                "⚠ 요약이 완료되었거나 스킵된 상태입니다.\n"
+                "   재처리(우클릭→재처리) 해야 반영됩니다.",
+                "#e0af68",
+            )
+        # error / pending_retry — 재시도 시 반영
+        return (
+            "재처리 또는 자동 재시도 시 반영됩니다.",
+            "#7a86a8",
+        )
+
+    def _open_context_doc_dialog(self, key: str, status: str) -> None:
+        """맥락 문서 편집 다이얼로그.
+
+        - URL fetch 헬퍼 + paste textarea (단일 편집 영역)
+        - 실시간 글자/토큰 카운터 + cap 색상 경고
+        - status-aware 적용 타이밍 안내
+        - 저장 시 빈 내용이면 파일 삭제 (반-삭제 동작)
+        """
+        from tkinter import messagebox
+
+        if self.root is None:
+            return
+
+        from pipeline.context_doc import (
+            CAP_CHARS, ContextFetchError, fetch_context_from_url,
+            load_context_doc, save_context_doc,
+        )
+
+        if ":" in key:
+            channel_id, video_no = key.split(":", 1)
+        else:
+            channel_id, video_no = None, key
+        del channel_id  # 현재 미사용 (work_dir 은 video_no 기반)
+
+        cfg_work = (self.cfg or {}).get("work_dir", "./work")
+        work_dir = os.path.join(cfg_work, video_no)
+        os.makedirs(work_dir, exist_ok=True)
+
+        existing = load_context_doc(video_no, work_dir) or ""
+
+        win = tk.Toplevel(self.root)
+        win.title(f"맥락 문서 편집 — VOD {video_no}")
+        win.transient(self.root)
+        win.grab_set()
+        win.geometry("780x620")
+
+        frm = ttk.Frame(win, padding=12)
+        frm.pack(fill="both", expand=True)
+
+        # ── URL fetch 행 ──
+        url_row = ttk.Frame(frm)
+        url_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(url_row, text="URL").pack(side="left")
+        url_var = tk.StringVar()
+        url_entry = ttk.Entry(url_row, textvariable=url_var)
+        url_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
+        fetch_btn = ttk.Button(url_row, text="fetch")
+        fetch_btn.pack(side="left")
+
+        # ── textarea ──
+        text_frm = ttk.Frame(frm)
+        text_frm.pack(fill="both", expand=True)
+        text_widget = tk.Text(
+            text_frm, wrap="word", undo=True,
+            font=("Segoe UI", 10), height=22,
+        )
+        text_widget.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(text_frm, command=text_widget.yview)
+        scroll.pack(side="right", fill="y")
+        text_widget.configure(yscrollcommand=scroll.set)
+        if existing:
+            text_widget.insert("1.0", existing)
+
+        # ── 카운터 + 상태 안내 ──
+        counter_row = ttk.Frame(frm)
+        counter_row.pack(fill="x", pady=(8, 4))
+        counter_label = ttk.Label(counter_row, text="", foreground="#7a86a8")
+        counter_label.pack(side="left")
+
+        hint_msg, hint_color = self._context_apply_hint(status)
+        ttk.Label(
+            frm, text=hint_msg, foreground=hint_color, justify="left",
+        ).pack(fill="x", pady=(0, 8))
+
+        def _update_counter(*_args):
+            content = text_widget.get("1.0", "end-1c")
+            n = len(content)
+            tokens = int(n / 2.5)  # 한국어 평균 0.4 token/char
+            if n <= int(CAP_CHARS * 0.75):
+                color = "#9ece6a"
+            elif n <= CAP_CHARS:
+                color = "#e0af68"
+            else:
+                color = "#e85c5c"
+            counter_label.configure(
+                text=f"{n:,}자 / ~{tokens:,} 토큰 / cap {CAP_CHARS:,}자",
+                foreground=color,
+            )
+
+        text_widget.bind("<<Modified>>", lambda _e: (
+            text_widget.edit_modified(False), _update_counter()
+        ))
+        _update_counter()
+
+        # ── fetch 액션 (background thread) ──
+        fetch_busy = {"flag": False}
+
+        def _do_fetch():
+            if fetch_busy["flag"]:
+                return
+            url = url_var.get().strip()
+            if not url:
+                messagebox.showinfo("URL 필요", "URL 을 입력하세요.", parent=win)
+                return
+            # 동일 출처 라벨이 textarea 에 이미 있으면 confirm
+            if f"[출처: {url}]" in text_widget.get("1.0", "end-1c"):
+                if not messagebox.askyesno(
+                    "중복 fetch",
+                    "이미 같은 URL 이 본문에 추가되어 있습니다.\n다시 fetch 할까요?",
+                    parent=win,
+                ):
+                    return
+            fetch_busy["flag"] = True
+            fetch_btn.configure(text="fetch 중…", state="disabled")
+
+            def _worker():
+                try:
+                    body = fetch_context_from_url(url)
+                    self.root.after(0, lambda: _on_fetch_ok(body))
+                except ContextFetchError as e:
+                    self.root.after(0, lambda: _on_fetch_err(e))
+                except Exception as e:  # noqa: BLE001
+                    self.root.after(0, lambda: _on_fetch_err(
+                        ContextFetchError("error", f"예외: {e}", "")
+                    ))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _reset_fetch_btn():
+            fetch_busy["flag"] = False
+            fetch_btn.configure(text="fetch", state="normal")
+
+        def _on_fetch_ok(body: str):
+            text_widget.insert("1.0", body + "\n\n---\n\n")
+            _update_counter()
+            _reset_fetch_btn()
+            self._header_flash(f"context fetch 성공: {url_var.get()[:60]}")
+
+        def _on_fetch_err(e: ContextFetchError):
+            _reset_fetch_btn()
+            if e.severity == "warning" and e.debug:
+                # 짧은 본문 케이스 — 사용자 컨펌 후 추가
+                if messagebox.askyesno(
+                    "추출 결과 짧음", e.user_msg + "\n\n그대로 추가할까요?", parent=win
+                ):
+                    text_widget.insert("1.0", e.debug + "\n\n---\n\n")
+                    _update_counter()
+            else:
+                messagebox.showerror("fetch 실패", e.user_msg, parent=win)
+
+        fetch_btn.configure(command=_do_fetch)
+
+        # ── 버튼 행 ──
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(8, 0))
+
+        def _do_save():
+            content = text_widget.get("1.0", "end-1c").strip()
+            if len(content) > CAP_CHARS:
+                if not messagebox.askyesno(
+                    "cap 초과",
+                    f"본문이 {len(content):,}자로 cap ({CAP_CHARS:,}자) 을 초과합니다.\n"
+                    f"앞 {CAP_CHARS:,}자만 저장됩니다 (요약에 사용될 분량). 진행할까요?",
+                    parent=win,
+                ):
+                    return
+                content = content[:CAP_CHARS]
+            try:
+                save_context_doc(video_no, work_dir, content)
+            except Exception as e:  # noqa: BLE001
+                messagebox.showerror("저장 실패", str(e), parent=win)
+                return
+            win.destroy()
+            if content:
+                self._header_flash(
+                    f"맥락 문서 저장: {video_no} ({len(content):,}자)"
+                )
+            else:
+                self._header_flash(f"맥락 문서 삭제: {video_no} (빈 내용)")
+
+        def _do_reset():
+            if not messagebox.askyesno(
+                "초기화 확인", "textarea 내용을 모두 지웁니다. 계속할까요?", parent=win
+            ):
+                return
+            text_widget.delete("1.0", "end")
+            _update_counter()
+
+        ttk.Button(btns, text="저장", command=_do_save, width=10).pack(
+            side="right", padx=(6, 0)
+        )
+        ttk.Button(btns, text="초기화", command=_do_reset, width=10).pack(side="right")
+        ttk.Button(btns, text="취소", command=win.destroy, width=10).pack(side="right", padx=(0, 6))
+
+        win.bind("<Escape>", lambda _e: win.destroy())
+        url_entry.focus_set()
 
     def _action_skip(self, key: str, status: str) -> None:
         """VOD 스킵.
