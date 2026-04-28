@@ -995,6 +995,7 @@ def run_single(
     start_offset_sec: int = 0,
     search_keywords_override: list[str] | None = None,
     streamer_name_override: str | None = None,
+    max_pages_override: int | None = None,
 ):
     """특정 VOD 수동 처리"""
     log_dir = os.path.join(cfg["output_dir"], "logs")
@@ -1028,9 +1029,11 @@ def run_single(
                 streamer_cfg["fmkorea_search_keywords"] = s["search_keywords"]
             break
 
-    # CLI override (--search-keyword / --streamer-name) 는 streamers 리스트보다 우선
+    # CLI override (--search-keyword / --streamer-name / --max-pages) 는 streamers 리스트보다 우선
     if search_keywords_override:
         streamer_cfg["fmkorea_search_keywords"] = list(search_keywords_override)
+    if max_pages_override is not None and max_pages_override > 0:
+        streamer_cfg["fmkorea_max_pages"] = max_pages_override
     streamer_cfg["streamer_name"] = matched_name
     streamer_cfg["target_channel_id"] = channel_id
 
@@ -1098,6 +1101,13 @@ def main():
         default=None,
         help="스트리머 표시명 override (--process 용). 미지정 시 VOD 의 channelName 사용.",
     )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="fmkorea 검색 키워드당 페이지 수 override (--process 용). "
+             "기본은 pipeline_config.json 의 fmkorea_max_pages.",
+    )
     args = parser.parse_args()
 
     if args.setup_cookies:
@@ -1128,6 +1138,7 @@ def main():
             start_offset_sec=args.start_offset,
             search_keywords_override=args.search_keyword,
             streamer_name_override=args.streamer_name,
+            max_pages_override=args.max_pages,
         )
     elif args.once:
         run_once(cfg)
