@@ -86,6 +86,18 @@ def test_limit_duration_skipped_when_zero():
     print("[5] limit-duration = 0 → 인자 미추가 OK")
 
 
+def test_max_pages_added_when_positive():
+    cmd = _builder()("12940641", max_pages=15)
+    assert _flag_value(cmd, "--max-pages") == "15"
+    print("[5a] max-pages > 0 → --max-pages 인자 추가 OK")
+
+
+def test_max_pages_skipped_when_zero():
+    cmd = _builder()("12940641", max_pages=0)
+    assert "--max-pages" not in cmd
+    print("[5b] max-pages = 0 (=설정 기본값 사용) → --max-pages 미추가 OK")
+
+
 def test_empty_keywords_list_skipped():
     cmd = _builder()("12940641", streamer_name="X", keywords=[])
     assert "--search-keyword" not in cmd
@@ -119,13 +131,15 @@ def test_full_combination():
         "12345678",
         streamer_name="가",
         keywords=["k1", "k2"],
+        max_pages=10,
         limit_duration_sec=600,
     )
     assert _flag_value(cmd, "--process") == "12345678"
     assert _flag_value(cmd, "--streamer-name") == "가"
     assert _flag_values(cmd, "--search-keyword") == ["k1", "k2"]
+    assert _flag_value(cmd, "--max-pages") == "10"
     assert _flag_value(cmd, "--limit-duration") == "600"
-    print("[9] 전체 옵션 조합 OK")
+    print("[9] 전체 옵션 조합 (5개) OK")
 
 
 def main():
@@ -134,11 +148,13 @@ def main():
     test_multi_keywords_repeated_flag()
     test_limit_duration_added_when_positive()
     test_limit_duration_skipped_when_zero()
+    test_max_pages_added_when_positive()
+    test_max_pages_skipped_when_zero()
     test_empty_keywords_list_skipped()
     test_none_options_omitted()
     test_cmd_starts_with_python_module()
     test_full_combination()
-    print("\nb34_manual_process_dialog: 9/9 OK")
+    print("\nb34_manual_process_dialog: 11/11 OK")
 
 
 if __name__ == "__main__":

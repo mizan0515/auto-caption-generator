@@ -366,6 +366,7 @@ pythonw -m pipeline.dashboard
 | VOD 번호 (필수) | 예: `12940641` |
 | 스트리머 이름 (선택) | 예: `플레임`. 미지정 시 VOD channelName 사용 |
 | 검색 키워드 (선택, 콤마 구분) | 예: `호종컵, 탬탬`. fmkorea 검색 키워드 override |
+| fmkorea 페이지 수 (선택) | 예: `10`. 키워드당 페이지 수 override. 빈값 = 설정 기본값 |
 | 테스트 모드 (선택, 초) | 예: `1800` = 앞 30분만 처리. 0/빈값 = 전체 |
 
 내부적으로:
@@ -374,6 +375,7 @@ pythonw -m pipeline.dashboard
 python -m pipeline.main --process 12940641 \
     --streamer-name "플레임" \
     --search-keyword "호종컵" --search-keyword "탬탬" \
+    --max-pages 10 \
     --limit-duration 1800
 ```
 

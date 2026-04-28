@@ -1164,13 +1164,22 @@ class Dashboard:
             row=2, column=1, sticky="we", padx=(8, 0), pady=4
         )
 
+        # fmkorea max-pages override (선택)
+        ttk.Label(
+            frm, text="fmkorea 페이지 수\n(키워드당, 빈값 = 설정 기본값)"
+        ).grid(row=3, column=0, sticky="w", pady=4)
+        max_pages_var = tk.StringVar(value="")
+        ttk.Entry(frm, textvariable=max_pages_var, width=24).grid(
+            row=3, column=1, sticky="we", padx=(8, 0), pady=4
+        )
+
         # 테스트 모드 — limit-duration (초 단위, 선택)
         ttk.Label(
             frm, text="테스트 모드 — 앞 N초만\n(0 또는 빈값 = 전체)"
-        ).grid(row=3, column=0, sticky="w", pady=4)
+        ).grid(row=4, column=0, sticky="w", pady=4)
         limit_var = tk.StringVar(value="")
         ttk.Entry(frm, textvariable=limit_var, width=24).grid(
-            row=3, column=1, sticky="we", padx=(8, 0), pady=4
+            row=4, column=1, sticky="we", padx=(8, 0), pady=4
         )
 
         # 안내 라벨
@@ -1182,11 +1191,11 @@ class Dashboard:
             ),
             foreground="#7a86a8",
             justify="left",
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 6))
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 6))
 
         # 버튼
         btns = ttk.Frame(frm)
-        btns.grid(row=5, column=0, columnspan=2, sticky="we", pady=(8, 0))
+        btns.grid(row=6, column=0, columnspan=2, sticky="we", pady=(8, 0))
         btns.columnconfigure(0, weight=1)
 
         def _submit():
@@ -1201,6 +1210,16 @@ class Dashboard:
             keywords = [
                 k.strip() for k in keywords_raw.split(",") if k.strip()
             ] if keywords_raw else []
+            max_pages_raw = max_pages_var.get().strip()
+            max_pages: int = 0
+            if max_pages_raw:
+                if not max_pages_raw.isdigit() or int(max_pages_raw) <= 0:
+                    messagebox.showerror(
+                        "입력 오류", "fmkorea 페이지 수는 1 이상의 정수여야 합니다.",
+                        parent=win,
+                    )
+                    return
+                max_pages = int(max_pages_raw)
             limit_raw = limit_var.get().strip()
             limit_sec: int = 0
             if limit_raw:
@@ -1214,7 +1233,8 @@ class Dashboard:
             win.destroy()
             self._action_manual_process(
                 video_no, streamer_name=streamer_name,
-                keywords=keywords, limit_duration_sec=limit_sec,
+                keywords=keywords, max_pages=max_pages,
+                limit_duration_sec=limit_sec,
             )
 
         ttk.Button(btns, text="처리 시작", command=_submit, width=12).pack(
@@ -1235,6 +1255,7 @@ class Dashboard:
         video_no: str,
         streamer_name: Optional[str] = None,
         keywords: Optional[list] = None,
+        max_pages: int = 0,
         limit_duration_sec: int = 0,
     ) -> list:
         """spawn 할 argv 리스트를 빌드 (단위 테스트 가능하도록 분리).
@@ -1248,6 +1269,8 @@ class Dashboard:
         if keywords:
             for k in keywords:
                 cmd += ["--search-keyword", k]
+        if max_pages and max_pages > 0:
+            cmd += ["--max-pages", str(max_pages)]
         if limit_duration_sec and limit_duration_sec > 0:
             cmd += ["--limit-duration", str(limit_duration_sec)]
         return cmd
@@ -1257,6 +1280,7 @@ class Dashboard:
         video_no: str,
         streamer_name: Optional[str] = None,
         keywords: Optional[list] = None,
+        max_pages: int = 0,
         limit_duration_sec: int = 0,
     ) -> None:
         """수동 처리 spawn — _action_reprocess 와 동일 패턴 (detached, env 보존)."""
@@ -1265,7 +1289,8 @@ class Dashboard:
 
         cmd = self._build_manual_process_cmd(
             video_no, streamer_name=streamer_name,
-            keywords=keywords, limit_duration_sec=limit_duration_sec,
+            keywords=keywords, max_pages=max_pages,
+            limit_duration_sec=limit_duration_sec,
         )
         try:
             creationflags = 0
@@ -1285,6 +1310,8 @@ class Dashboard:
                 label_parts.append(f"스트리머={streamer_name}")
             if keywords:
                 label_parts.append(f"키워드={','.join(keywords)}")
+            if max_pages:
+                label_parts.append(f"페이지={max_pages}")
             if limit_duration_sec:
                 label_parts.append(f"앞 {limit_duration_sec}초만")
             self._header_flash(" / ".join(label_parts))
