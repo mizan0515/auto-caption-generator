@@ -352,6 +352,31 @@ pythonw -m pipeline.dashboard
 
 **진행 중 VOD 트리뷰 더블클릭** — completed 면 리포트, error 면 상세 다이얼로그.
 
+**툴바 버튼**:
+
+| 버튼 | 설명 |
+|---|---|
+| **+ 수동 VOD 처리** (B34) | 다이얼로그로 VOD 번호 + (옵션) 스트리머 / 검색 키워드 / 테스트 limit 입력 → `python -m pipeline.main --process ...` detached spawn |
+| **오류 기록 일괄 제거** | status=`error`/`pending_retry` 엔트리 일괄 삭제 |
+
+수동 VOD 처리 다이얼로그 예 — 사용자가 즉석에서 cfg override 가능:
+
+| 입력 | 의미 |
+|---|---|
+| VOD 번호 (필수) | 예: `12940641` |
+| 스트리머 이름 (선택) | 예: `플레임`. 미지정 시 VOD channelName 사용 |
+| 검색 키워드 (선택, 콤마 구분) | 예: `호종컵, 탬탬`. fmkorea 검색 키워드 override |
+| 테스트 모드 (선택, 초) | 예: `1800` = 앞 30분만 처리. 0/빈값 = 전체 |
+
+내부적으로:
+
+```bash
+python -m pipeline.main --process 12940641 \
+    --streamer-name "플레임" \
+    --search-keyword "호종컵" --search-keyword "탬탬" \
+    --limit-duration 1800
+```
+
 ### CLI 모드 (헤드리스 / 디버그)
 
 ```bash
